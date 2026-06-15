@@ -656,8 +656,6 @@ def get_native_processes() -> list:
                         .strip()
                     )
 
-                cmdline = get_process_cmdline(pid)
-
                 # Unpack metrics using verified macOS Sequoia/Sonoma offsets:
                 # offset 136: vms (uint64)
                 # offset 144: rss (uint64)
@@ -673,7 +671,6 @@ def get_native_processes() -> list:
                     {
                         "pid": pid,
                         "name": name,
-                        "cmdline": cmdline,
                         "rss_bytes": rss_bytes,
                         "num_threads": threads_count,
                         "cpu_time_ns": user_ns + sys_ns,

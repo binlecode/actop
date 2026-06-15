@@ -7,6 +7,7 @@ from .native_sys import (
     get_native_ram,
     get_native_swap,
     get_native_processes,
+    get_process_cmdline,
 )
 from .soc_profiles import get_soc_profile
 
@@ -134,9 +135,14 @@ def get_top_processes(limit=3, proc_filter=None):
     for proc in native_procs:
         pid = proc["pid"]
         current_pids.add(pid)
-        command = proc["cmdline"] if proc["cmdline"] else proc["name"]
-        if pattern and not pattern.search(command):
-            continue
+        command = proc["name"]
+        if pattern:
+            if not pattern.search(command):
+                cmdline = get_process_cmdline(pid)
+                if cmdline and pattern.search(cmdline):
+                    command = cmdline
+                else:
+                    continue
 
         cpu_time_ns = proc["cpu_time_ns"]
         cpu_percent = 0.0
@@ -184,4 +190,28 @@ def get_top_processes(limit=3, proc_filter=None):
         reverse=True,
     )[:limit]
 
+    # Resolve full cmdlines for the top candidate processes on-demand
+    for item in top_cpu:
+        if not pattern or item["command"] == proc_name_by_pid(
+            native_procs, item["pid"]
+        ):
+            cmdline = get_process_cmdline(item["pid"])
+            if cmdline:
+                item["command"] = cmdline
+
+    for item in top_memory:
+        if not pattern or item["command"] == proc_name_by_pid(
+            native_procs, item["pid"]
+        ):
+            cmdline = get_process_cmdline(item["pid"])
+            if cmdline:
+                item["command"] = cmdline
+
     return {"cpu": top_cpu, "memory": top_memory}
+
+
+def proc_name_by_pid(native_procs, pid):
+    for p in native_procs:
+        if p["pid"] == pid:
+            return p["name"]
+    return ""
