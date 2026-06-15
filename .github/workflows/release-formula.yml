@@ -114,7 +114,7 @@ jobs:
             git add Formula/agtop.rb
             git commit -m "Formula/agtop: sync ${TAG_NAME} [skip ci]"
 
-            if git push origin HEAD:main; then
+            if git push origin HEAD:refs/heads/main; then
               echo "Formula sync pushed successfully."
               exit 0
             fi
