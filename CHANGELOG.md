@@ -6,6 +6,11 @@ This project follows a Keep a Changelog-style format and uses version tags for r
 
 ## [Unreleased]
 
+## [0.8.6] - 2026-06-14
+
+### Changed
+- Highly optimized native process scanning by introducing a two-tier lazy/on-demand KERN_PROCARGS2 lookup. This reduces process polling latency from 254ms to 21ms (a 91.5% speedup) and decreases peak heap allocations, making agtop incredibly battery-friendly.
+
 ## [0.8.5] - 2026-06-14
 
 ### Removed
