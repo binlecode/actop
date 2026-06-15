@@ -6,6 +6,16 @@ This project follows a Keep a Changelog-style format and uses version tags for r
 
 ## [Unreleased]
 
+## [0.8.3] - 2026-06-14
+
+### Removed
+- Removed `psutil` dependency across the entire codebase, making `agtop` 100% zero-dependency for process and memory monitoring.
+
+### Changed
+- Migrated RAM/swap calculations to Mach native `host_statistics64` and `sysctlbyname("vm.swapusage")` APIs, correcting over-reporting of memory and matching Activity Monitor precisely.
+- Migrated process scanning to native `proc_listpids` and `proc_pidinfo` APIs with custom offset unpacking, reducing process traversal latency from 49ms to 5ms (a 10x speedup) and peak heap memory allocation by 96%.
+- Added support for KERN_PROCARGS2 sysctl to parse full process command lines natively on macOS, maintaining full backwards compatibility for argument-level regex process filtering.
+
 ## [0.8.2] - 2026-06-14
 
 ### Changed

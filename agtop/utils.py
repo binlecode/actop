@@ -1,6 +1,13 @@
 import re
-import psutil
-from .native_sys import get_gpu_cores_native, get_sysctl_int, get_sysctl_string
+import time
+from .native_sys import (
+    get_gpu_cores_native,
+    get_sysctl_int,
+    get_sysctl_string,
+    get_native_ram,
+    get_native_swap,
+    get_native_processes,
+)
 from .soc_profiles import get_soc_profile
 
 
@@ -9,7 +16,7 @@ def convert_to_GB(value):
 
 
 def get_ram_metrics_dict():
-    vm = psutil.virtual_memory()
+    vm = get_native_ram()
     total_bytes = vm.total
     used_bytes = vm.total - vm.available
     free_bytes = vm.available
@@ -17,7 +24,7 @@ def get_ram_metrics_dict():
         min(100, int(used_bytes / total_bytes * 100)) if total_bytes > 0 else 0
     )
 
-    swap = psutil.swap_memory()
+    swap = get_native_swap()
     if swap.total > 0:
         swap_used_percent = int(swap.used / swap.total * 100)
     else:
@@ -106,6 +113,9 @@ def _normalize_process_command(cmdline, fallback_name):
     return fallback if fallback else "?"
 
 
+_PROCESS_CPU_CACHE = {}
+
+
 def get_top_processes(limit=3, proc_filter=None):
     pattern = None
     if proc_filter:
@@ -114,48 +124,64 @@ def get_top_processes(limit=3, proc_filter=None):
         else:
             pattern = re.compile(str(proc_filter), re.IGNORECASE)
 
+    current_time = time.time()
+    total_ram = get_sysctl_int("hw.memsize") or (16 * 1024 * 1024 * 1024)
+
+    native_procs = get_native_processes()
     entries = []
-    for proc in psutil.process_iter(
-        attrs=["pid", "name", "cmdline", "memory_info", "memory_percent", "num_threads"]
-    ):
-        try:
-            info = proc.info
-            command = _normalize_process_command(info.get("cmdline"), info.get("name"))
-            if pattern and not pattern.search(command):
-                continue
-            cpu_percent = proc.cpu_percent(interval=None) or 0.0
-            cpu_percent = max(0.0, float(cpu_percent))
-            memory_info = info.get("memory_info")
-            rss_bytes = getattr(memory_info, "rss", 0) if memory_info else 0
-            rss_mb = max(0.0, float(rss_bytes) / 1024 / 1024)
-            memory_percent = max(0.0, float(info.get("memory_percent") or 0.0))
-            entries.append(
-                {
-                    "pid": int(info.get("pid") or 0),
-                    "command": command,
-                    "cpu_percent": round(cpu_percent, 1),
-                    "rss_mb": round(rss_mb, 1),
-                    "memory_percent": round(memory_percent, 1),
-                    "num_threads": int(info.get("num_threads") or 0),
-                }
-            )
-        except (
-            psutil.NoSuchProcess,
-            psutil.AccessDenied,
-            psutil.ZombieProcess,
-            ValueError,
-            TypeError,
-        ):
+
+    current_pids = set()
+    for proc in native_procs:
+        pid = proc["pid"]
+        current_pids.add(pid)
+        command = proc["cmdline"] if proc["cmdline"] else proc["name"]
+        if pattern and not pattern.search(command):
             continue
+
+        cpu_time_ns = proc["cpu_time_ns"]
+        cpu_percent = 0.0
+
+        if pid in _PROCESS_CPU_CACHE:
+            prev_cpu, prev_time = _PROCESS_CPU_CACHE[pid]
+            time_delta = current_time - prev_time
+            if time_delta > 0:
+                cpu_delta_ns = cpu_time_ns - prev_cpu
+                cpu_percent = max(
+                    0.0, (cpu_delta_ns / 1_000_000_000) / time_delta * 100
+                )
+
+        _PROCESS_CPU_CACHE[pid] = (cpu_time_ns, current_time)
+
+        rss_bytes = proc["rss_bytes"]
+        rss_mb = rss_bytes / 1024 / 1024
+        memory_percent = (rss_bytes / total_ram * 100) if total_ram > 0 else 0.0
+
+        entries.append(
+            {
+                "pid": pid,
+                "command": command,
+                "cpu_percent": round(cpu_percent, 1),
+                "rss_mb": round(rss_mb, 1),
+                "memory_percent": round(memory_percent, 1),
+                "num_threads": proc["num_threads"],
+            }
+        )
+
+    # Clean up dead PIDs from cache
+    for dead_pid in list(_PROCESS_CPU_CACHE.keys()):
+        if dead_pid not in current_pids:
+            _PROCESS_CPU_CACHE.pop(dead_pid, None)
 
     top_cpu = sorted(
         entries,
         key=lambda item: (item["cpu_percent"], item["rss_mb"]),
         reverse=True,
     )[:limit]
+
     top_memory = sorted(
         entries,
         key=lambda item: (item["rss_mb"], item["memory_percent"]),
         reverse=True,
     )[:limit]
+
     return {"cpu": top_cpu, "memory": top_memory}

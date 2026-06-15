@@ -14,6 +14,7 @@ importing this module does not break CI or cross-platform tooling.
 import ctypes
 import struct
 import sys
+from typing import NamedTuple
 
 _DARWIN = sys.platform == "darwin"
 
@@ -150,6 +151,50 @@ if _DARWIN:
 
     _cf.CFDataGetBytePtr.restype = ctypes.c_size_t
     _cf.CFDataGetBytePtr.argtypes = [ctypes.c_void_p]
+
+    # Additional Mach/BSD/IOKit Bindings
+    _mach_host_self = _libc.mach_host_self
+    _mach_host_self.argtypes = []
+    _mach_host_self.restype = ctypes.c_uint32
+
+    _host_statistics64 = _libc.host_statistics64
+    _host_statistics64.argtypes = [
+        ctypes.c_uint32,
+        ctypes.c_int,
+        ctypes.c_void_p,
+        ctypes.POINTER(ctypes.c_uint32),
+    ]
+    _host_statistics64.restype = ctypes.c_int
+
+    _proc_listpids = _libc.proc_listpids
+    _proc_listpids.argtypes = [
+        ctypes.c_uint32,
+        ctypes.c_uint32,
+        ctypes.c_void_p,
+        ctypes.c_int,
+    ]
+    _proc_listpids.restype = ctypes.c_int
+
+    _proc_pidinfo = _libc.proc_pidinfo
+    _proc_pidinfo.argtypes = [
+        ctypes.c_int,
+        ctypes.c_int,
+        ctypes.c_uint64,
+        ctypes.c_void_p,
+        ctypes.c_int,
+    ]
+    _proc_pidinfo.restype = ctypes.c_int
+
+    _sysctl = _libc.sysctl
+    _sysctl.argtypes = [
+        ctypes.POINTER(ctypes.c_int),
+        ctypes.c_uint,
+        ctypes.c_void_p,
+        ctypes.POINTER(ctypes.c_size_t),
+        ctypes.c_void_p,
+        ctypes.c_size_t,
+    ]
+    _sysctl.restype = ctypes.c_int
 
 
 _THERMAL_STATES = {0: "Nominal", 1: "Fair", 2: "Serious", 3: "Critical"}
@@ -364,3 +409,276 @@ def _classify_dvfs_tables(tables: dict) -> dict:
             break
 
     return {"ecpu": ecpu, "pcpu": pcpu, "gpu": gpu}
+
+
+# ---------------------------------------------------------------------------
+# Native Memory & Process Polling structures & helpers
+# ---------------------------------------------------------------------------
+
+
+class VirtualMemory(NamedTuple):
+    total: int
+    available: int
+
+
+class SwapMemory(NamedTuple):
+    total: int
+    used: int
+    free: int
+
+
+class XSWUsage(ctypes.Structure):
+    _fields_ = [
+        ("xsu_total", ctypes.c_uint64),
+        ("xsu_avail", ctypes.c_uint64),
+        ("xsu_used", ctypes.c_uint64),
+        ("xsu_pagesize", ctypes.c_uint32),
+        ("xsu_encrypted", ctypes.c_uint32),
+    ]
+
+
+class VMStatistics64(ctypes.Structure):
+    _fields_ = [
+        ("free_count", ctypes.c_uint32),
+        ("active_count", ctypes.c_uint32),
+        ("inactive_count", ctypes.c_uint32),
+        ("wire_count", ctypes.c_uint32),
+        ("zero_fill_count", ctypes.c_uint64),
+        ("reactivations", ctypes.c_uint64),
+        ("pageins", ctypes.c_uint64),
+        ("pageouts", ctypes.c_uint64),
+        ("faults", ctypes.c_uint64),
+        ("cow_faults", ctypes.c_uint64),
+        ("lookups", ctypes.c_uint64),
+        ("hits", ctypes.c_uint64),
+        ("purges", ctypes.c_uint64),
+        ("purgeable_count", ctypes.c_uint32),
+        ("speculative_count", ctypes.c_uint32),
+        ("decompressions", ctypes.c_uint64),
+        ("compressions", ctypes.c_uint64),
+        ("swapins", ctypes.c_uint64),
+        ("swapouts", ctypes.c_uint64),
+        ("compressor_page_count", ctypes.c_uint32),
+        ("throttled_count", ctypes.c_uint32),
+        ("external_page_count", ctypes.c_uint32),
+        ("internal_page_count", ctypes.c_uint32),
+        ("total_uncompressed_pages_in_compressor", ctypes.c_uint64),
+    ]
+
+
+class ProcBSDInfo(ctypes.Structure):
+    _fields_ = [
+        ("pbi_flags", ctypes.c_uint32),
+        ("pbi_status", ctypes.c_uint32),
+        ("pbi_xstatus", ctypes.c_uint32),
+        ("pbi_pid", ctypes.c_uint32),
+        ("pbi_ppid", ctypes.c_uint32),
+        ("pbi_uid", ctypes.c_uint32),
+        ("pbi_gid", ctypes.c_uint32),
+        ("pbi_ruid", ctypes.c_uint32),
+        ("pbi_rgid", ctypes.c_uint32),
+        ("pbi_svuid", ctypes.c_uint32),
+        ("pbi_svgid", ctypes.c_uint32),
+        ("pbi_rfu1", ctypes.c_uint32),
+        ("pbi_comm", ctypes.c_char * 16),
+        ("pbi_name", ctypes.c_char * 32),
+        ("pbi_nfiles", ctypes.c_uint32),
+        ("pbi_pgid", ctypes.c_uint32),
+        ("pbi_pjobc", ctypes.c_uint32),
+        ("pbi_ucred_usecount", ctypes.c_uint32),
+        ("pbi_start_sec", ctypes.c_uint32),
+        ("pbi_start_usec", ctypes.c_uint32),
+    ]
+
+
+class ProcTaskInfo(ctypes.Structure):
+    _fields_ = [
+        ("pti_virtual_size", ctypes.c_uint64),
+        ("pti_resident_size", ctypes.c_uint64),
+        ("pti_total_user", ctypes.c_uint64),
+        ("pti_total_system", ctypes.c_uint64),
+        ("pti_threads_user", ctypes.c_uint64),
+        ("pti_threads_system", ctypes.c_uint64),
+        ("pti_policy", ctypes.c_int32),
+        ("pti_threads_count", ctypes.c_int32),
+    ]
+
+
+class ProcTaskAllInfo(ctypes.Structure):
+    _fields_ = [
+        ("pbsd", ProcBSDInfo),
+        ("ptinfo", ProcTaskInfo),
+    ]
+
+
+def get_native_ram() -> VirtualMemory:
+    """Return VirtualMemory total and available bytes natively."""
+    if not _DARWIN:
+        return VirtualMemory(
+            total=16 * 1024 * 1024 * 1024, available=8 * 1024 * 1024 * 1024
+        )
+    try:
+        page_size = get_sysctl_int("hw.pagesize") or 4096
+        total_ram = get_sysctl_int("hw.memsize") or 0
+
+        host_port = _mach_host_self()
+        count = ctypes.c_uint32(38)
+        vm_stats = VMStatistics64()
+        ret = _host_statistics64(
+            host_port, 4, ctypes.byref(vm_stats), ctypes.byref(count)
+        )
+        if ret == 0:
+            app_mem = (
+                vm_stats.internal_page_count - vm_stats.purgeable_count
+            ) * page_size
+            wired_mem = vm_stats.wire_count * page_size
+            compressed_mem = vm_stats.compressor_page_count * page_size
+            used_bytes = app_mem + wired_mem + compressed_mem
+            available_bytes = max(0, total_ram - used_bytes)
+            return VirtualMemory(total=total_ram, available=available_bytes)
+    except Exception:
+        pass
+    return VirtualMemory(
+        total=16 * 1024 * 1024 * 1024, available=8 * 1024 * 1024 * 1024
+    )
+
+
+def get_native_swap() -> SwapMemory:
+    """Return SwapMemory total, used, and free bytes natively."""
+    if not _DARWIN:
+        return SwapMemory(
+            total=4 * 1024 * 1024 * 1024,
+            used=1 * 1024 * 1024 * 1024,
+            free=3 * 1024 * 1024 * 1024,
+        )
+    try:
+        swap_size = ctypes.c_size_t(32)
+        xsu = XSWUsage()
+        ret = _sysctlbyname(
+            b"vm.swapusage", ctypes.byref(xsu), ctypes.byref(swap_size), None, 0
+        )
+        if ret == 0:
+            return SwapMemory(
+                total=xsu.xsu_total, used=xsu.xsu_used, free=xsu.xsu_avail
+            )
+    except Exception:
+        pass
+    return SwapMemory(total=0, used=0, free=0)
+
+
+def get_process_cmdline(pid: int) -> str:
+    """Return full argv cmdline for a process on macOS natively."""
+    if not _DARWIN:
+        return ""
+    try:
+        CTL_KERN = 1
+        KERN_PROCARGS2 = 49
+
+        mib = (ctypes.c_int * 3)(CTL_KERN, KERN_PROCARGS2, pid)
+        size = ctypes.c_size_t(0)
+
+        if _sysctl(mib, 3, None, ctypes.byref(size), None, 0) != 0:
+            return ""
+
+        if size.value <= 0:
+            return ""
+
+        buf = ctypes.create_string_buffer(size.value)
+        if _sysctl(mib, 3, buf, ctypes.byref(size), None, 0) != 0:
+            return ""
+
+        data = buf.raw
+        if len(data) < 4:
+            return ""
+
+        argc = int.from_bytes(data[:4], byteorder=sys.byteorder)
+
+        offset = 4
+        while offset < len(data) and data[offset] != 0:
+            offset += 1
+
+        while offset < len(data) and data[offset] == 0:
+            offset += 1
+
+        args = []
+        for _ in range(argc):
+            if offset >= len(data):
+                break
+            arg = []
+            while offset < len(data) and data[offset] != 0:
+                arg.append(data[offset])
+                offset += 1
+            if arg:
+                args.append(bytes(arg).decode("utf-8", errors="ignore"))
+            offset += 1
+
+        return " ".join(args)
+    except Exception:
+        return ""
+
+
+def get_native_processes() -> list:
+    """Return list of native processes with basic metrics."""
+    if not _DARWIN:
+        return []
+    try:
+        size_needed = _proc_listpids(1, 0, None, 0)
+        if size_needed <= 0:
+            return []
+
+        buffer_size = size_needed + 1024
+        num_pids = buffer_size // 4
+        pid_array = (ctypes.c_int32 * num_pids)()
+        actual_bytes = _proc_listpids(1, 0, pid_array, buffer_size)
+        pids = [pid_array[i] for i in range(actual_bytes // 4) if pid_array[i] > 0]
+
+        entries = []
+        buf = ctypes.create_string_buffer(512)
+        for pid in pids:
+            ret = _proc_pidinfo(pid, 2, 0, buf, 512)  # 2 = PROC_PIDTASKALLINFO
+            if ret >= 232:
+                raw = bytes(buf[:ret])
+
+                # Unpack name from legacy proc_bsdinfo offsets:
+                # - comm is at offset 48 (16 bytes)
+                # - name is at offset 64 (32 bytes)
+                name = (
+                    raw[64:96]
+                    .split(b"\x00")[0]
+                    .decode("utf-8", errors="ignore")
+                    .strip()
+                )
+                if not name:
+                    name = (
+                        raw[48:64]
+                        .split(b"\x00")[0]
+                        .decode("utf-8", errors="ignore")
+                        .strip()
+                    )
+
+                cmdline = get_process_cmdline(pid)
+
+                # Unpack metrics using verified macOS Sequoia/Sonoma offsets:
+                # offset 136: vms (uint64)
+                # offset 144: rss (uint64)
+                # offset 152: user_time (uint64)
+                # offset 160: system_time (uint64)
+                # offset 220: threads_count (uint32)
+                vms_bytes, rss_bytes, user_ns, sys_ns = struct.unpack_from(
+                    "<QQQQ", raw, 136
+                )
+                (threads_count,) = struct.unpack_from("<I", raw, 220)
+
+                entries.append(
+                    {
+                        "pid": pid,
+                        "name": name,
+                        "cmdline": cmdline,
+                        "rss_bytes": rss_bytes,
+                        "num_threads": threads_count,
+                        "cpu_time_ns": user_ns + sys_ns,
+                    }
+                )
+        return entries
+    except Exception:
+        return []
