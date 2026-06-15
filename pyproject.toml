@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "agtop"
-version = "0.8.4"
+version = "0.8.5"
 description = "Performance monitoring CLI tool for Apple Silicon"
 readme = "README.md"
 license = { text = "MIT" }
@@ -17,7 +17,7 @@ classifiers = [
   "License :: OSI Approved :: MIT License",
   "Operating System :: MacOS",
 ]
-requires-python = ">=3.12"
+requires-python = ">=3.12,<3.14"
 dependencies = [
   "textual>=0.60",
 ]

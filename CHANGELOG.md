@@ -6,7 +6,7 @@ This project follows a Keep a Changelog-style format and uses version tags for r
 
 ## [Unreleased]
 
-## [0.8.4] - 2026-06-14
+## [0.8.5] - 2026-06-14
 
 ### Removed
 - Removed `psutil` dependency across the entire codebase, making `agtop` 100% zero-dependency for process and memory monitoring.
