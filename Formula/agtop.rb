@@ -7,14 +7,6 @@ class Agtop < Formula
   sha256 "2ccec31f36c113dad2fcb4634592c9bc2f9d144ac27c0f2b1046637e677340fc"
   license "MIT"
 
-  bottle do
-    root_url "https://github.com/binlecode/agtop/releases/download/v0.8.1"
-    rebuild 16
-    sha256 cellar: :any_skip_relocation, arm64_tahoe:   "6efe7a21d27e47e409dda3592ef20bcbc1f304d18d72a9f773fc9cb97b4edaa5"
-    sha256 cellar: :any_skip_relocation, arm64_sequoia: "750532480b30197a315b20e5b00904cad0e01090a22436d5c57abde3c7ada2d6"
-    sha256 cellar: :any_skip_relocation, arm64_sonoma:  "cfc6af4e252bab17e951272413a48b58354bf88b48be49e99f5e588446445baf"
-  end
-
   depends_on "python@3.13"
 
   resource "linkify-it-py" do
