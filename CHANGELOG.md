@@ -6,6 +6,14 @@ This project follows a Keep a Changelog-style format and uses version tags for r
 
 ## [Unreleased]
 
+## [0.8.8] - 2026-06-28
+
+### Fixed
+- Hardened the native polling layer: removed dead BSD process structs, inlined the DVFS table passthrough, and added a sleep guard in `Monitor.get_snapshot` to avoid a frame with an inflated power scale.
+
+### Changed
+- Expanded the functional test suite (37 → 57 tests): added coverage for native process/DVFS parsing, the args→`DashboardConfig` merge, the SoC unknown-chip tier fallbacks, and the power-chart auto/profile scaling modes.
+
 ## [0.8.7] - 2026-06-14
 
 ### Changed
