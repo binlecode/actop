@@ -17,9 +17,9 @@ def _sample_to_snapshot(
     gm = sample.gpu_metrics
     bw = sample.bandwidth_metrics
     bw_avail = bool(isinstance(bw, dict) and bw.get("_available", False))
-    total_bw = 0.0
-    if bw_avail:
-        total_bw = (bw.get("DCS RD", 0.0) + bw.get("DCS WR", 0.0)) / interval_s
+    # total_gbps is a residency-weighted average already in GB/s — not a
+    # byte counter, so it is not divided by the sample interval.
+    total_bw = float(bw.get("total_gbps", 0.0)) if bw_avail else 0.0
     e_cores = [
         CoreSample(
             index=sys_idx,

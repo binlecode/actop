@@ -1,3 +1,5 @@
+import resource
+import sys
 import time
 
 import pytest
@@ -84,10 +86,18 @@ def test_sampler_sample_returns_valid_metrics():
         # Thermal pressure
         assert isinstance(thermal, str)
 
-        # Bandwidth metrics contract
+        # Bandwidth metrics contract: residency-weighted total DRAM bandwidth
+        # in GB/s (not a byte counter). When the platform exposes the PMP/DCS BW
+        # channel, the total is live and within a sane hardware ceiling.
         assert isinstance(bw, dict)
         assert "_available" in bw
         assert isinstance(bw["_available"], bool)
+        assert "total_gbps" in bw
+        assert isinstance(bw["total_gbps"], float)
+        assert bw["total_gbps"] >= 0.0
+        if bw["_available"]:
+            # Idle systems still show a nonzero floor; no SoC exceeds ~2 TB/s.
+            assert 0.0 < bw["total_gbps"] < 2000.0
 
         # Timestamp
         assert isinstance(ts, (int, float))
@@ -96,3 +106,50 @@ def test_sampler_sample_returns_valid_metrics():
         assert result.gpu_temp_c >= 0.0
     finally:
         sampler.close()
+
+
+def test_sampler_resident_memory_stays_flat_over_many_cycles():
+    """Resident memory must not grow over a long sampling run.
+
+    Each ``sample()`` allocates CoreFoundation dictionaries (the IOReport
+    samples snapshot and the delta) via ctypes. Those refs are invisible to
+    Python's GC and are reclaimed only by the explicit ``cf_release`` calls in
+    ``IOReportSampler._sample_once`` and ``IOReportSubscription.delta``. A
+    dropped release leaks an entire CFDict (tens of KB) per cycle — silent in
+    every functional test, but unbounded growth in agtop's long-running
+    monitor use case.
+
+    Drives the real sampler (no sleep on the ``subsamples<=1`` path). Each
+    cycle is a real kernel round-trip (~37 ms), so the count is tuned for a
+    decisive signal rather than raw volume: empirically a clean run grows
+    ~0.03 MB / 3000 cycles, so 2000 cycles against a 5 MB bound separates a
+    real leak (tens of KB/cycle → tens of MB) from allocator noise by >100x
+    while keeping the run near a minute. Catches any leak >= ~2.5 KB/cycle;
+    sub-KB/cycle leaks are out of scope for an RSS-based guard.
+    """
+    sampler, _ = create_sampler(1)
+    try:
+        # Warm up so CPython and allocator arenas reach steady state before
+        # baselining: ru_maxrss is a high-water mark, so warmup growth would
+        # otherwise be misread as a leak. Measured flat by cycle ~200.
+        for _ in range(200):
+            sampler.sample()
+
+        baseline = resource.getrusage(resource.RUSAGE_SELF).ru_maxrss
+
+        for _ in range(2000):
+            sampler.sample()
+
+        peak = resource.getrusage(resource.RUSAGE_SELF).ru_maxrss
+    finally:
+        sampler.close()
+
+    # ru_maxrss is bytes on macOS, KiB on Linux. This test is macOS-only
+    # (pytest.mark.local), but normalise so the bound is unambiguous.
+    unit = 1 if sys.platform == "darwin" else 1024
+    growth_mb = (peak - baseline) * unit / (1024 * 1024)
+
+    assert growth_mb < 5, (
+        f"resident memory grew {growth_mb:.1f} MB over 2000 sample cycles — "
+        "likely a dropped cf_release in the sample/delta path"
+    )

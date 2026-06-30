@@ -29,6 +29,11 @@ class IOReportSampler:
                 ("Energy Model", None),
                 ("CPU Stats", "CPU Core Performance States"),
                 ("GPU Stats", "GPU Performance States"),
+                # DRAM bandwidth: PMP/DCS BW exposes per-agent residency
+                # histograms. We only parse the full-range AMCC total; the
+                # ~90 other channels are subscribed (group-level) but their
+                # states are skipped in delta() to hold the idle-CPU budget.
+                ("PMP", "DCS BW"),
             ]
         )
         self._interval = interval
@@ -79,7 +84,7 @@ class IOReportSampler:
             self._prev_time = new_time
             return None
 
-        items = self._sub.delta(self._prev_sample, new_sample)
+        items = self._sub.delta(self._prev_sample, new_sample, _keep_states)
         elapsed_s = new_time - self._prev_time
 
         cf_release(self._prev_sample)
@@ -171,6 +176,7 @@ class IOReportSampler:
         p_core_data = {}
         gpu_freq_mhz = 0
         gpu_active_pct = 0
+        dram_bw_residencies = []
 
         ecpu_freqs = self._dvfs.get("ecpu", [])
         pcpu_freqs = self._dvfs.get("pcpu", [])
@@ -212,6 +218,15 @@ class IOReportSampler:
                     gpu_freq_mhz, gpu_active_pct = _compute_residency_metrics(
                         item.state_residencies, gpu_freqs
                     )
+
+            elif item.group == "PMP" and item.subgroup == "DCS BW":
+                # Total DRAM bandwidth = sum over all AMCC RD+WR instances
+                # (one per memory-controller die; multi-die SoCs expose
+                # several). Per-agent channels (EACC/PACC/AGX/...) are skipped
+                # in delta() and intentionally not parsed: they hard-cap at
+                # 32 GB/s and cannot attribute high bandwidth correctly.
+                if item.channel.startswith("AMCC") and item.channel.endswith("RD+WR"):
+                    dram_bw_residencies.extend(item.state_residencies)
 
         # Scale energy to match parsers.py convention:
         # parsers.py returns cpu_W = energy_mJ / 1000 = energy_J
@@ -273,17 +288,10 @@ class IOReportSampler:
             "active": gpu_active_pct,
         }
 
+        total_gbps = _compute_bandwidth_gbps(dram_bw_residencies)
         bandwidth_metrics = {
-            "ECPU DCS RD": 0.0,
-            "ECPU DCS WR": 0.0,
-            "PCPU DCS RD": 0.0,
-            "PCPU DCS WR": 0.0,
-            "GFX DCS RD": 0.0,
-            "GFX DCS WR": 0.0,
-            "MEDIA DCS": 0.0,
-            "DCS RD": 0.0,
-            "DCS WR": 0.0,
-            "_available": False,
+            "total_gbps": total_gbps,
+            "_available": bool(dram_bw_residencies),
         }
 
         return SampleResult(
@@ -462,3 +470,39 @@ def _resolve_state_freq(name, freq_table):
         return 0
 
     return None
+
+
+def _keep_states(group, subgroup, channel):
+    """Decide whether delta() should extract per-state residencies for a channel.
+
+    The PMP/DCS BW group has ~90 channels of 32 buckets each, but we parse only
+    the AMCC totals. Skipping state extraction for the rest avoids thousands of
+    per-cycle ctypes round-trips. All non-PMP groups extract states as before.
+    """
+    if group == "PMP":
+        return channel.startswith("AMCC")
+    return True
+
+
+_GBPS_PATTERN = re.compile(r"(\d+)\s*GB/s")
+
+
+def _compute_bandwidth_gbps(residencies):
+    """Residency-weighted average bandwidth (GB/s) from a DCS BW histogram.
+
+    Each state name is a bandwidth bucket ("32GB/s", "64GB/s", …) and its value
+    is the time spent at that level. The weighted mean Σ(level·time)/Σ(time) is
+    already in GB/s — no division by the sample interval. Returns 0.0 when the
+    histogram is empty (no DCS channel on this platform).
+    """
+    weighted_sum = 0.0
+    total = 0.0
+    for name, residency in residencies:
+        m = _GBPS_PATTERN.search(name)
+        if not m:
+            continue
+        weighted_sum += float(m.group(1)) * residency
+        total += residency
+    if total <= 0:
+        return 0.0
+    return weighted_sum / total

@@ -220,11 +220,20 @@ class IOReportSubscription:
         """
         return _ior.IOReportCreateSamples(self._subscription, self._channels, None)
 
-    def delta(self, s1, s2):
+    def delta(self, s1, s2, extract_states=None):
         """Compute delta between two samples.
 
         All data is extracted into Python objects before the C delta reference
         is released, so the returned IOReportItem list is safe to use.
+
+        Args:
+            extract_states: optional callable (group, subgroup, channel) -> bool.
+                When provided, per-state residencies are read only for channels
+                it accepts; rejected channels return an empty ``state_residencies``
+                list. This skips the expensive per-state ctypes round-trips for
+                channels we don't parse (e.g. the ~90 PMP/DCS BW channels we
+                ignore), keeping the sampler within its idle-CPU budget. When
+                None (default), states are extracted for every channel.
 
         Returns list of IOReportItem namedtuples.
         """
@@ -255,13 +264,14 @@ class IOReportSubscription:
                 unit = from_cfstr(_ior.IOReportChannelGetUnitLabel(item_ref))
                 integer_value = _ior.IOReportSimpleGetIntegerValue(item_ref, 0)
 
-                state_count = _ior.IOReportStateGetCount(item_ref)
                 state_residencies = []
-                for j in range(state_count):
-                    name_ref = _ior.IOReportStateGetNameForIndex(item_ref, j)
-                    name = from_cfstr(name_ref)
-                    residency = _ior.IOReportStateGetResidency(item_ref, j)
-                    state_residencies.append((name, residency))
+                if extract_states is None or extract_states(group, subgroup, channel):
+                    state_count = _ior.IOReportStateGetCount(item_ref)
+                    for j in range(state_count):
+                        name_ref = _ior.IOReportStateGetNameForIndex(item_ref, j)
+                        name = from_cfstr(name_ref)
+                        residency = _ior.IOReportStateGetResidency(item_ref, j)
+                        state_residencies.append((name, residency))
 
                 items.append(
                     IOReportItem(
