@@ -6,6 +6,11 @@ This project follows a Keep a Changelog-style format and uses version tags for r
 
 ## [Unreleased]
 
+## [0.9.7] - 2026-06-30
+
+### Fixed
+- **`/` filter no longer a dead control when the process table is hidden:** the regex filter only applies to the process table, but in `t`-off mode (the default) `/` still opened an input box whose pattern was never read — the polling loop skips process collection when the table is hidden. The `/  Filter` binding is now hidden from the footer and inert while the table is off, and reappears when `t` shows the table. (Filtering is reachable only with the table visible; `t` cannot be pressed mid-filter since the focused input captures it as text.)
+
 ## [0.9.6] - 2026-06-30
 
 ### Added
