@@ -1,8 +1,26 @@
 # agtop
 
-Performance monitoring CLI for Apple Silicon.
+**Watch your Apple Silicon Mac the way it actually works — and profile your own workloads from Python.**
 
-![](images/agtop.png)
+`agtop` is a sudoless, in-process performance monitor for M1–M4 Macs: a real-time
+TUI for CPU/GPU/ANE utilization, per-core frequency, memory **bandwidth**, power,
+and thermals — plus a **Python API** (`Monitor` / `Profiler`, `to_pandas()`) so you
+can instrument your *own* local LLM / MLX / CoreML inference and training runs with
+SoC-accurate power and energy context.
+
+<!-- TODO: replace the static screenshot below with an animated capture (GIF/SVG) of
+     the dashboard live during an MLX/Ollama inference run — motion is what gets shared. -->
+![agtop dashboard: live E-CPU/P-CPU/GPU/ANE utilization, per-core frequency, memory bandwidth, and power charts on Apple Silicon](images/agtop.png)
+
+**Who it's for**
+
+- **Running LLMs locally** (MLX, llama.cpp, Ollama) and want to see whether you're
+  GPU-bound, memory-**bandwidth**-bound, or leaving the ANE idle — at a glance.
+- **Profiling your own code**: wrap a workload in `Monitor`/`Profiler`, get a
+  pandas frame of power, frequency, residency, and cumulative session energy.
+- **Just want a clean `*top`** for Apple Silicon that needs **no `sudo`**.
+
+Install in one line — [Homebrew](#homebrew-recommended) or [uv](#uv-recommended-for-non-homebrew-users) — then run `agtop`.
 
 ## Background
 
