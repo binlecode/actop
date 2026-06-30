@@ -44,6 +44,23 @@ brew upgrade binlecode/agtop/agtop
 brew uninstall binlecode/agtop/agtop
 ```
 
+### uv (recommended for non-Homebrew users)
+
+[`uv`](https://docs.astral.sh/uv/) installs `agtop` into a sandboxed, per-tool
+environment with its own managed CPython — no system Python required and no
+interpreter drift:
+
+```shell
+uv tool install git+https://github.com/binlecode/agtop.git
+```
+
+Upgrade / uninstall:
+
+```shell
+uv tool upgrade agtop
+uv tool uninstall agtop
+```
+
 ### pip
 
 ```shell
