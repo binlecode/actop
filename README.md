@@ -6,7 +6,7 @@ Performance monitoring CLI for Apple Silicon.
 
 ## Background
 
-`agtop` is an independent project with its own architecture, codebase, and release cycle. Originally inspired by `tlkh/asitop`, it has been completely redesigned and rewritten — new sampling backend, metric pipeline, dashboard rendering, and module structure.
+`agtop` is an independent project with its own architecture, codebase, and release cycle. Originally inspired by `tlkh/asitop`, it has been completely redesigned and rewritten — new sampling backend, metric pipeline, dashboard rendering, and module structure. The name carries the Unix `*top` lineage: `agtop` (*Apple GPU top*) forks `asitop` (*Apple Silicon top*) — though it monitors well beyond the GPU (CPU, ANE, power, memory bandwidth, thermal).
 
 The original `asitop` shells out to Apple's `powermetrics` CLI, a high-level tool that requires `sudo`, writes to temp files, and returns pre-aggregated metrics at a fixed cadence. `agtop` instead calls the underlying IOReport C library directly via Python ctypes — the same library that `powermetrics` itself uses internally. This low-level approach runs unprivileged, avoids subprocess and file I/O overhead, gives access to raw per-core residency states and energy counters, and lets the application control its own sampling interval and delta computation.
 
