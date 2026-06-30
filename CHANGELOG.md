@@ -6,6 +6,15 @@ This project follows a Keep a Changelog-style format and uses version tags for r
 
 ## [Unreleased]
 
+## [0.9.4] - 2026-06-29
+
+### Added
+- **Live memory bandwidth:** total DRAM bandwidth is now sampled in-process and unprivileged from the IOReport `PMP/DCS BW` group, so the `Mem BW N GB/s` row is live instead of always hidden. The value is a residency-weighted average over the `AMCC` bandwidth-bucket histogram (summed across memory-controller dies), exposed via `SystemSnapshot.bandwidth_gbps`. Held within the idle-CPU budget by a per-state extraction filter in the IOReport delta path (extracts only the channels actually parsed).
+- **uv install option:** `uv tool install` documented for non-Homebrew users — a sandboxed per-tool environment with its own managed CPython, no system Python required.
+
+### Changed
+- **Pinned kernel struct offsets:** the `proc_taskallinfo` byte offsets in `native_sys.py` are now named module constants with the struct layout documented in one place, and the native-process guard tests are hardened against silent offset drift on new macOS releases.
+
 ## [0.9.3] - 2026-06-29
 
 ### Added
