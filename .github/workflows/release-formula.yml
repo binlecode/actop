@@ -1,6 +1,18 @@
 name: release-formula
 run-name: "release-formula | ${{ github.event_name == 'workflow_dispatch' && inputs.tag_name || github.ref_name }} | ${{ github.sha }}"
 
+# Syncs the Homebrew formula on a version tag. The formula lives in a SEPARATE
+# tap repo (binlecode/homebrew-actop) so this code repo's `main` stays strictly
+# PR-only — CI never pushes to it.
+#
+# One-time setup:
+#   - Create repo binlecode/homebrew-actop with Formula/actop.rb.
+#   - Add a fine-grained PAT as secret HOMEBREW_TAP_TOKEN on binlecode/actop,
+#     scoped to binlecode/homebrew-actop with Contents: read/write.
+#
+# Users install with:  brew tap binlecode/actop && brew install actop
+# (Homebrew maps the tap name binlecode/actop -> binlecode/homebrew-actop.)
+
 on:
   push:
     tags:
@@ -8,7 +20,7 @@ on:
   workflow_dispatch:
     inputs:
       tag_name:
-        description: "Release tag to sync (for example: v0.1.9)"
+        description: "Release tag to sync (for example: v1.0.0)"
         required: true
         type: string
       refresh_resources:
@@ -18,10 +30,10 @@ on:
         type: boolean
 
 permissions:
-  contents: write
+  contents: read
 
 concurrency:
-  group: formula-sync-main
+  group: formula-sync-tap
   cancel-in-progress: false
 
 jobs:
@@ -29,11 +41,10 @@ jobs:
     runs-on: macos-latest
 
     steps:
-      - name: Checkout
+      - name: Checkout source repo (read-only, for version validation)
         uses: actions/checkout@v4
         with:
           fetch-depth: 0
-          ref: main
 
       - name: Validate tag and pyproject.toml version from tag commit
         env:
@@ -73,7 +84,14 @@ jobs:
             exit 1
           fi
 
-      - name: Sync formula for tag
+      - name: Checkout tap repo
+        uses: actions/checkout@v4
+        with:
+          repository: binlecode/homebrew-actop
+          token: ${{ secrets.HOMEBREW_TAP_TOKEN }}
+          path: tap
+
+      - name: Sync formula in tap repo
         env:
           GH_REPO: ${{ github.repository }}
           TAG_NAME: ${{ github.event_name == 'workflow_dispatch' && inputs.tag_name || github.ref_name }}
@@ -84,43 +102,30 @@ jobs:
           URL="https://github.com/${GH_REPO}/archive/refs/tags/${TAG_NAME}.tar.gz"
           SHA256="$(curl -fsSL "${URL}" | shasum -a 256 | awk '{print $1}')"
 
+          cd tap
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
 
-          for attempt in 1 2 3; do
-            echo "Sync attempt ${attempt}..."
-            git fetch origin main
-            git checkout -B main origin/main
+          sed -E -i '' "s|^  url \".*\"$|  url \"${URL}\"|" Formula/actop.rb
+          sed -E -i '' "s|^  sha256 \".*\"$|  sha256 \"${SHA256}\"|" Formula/actop.rb
 
-            sed -E -i '' "s|^  url \".*\"$|  url \"${URL}\"|" Formula/actop.rb
-            sed -E -i '' "s|^  sha256 \".*\"$|  sha256 \"${SHA256}\"|" Formula/actop.rb
+          if [ "${REFRESH_RESOURCES}" = "true" ]; then
+            TEMP_TAP="local/actop-ci"
+            brew tap-new "${TEMP_TAP}" >/dev/null 2>&1 || true
+            TAP_REPO="$(brew --repository "${TEMP_TAP}")"
+            cp Formula/actop.rb "${TAP_REPO}/Formula/actop.rb"
+            brew update-python-resources "${TEMP_TAP}/actop"
+            cp "${TAP_REPO}/Formula/actop.rb" Formula/actop.rb
+          else
+            echo "Skipping Python resource refresh (workflow_dispatch refresh_resources=false)."
+          fi
 
-            if [ "${REFRESH_RESOURCES}" = "true" ]; then
-              TEMP_TAP="local/actop-ci"
-              brew tap-new "${TEMP_TAP}" >/dev/null 2>&1 || true
-              TAP_REPO="$(brew --repository "${TEMP_TAP}")"
-              cp Formula/actop.rb "${TAP_REPO}/Formula/actop.rb"
-              brew update-python-resources "${TEMP_TAP}/actop"
-              cp "${TAP_REPO}/Formula/actop.rb" Formula/actop.rb
-            else
-              echo "Skipping Python resource refresh (workflow_dispatch refresh_resources=false)."
-            fi
+          if git diff --quiet -- Formula/actop.rb; then
+            echo "Formula already up to date for ${TAG_NAME}."
+            exit 0
+          fi
 
-            if git diff --quiet -- Formula/actop.rb; then
-              echo "Formula already up to date for ${TAG_NAME}."
-              exit 0
-            fi
-
-            git add Formula/actop.rb
-            git commit -m "Formula/actop: sync ${TAG_NAME} [skip ci]"
-
-            if git push origin HEAD:refs/heads/main; then
-              echo "Formula sync pushed successfully."
-              exit 0
-            fi
-
-            echo "Push failed due to concurrent main updates; retrying..."
-          done
-
-          echo "Failed to sync formula after retries." >&2
-          exit 1
+          git add Formula/actop.rb
+          git commit -m "actop: sync ${TAG_NAME}"
+          git push origin HEAD
+          echo "Formula sync pushed to tap repo."

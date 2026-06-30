@@ -1,0 +1,24 @@
+#!/usr/bin/env bash
+# Hard rule: block direct pushes to main. All changes go through a feature
+# branch + pull request. This mirrors the server-side branch protection on
+# binlecode/actop and fails fast locally before a push is rejected by GitHub.
+#
+# Enabled via:  git config core.hooksPath .githooks
+set -euo pipefail
+
+protected_branch="main"
+remote="${1:-}"
+
+while read -r local_ref local_sha remote_ref remote_sha; do
+  if [[ "$remote_ref" == "refs/heads/${protected_branch}" ]]; then
+    echo "" >&2
+    echo "BLOCKED: direct push to '${protected_branch}' is not allowed." >&2
+    echo "Open a pull request from a feature branch instead:" >&2
+    echo "    git switch -c my-feature" >&2
+    echo "    git push -u origin my-feature   # then open a PR" >&2
+    echo "" >&2
+    exit 1
+  fi
+done
+
+exit 0
