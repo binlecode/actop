@@ -1,8 +1,21 @@
 # TODO — `actop` rename + `*top`-driven differentiation roadmap
 
-Status: **planned (rename happening soon).** This is the single source of truth for
-(A) the `agtop → actop` rename and (B) the mission-specific feature roadmap that
-justifies staying a `*top`.
+Status: **Part A (rename) shipped — merged to `main` in #1 on 2026-06-30; release
+publish pending.** This is the single source of truth for (A) the `agtop → actop`
+rename and (B) the mission-specific feature roadmap that justifies staying a `*top`.
+
+> **What shipped vs. the original plan (deviations):**
+> - **Clean break, no `agtop` alias.** No deprecated `agtop` command, module, or
+>   formula shim — the command/package/import/formula/Prometheus prefix are all
+>   `actop`. (Maintainer decision: simpler, pre-PyPI user base is tiny.)
+> - **Version `1.0.0`** (not the suggested `0.10.0`) to mark the milestone.
+> - **Prometheus metric prefix renamed** `agtop_*` → `actop_*`.
+> - **Formula moved to a dedicated tap repo** `binlecode/homebrew-actop` (not kept
+>   in this repo) so `main` can be strictly PR-only — CI never pushes to `main`.
+> - **`main` is now branch-protected** (PR-only, `enforce_admins`, no force-push)
+>   plus a local `.githooks/pre-push` guard.
+> - **Still pending (maintainer actions):** PyPI name claim (`twine upload`),
+>   `HOMEBREW_TAP_TOKEN` secret, optional OIDC pending-publisher, then tag `v1.0.0`.
 
 ## Mission (first principles)
 
@@ -35,29 +48,35 @@ throttled right now."*
   `atop`+one consonant, equidistant; no *new* confusion risk. Accepted.
 
 ### Rename surfaces (checklist)
-- [ ] **GitHub repo**: rename `binlecode/agtop → binlecode/actop` (GitHub auto-redirects old URLs/clones). Update repo description/topics to the new name.
-- [ ] **Python package**: `agtop/ → actop/`; update `pyproject.toml` `[project].name`, `[project.urls]`, and `[project.scripts]` (`actop = "actop.actop:cli"`).
-- [ ] **Internal imports / module paths**: `agtop.*` → `actop.*` across the package and `tests/` (`agtop/agtop.py:cli` → `actop/actop.py:cli`, `__init__`, `api.py`, `tui/`, etc.).
-- [ ] **CLI command**: primary command becomes `actop`. **Keep `agtop` as a deprecated alias** console-script for ~1–2 releases so existing tap users aren't broken (prints a one-line "renamed to actop" notice).
-- [ ] **Homebrew**: `Formula/agtop.rb → Formula/actop.rb`, `class Agtop → Actop`, new `url` (new repo tag); update tap install docs. Consider keeping an `agtop` formula shim that depends on `actop` for one cycle.
-- [ ] **CI**: update `.github/workflows/release-formula.yml`, `main-ci.yml`, `scripts/tag_release.sh`, and `docs/GUIDE-cicd-release.md` (formula filename, class, repo refs).
-- [ ] **PyPI publish (now possible)**: set up publishing for `actop` — prefer **PyPI Trusted Publishing (GitHub OIDC)** over a long-lived token; wire a publish step into the tag release flow. This delivers the frictionless `pipx install actop` / `uv tool install actop`.
-- [ ] **README**: title, tagline/positioning (whole-chip mission), install commands (add `pipx`/`uv install actop` + brew), name-origin note ("Apple Chip top" + AC/power), badges, hero alt text.
-- [ ] **Docs + project memory**: sweep `docs/` for `agtop`; update `CLAUDE.md` (project overview + module paths), and the `agtop-name-origin` memory note. `AGENTS.md` is a symlink to `CLAUDE.md` (no change needed beyond content).
-- [ ] **Assets**: optionally rename `images/agtop*.png → actop*.png` and update references.
+- [x] **GitHub repo**: renamed `binlecode/agtop → binlecode/actop` (GitHub auto-redirects old URLs/clones); local remote updated.
+- [x] **Python package**: `agtop/ → actop/`; `pyproject.toml` `[project].name`/`version`(`1.0.0`)/`urls`/`scripts` (`actop = "actop.actop:cli"`) and `packages.find` all updated.
+- [x] **Internal imports / module paths**: `agtop.*` → `actop.*` across the package and `tests/`; `AgtopApp` → `ActopApp`; Prometheus prefix `agtop_*` → `actop_*`.
+- [x] **CLI command**: primary command is `actop`. **No `agtop` alias** — clean break (no deprecated console-script).
+- [x] **Homebrew**: `class Actop`, new repo `url`/test. **Formula moved out of this repo** to the dedicated tap `binlecode/homebrew-actop` (no in-repo `Formula/` for releases; no `agtop` shim).
+- [x] **CI**: `main-ci.yml` (now also runs on `pull_request`), `release-formula.yml` (syncs into the tap repo via `HOMEBREW_TAP_TOKEN`), `scripts/tag_release.sh`, and `docs/GUIDE-cicd-release.md` updated.
+- [x] **PyPI publish wiring**: added `publish-pypi.yml` using **Trusted Publishing (GitHub OIDC)**, `skip-existing`. _Actual claim/publish pending maintainer token + pending-publisher setup._
+- [x] **README**: name, positioning, install commands, name-origin ("Apple **C**hip top"), `asitop` reframed as inspiration only.
+- [x] **Docs + project memory**: swept `docs/` (this roadmap excepted); `CLAUDE.md` overview + module paths updated; memory notes added (`no-direct-main-push`, `git-identity`).
+- [x] **Assets**: renamed `images/agtop.png → images/actop.png` and updated references.
 
 ### Sequencing
-1. Rename GitHub repo (redirects keep old links alive).
-2. Code/package rename + `agtop` alias + tests green (`ruff` + `pytest`).
-3. Formula/CI/tag-script updates.
-4. Cut the rename release (suggest **v0.10.0** to signal the change).
-5. Set up + verify PyPI Trusted Publishing; publish `actop`.
-6. Update README/docs/positioning; announce.
+1. ~~Rename GitHub repo~~ ✅ (redirects keep old links alive).
+2. ~~Code/package rename + tests green~~ ✅ (`ruff` clean, 86 tests pass; no alias).
+3. ~~Formula/CI/tag-script updates~~ ✅ (+ formula relocated to tap repo).
+4. **Cut the rename release** — version is `1.0.0`; **pending** `git tag v1.0.0`.
+5. **PyPI** — claim/publish `actop`: **pending** maintainer token (`twine upload`) and/or OIDC pending-publisher.
+6. ~~Update README/docs/positioning~~ ✅; **announce** pending.
+
+Remaining maintainer actions before release: `twine upload dist/*` (claim PyPI),
+add `HOMEBREW_TAP_TOKEN` secret, optional OIDC pending-publisher, then `scripts/tag_release.sh`.
 
 ### Risks / notes
-- In-flight `0.9.x` releases: finish the rename on a clean tree; don't interleave with a release.
-- Tap users: GitHub redirect + the `agtop` formula/command shim cover the transition; document the one-time `brew uninstall agtop && brew install …/actop` if needed.
-- One-way-ish door (PyPI name, brew formula) — do it deliberately, all at once.
+- In-flight `0.9.x` releases: rename landed on a clean tree, not interleaved with a release. ✅
+- Tap users: GitHub redirect covers old links; the one-time switch is
+  `brew uninstall agtop && brew untap binlecode/agtop && brew tap binlecode/actop && brew install actop`.
+- One-way-ish door (PyPI name, brew formula): done deliberately in one PR (#1).
+- `main` is now strictly PR-only (branch protection + pre-push hook); the release
+  formula sync writes to the **tap repo**, never to `main`.
 
 ---
 
