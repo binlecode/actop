@@ -1,59 +1,87 @@
-# REVIEW: Architecture and Feature Comparison (agtop vs mactop)
+# REVIEW: Architecture and Feature Comparison
 
-This document provides a detailed architectural breakdown of the reference `mactop` Go project and compares its feature set, design, and performance characteristics against the current `agtop` Python implementation.
+`agtop` vs. the current Apple Silicon CLI-monitor field — **mactop** (Go), **macmon** (Rust), and **asitop** (Python, agtop's ancestor).
 
-## 1. Architectural Analysis of `mactop` (Go)
+> Refreshed 2026-06-29 against `agtop` **0.9.4**, `mactop` **v2** (`metaspartan/mactop`), `macmon` **v0.7.2** (2026-05), and `asitop` (no tagged releases). Competitor facts are from their public repos as of this date and will drift; re-verify before quoting.
 
-`mactop` is a highly optimized, compiled Go application that heavily leverages `cgo` (C/Objective-C interop) to achieve native-level performance and deep integration with macOS.
-
-### Core Architectural Components
-
-*   **Concurrency Model (Goroutines & Channels)**
-    Unlike Python-based tools that often run in a synchronous event loop or rely on thread-pools, `mactop` embraces Go's concurrent design. The UI rendering runs on the main thread (managed by the `gotui` library), while data collection runs in parallel background goroutines (see `internal/app/metrics.go`). These background workers push data to the UI using Go channels (e.g., `cpuCh`, `gpuCh`, `processMetricsChan`), ensuring the terminal UI never freezes or lags during expensive system calls.
-*   **Native C/Objective-C Bindings (`cgo`)**
-    `mactop` bypasses command-line tools completely. It bundles `.c` and `.m` files directly inside the Go source tree and links against Apple's internal frameworks at compile time:
-    *   **`ioreport.m`**: Directly binds to `<IOKit/IOKitLib.h>` and `libIOReport.dylib`. It natively subscribes to Energy and Performance states, calculates deltas in C, and passes a clean struct (`PowerMetrics`) back to Go space.
-    *   **`smc.c` / `smc.h`**: Native Apple System Management Controller implementation to read die temperatures.
-    *   **`processes.go`**: Utilizes the Mach kernel's `libproc.h` (`proc_listpids`, `proc_pidinfo`) natively, avoiding the overhead of external cross-platform libraries.
-    *   **`native_stats.go`**: Uses `sysctlbyname` from `<sys/sysctl.h>` to instantly fetch memory, swap, and system configurations.
-*   **UI & Rendering Engine**
-    It uses the `gotui` (Go Terminal UI) library. This provides a rich, responsive grid layout system that handles window resizing, mouse events, and complex text overlays much faster than standard terminal string printing.
-*   **Menubar Integration**
-    A unique architectural feature of `mactop` is `menubar.m`, which imports `<AppKit/AppKit.h>`. It spawns a background thread running a native macOS `NSApplication` loop, allowing it to display real-time stats in the macOS top menu bar directly from the CLI binary.
-*   **Extensibility & DevOps**
-    It includes built-in endpoints for headless CI/CD operations (outputting JSON, YAML, CSV) and runs an embedded **Prometheus** metrics server (`github.com/prometheus/client_golang`) to expose hardware metrics to external scrapers.
+This supersedes the prior agtop-vs-mactop-only review, which described an `agtop` that no longer exists (`blessed`/`dashing` UI, `psutil` process polling, `powermetrics`, `0.4.x` features). The corrections matter: most of `agtop`'s former disadvantages have been closed.
 
 ---
 
-## 2. Win-Score Card & Feature Comparison
+## 1. The field today
 
-While both tools aim to monitor Apple Silicon metrics via `IOReport`, their approaches, features, and target use cases differ significantly. Below is a head-to-head evaluation of their capabilities.
+| Tool | Lang / runtime | Backend | Sudo? | Niche |
+| :--- | :--- | :--- | :--- | :--- |
+| **agtop** | Python + Textual | In-process IOReport/IOKit/SMC via `ctypes` | **No** | Python-native, programmable profiler |
+| **mactop** (v2) | Go + `cgo` (Obj-C/C) | In-process IOReport via `cgo` | **No** (fan control needs root) | Feature-broadest TUI + DevOps |
+| **macmon** | Rust + `ratatui` | In-process private API | **No** | Lean, fast, single-binary |
+| **asitop** | Python | `sudo powermetrics` subprocess | **Yes** | The original; now superseded |
 
-| Feature Category | `agtop` (Python) | `mactop` (Go) | Winner |
-| :--- | :--- | :--- | :--- |
-| **Language / Distribution** | Python via Homebrew (`brew tap`), `pip` | Compiled Go (single, standalone binary) | 🏆 **mactop** |
-| **UI Library & UX** | `blessed` + `dashing` (gauges, charts, runtime sort/filter toggles) | `gotui` (rich grids, tabs, mouse support) | 🏆 **mactop** |
-| **Low-Level API Efficiency** | `ctypes` binding `libIOReport`, `IOKit`, `sysctl` (Zero Subprocesses) | `cgo` (statically linked C/Objective-C) | 🤝 **Tie** |
-| **Process Monitoring** | `psutil` (Python library overhead) | Native Mach `libproc` (C structs) | 🏆 **mactop** |
-| **Hardware Data Coverage** | CPU, GPU, **ANE**, RAM, Swap, SMC Temps | CPU, GPU, RAM, Swap, **Net I/O, Disk I/O**, Temps | 🤝 **Tie** (ANE vs I/O) |
-| **Peripheral Profiling** | None | USB, Displays, Thunderbolt, Storage | 🏆 **mactop** |
-| **Power Scaling Intelligence**| Deep M1-M4 profiles (`soc_profiles.py`) | Dynamic scaling (recent peak observations) | 🏆 **agtop** |
-| **Data Export / Headless** | Python API (`Profiler`, `to_pandas()`) | JSON, YAML, CSV, Prometheus Server | 🤝 **Tie** (Python API vs CLI exports) |
-| **Desktop Integration** | Terminal only | Includes macOS Menubar app natively | 🏆 **mactop** |
-| **Theming & Colors** | Adaptive TrueColor RGB gradients | Rich themes (Catppuccin) + Hex overrides | 🤝 **Tie** |
-| **Extensibility / Hackability** | Dedicated `api.py` (sync/async/threaded profiling, alerts, DataFrames) | Requires Go/C knowledge to extend | 🏆 **agtop** |
+The single biggest shift since the last review: **the whole serious field is now sudoless and in-process.** `asitop`'s `powermetrics`-subprocess-requiring-root model is the outlier, and `agtop` was built specifically to replace it. So `agtop`'s real competition is `mactop` and `macmon`, not its ancestor.
 
-### 🏆 Final Score
-*   **mactop:** 5 Wins
-*   **agtop:** 2 Wins
-*   **Ties:** 4
+---
 
-### Verdict & Niche Breakdown
+## 2. Architectural notes
 
-**`mactop` wins on broad DevOps features and UI richness.** Because it is a compiled Go binary using `cgo`, it boasts zero-dependency installation, much lower CPU overhead during process polling (due to native Mach calls vs `psutil`), and instantaneous startups. Its inclusion of network/disk I/O, a menubar app, rich interactive TUI features (mouse support, tabs), and a Prometheus server makes it a vastly superior tool for server monitoring, devops, and general power users.
+### mactop (v2, `metaspartan/mactop`)
+The most feature-complete tool in the field. Compiled Go with `cgo` bindings to Apple frameworks (IOReport, IOKit/SMC, `libproc`, AppKit). The v2 line moved to a custom `gotui` framework and added breadth no one else matches: **network I/O, disk I/O, per-process GPU usage, fan RPM**, DRAM read/write bandwidth, a native **menu-bar mode** and an **overlay HUD** (with FPS), five export formats (JSON/YAML/XML/CSV/TOON) plus a Prometheus server, `theme.json` theming with light/dark auto-detect, and ~20 layouts. Single static binary; instant startup. (Original `context-labs/mactop` is Go/cgo too; v2 is the active line.)
 
-**`agtop` has rapidly closed the gap in metrics fidelity and interactivity.**
-With the `0.4.x` series, `agtop` has completely replaced all `powermetrics` subprocess calls with pure in-process `ctypes` bindings to `libIOReport`, `CoreFoundation`, `IOKit`, and `sysctl`, achieving near-native performance parity in hardware data collection without needing `sudo`. Furthermore, the addition of a `blessed` non-blocking input loop provides responsive runtime interactivity (e.g., toggling process sorts by CPU/Memory/PID and dynamic regex filtering).
-1. **AI/ML Workloads:** `agtop` is one of the very few tools that specifically tracks and breaks out **ANE (Apple Neural Engine)** wattage, which is critical for ML engineers evaluating local CoreML models.
-2. **Contextual Awareness:** `agtop`'s `soc_profiles.py` gives it a massive UX win for hardware awareness. When you run `agtop` on an M4 Max, the power charts scale precisely to the M4 Max's hardware limits out-of-the-box, giving the user immediate visual context on how hard they are pushing their specific chip.
-3. **First-Class Python API:** `agtop` now exposes a robust public API (`agtop.api`) with synchronous (`Monitor`), asynchronous (`AsyncMonitor`), and threaded (`Profiler`) hardware metrics collection. This allows data scientists to seamlessly profile their model training loops, trigger custom callbacks on hardware thresholds, and export results directly to Pandas DataFrames (`to_pandas()`) for analysis—a massive advantage over standalone CLI binaries.
+### macmon
+Rust + `ratatui`, in-process via a private macOS API — same sudoless philosophy as `agtop`. Tracks CPU/GPU/ANE **power**, per-cluster usage + frequency, RAM/swap, CPU/GPU temps, **fan RPM**, and residency, with avg/max history charts and six themes. Headless `pipe` (JSON) and `serve` (Prometheus) subcommands, launchd install, and a built-in stress tester. Distributed via Homebrew, Cargo, MacPorts, Nix; also usable as a Rust **library**. Lean and fast.
+
+### asitop (the ancestor)
+Python, shells out to **`sudo powermetrics`** plus `psutil`/`sysctl`/`system_profiler`. Tracks CPU/GPU/ANE power, memory bandwidth, package power, basic charts. No tagged releases; effectively in maintenance. `agtop` is a hard fork that kept the metric vocabulary and threw out the architecture.
+
+### agtop
+Python, but with **zero heavyweight runtime deps** — the only third-party requirement is **Textual** (the `blessed`+`dashing`+`psutil` stack is gone). All hardware data comes from in-process `ctypes` bindings: IOReport (power/frequency/residency, now including DRAM bandwidth), IOKit/SMC (die temperatures), `libproc` (`proc_listpids`/`proc_pidinfo`) for **native process polling**, and `sysctl` for memory/SoC config. A Textual `App` drives braille-sparkline charts with a polling worker. Distinctively, it ships a first-class **public Python API** (`Monitor` / `AsyncMonitor` / `Profiler`, `to_pandas()`, `total_package_joules`) and **16 built-in M1–M4 SoC reference profiles** for hardware-accurate power-chart scaling.
+
+---
+
+## 3. Feature comparison
+
+Winner marks reflect the current state, not the old review.
+
+| Capability | agtop | mactop v2 | macmon | asitop | Best |
+| :--- | :--- | :--- | :--- | :--- | :--- |
+| **Distribution** | Homebrew (custom tap), `uv`, `pip` | Single static binary | Homebrew/Cargo/MacPorts/Nix | `pip` | 🏆 mactop / macmon |
+| **No sudo / in-process** | ✅ IOReport ctypes | ✅ IOReport cgo | ✅ private API | ❌ `sudo powermetrics` | 🤝 agtop/mactop/macmon |
+| **Startup / overhead** | Python interpreter start; light steady-state | Instant; lowest | Instant; very low | Interpreter + subprocess | 🏆 mactop / macmon |
+| **Process monitoring** | Native `libproc` ctypes | Native `libproc` + per-process **GPU** | (not a focus) | `psutil` | 🏆 mactop |
+| **Core metrics** (CPU/GPU/ANE/RAM/swap/temps/power) | ✅ all + per-core freq/util | ✅ all | ✅ all | ✅ all | 🤝 Tie |
+| **Memory bandwidth** | ✅ total DRAM (0.9.4) | ✅ DRAM **read/write** | — | ✅ total | 🏆 mactop |
+| **Network / Disk I/O** | ❌ | ✅ both | ❌ | ❌ | 🏆 mactop |
+| **Fan RPM** | ❌ | ✅ (+control) | ✅ | ❌ | 🏆 mactop / macmon |
+| **SoC-aware power scaling** | ✅ 16 M1–M4 profiles | dynamic (rolling peak) | dynamic | static | 🏆 **agtop** |
+| **Session energy integral** | ✅ `total_package_joules` | — | — | — | 🏆 **agtop** |
+| **Headless export** | NDJSON + Prometheus | JSON/YAML/XML/CSV/TOON + Prometheus | JSON + Prometheus | — | 🏆 mactop |
+| **Programmatic API** | ✅ sync/async/threaded Python + `to_pandas()` | CLI only | Rust **library** | — | 🏆 **agtop** (Python) / macmon (Rust) |
+| **Desktop integration** | terminal only | **menu bar + overlay HUD** | small-window mode | terminal only | 🏆 mactop |
+| **Theming / color** | adaptive truecolor, `NO_COLOR`, tier degradation | `theme.json`, 20 layouts, light/dark | 6 themes | basic | 🏆 mactop |
+| **Runtime interactivity** | sort/filter/pause, alerts (BW/PKG/swap/thermal) | rich grids, mouse, tabs | charts, theme switch | minimal | 🤝 agtop / mactop |
+| **Maintenance** | active (0.9.x) | active (v2) | active (0.7.x) | dormant | 🤝 agtop/mactop/macmon |
+
+### Tally
+- **mactop:** broadest — wins distribution-portability, overhead, process/GPU, bandwidth detail, net/disk, desktop integration, export breadth, theming.
+- **agtop:** wins SoC-aware scaling, session-energy integration, and the Python programmatic API.
+- **macmon:** no outright category wins but is the efficiency/portability sweet spot and ties the sudoless trio.
+- **asitop:** no wins; superseded on every axis, and uniquely still needs root.
+
+---
+
+## 4. Verdict & niches
+
+**mactop (v2) is the feature king.** If you want the most metrics on screen (net/disk I/O, fan, per-process GPU, DRAM read/write), a menu-bar/overlay presence, the widest export menu, and a zero-dependency binary, it wins for general power users and DevOps. The cost is that extending it means Go + `cgo`.
+
+**macmon is the minimalist's pick.** Rust + `ratatui` gives the lowest overhead and the cleanest single-binary install, with JSON/Prometheus for scripting and a Rust library for embedding. If you live in the terminal and want fast + lean, it's hard to beat.
+
+**asitop is effectively retired.** It still requires `sudo` (its `powermetrics` dependency), uses `psutil`, and has no releases. `agtop` is the drop-in successor — same metric language, none of the root requirement or subprocess cost.
+
+**agtop's defensible niche is being the *programmable, Python-native, ML-aware* profiler — not the broadest TUI.** Its honest differentiators:
+
+1. **First-class Python API.** Alone in this field, `agtop` exposes `Monitor`/`AsyncMonitor`/`Profiler` with threshold callbacks and `to_pandas()`. You can instrument a training loop, profile a CoreML/MLX inference run, and pull the result straight into a DataFrame — no parsing a CLI's JSON. (`macmon` offers a Rust library; `agtop` offers the Python one data scientists actually work in.)
+2. **SoC-accurate power context.** 16 M1–M4 reference profiles mean the power charts scale to *your* chip's real ceilings out of the box, rather than to a rolling observed peak. On an M4 Max you immediately see how hard you're pushing an M4 Max.
+3. **Session energy as a metric.** Cumulative ∫(package power)·dt over a run (`total_package_joules`, surfaced live in the TUI) — a profiling primitive the others don't expose.
+
+**Where agtop honestly trails:** no network/disk I/O, no fan RPM, no per-process GPU, no menu-bar/overlay, fewer export formats, and a Python interpreter's startup/footprint versus a Go or Rust binary. ANE wattage and memory bandwidth — once cited as agtop differentiators — are now table stakes (all four track ANE; mactop/asitop also report bandwidth, mactop in more detail).
+
+**Bottom line:** pick **mactop** for breadth and desktop integration, **macmon** for a lean Rust binary, and **agtop** when you want to *program against* Apple Silicon telemetry from Python — profiling ML workloads with SoC-accurate context and a pandas-friendly API — without sudo.

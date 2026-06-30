@@ -10,6 +10,8 @@ Performance monitoring CLI for Apple Silicon.
 
 The original `asitop` shells out to Apple's `powermetrics` CLI, a high-level tool that requires `sudo`, writes to temp files, and returns pre-aggregated metrics at a fixed cadence. `agtop` instead calls the underlying IOReport C library directly via Python ctypes — the same library that `powermetrics` itself uses internally. This low-level approach runs unprivileged, avoids subprocess and file I/O overhead, gives access to raw per-core residency states and energy counters, and lets the application control its own sampling interval and delta computation.
 
+**Why another `*top`?** `mactop` (Go) and `macmon` (Rust) are excellent sudoless TUIs — mactop the broadest in features, macmon the leanest binary. `agtop`'s reason to exist is different: it is the **programmable, Python-native** one. A public API (`Monitor` / `Profiler`, `to_pandas()`) lets you instrument and profile your *own* workloads — local LLM / CoreML / MLX inference, training loops — from Python, with SoC-accurate power context and cumulative session energy. It's the data scientist's profiler, not just a dashboard — and unlike its `asitop` ancestor, it needs no `sudo`. See [Where agtop fits](#where-agtop-fits) for the head-to-head.
+
 ## Key Features
 
 - **Textual TUI dashboard**: `Sparkline` charts for E-CPU, P-CPU, GPU, ANE, RAM, and power — rendered by the [Textual](https://textual.textualize.io/) framework. Supports `dots` (braille) and `block` glyph styles. Resizes cleanly; no raw ANSI escape sequences.
@@ -20,6 +22,21 @@ The original `asitop` shells out to Apple's `powermetrics` CLI, a high-level too
 - **Profile-aware power scaling**: `profile` mode (default) scales charts against the SoC's known reference wattage for stable cross-session comparison; `auto` mode scales against rolling peak.
 - **SoC compatibility**: 16 built-in M1–M4 profiles (base, Pro, Max, Ultra). Unknown future chips fall back to tier-based defaults using the latest generation's reference values.
 - **CPU/GPU temperature**: reads die temperatures from the Apple SMC (System Management Controller) via IOKit ctypes. Displayed inline in gauge titles (e.g. "P-CPU Usage: 12% @ 3504 MHz (58°C)"). No sudo required.
+
+## Where agtop fits
+
+How the sudoless, in-process field stacks up:
+
+| | agtop | [mactop](https://github.com/metaspartan/mactop) | [macmon](https://github.com/vladkens/macmon) |
+|---|:---:|:---:|:---:|
+| Unprivileged, in-process (no sudo) | ✅ | ✅ | ✅ |
+| CPU/GPU/ANE power · temps · bandwidth | ✅ | ✅ | ✅ |
+| Python API (`Monitor`/`Profiler`, `to_pandas()`) | ✅ | — | — |
+| SoC-accurate power scaling (M1–M4 profiles) | ✅ | rolling peak | rolling peak |
+| Session energy (∫ package power) | ✅ | — | — |
+| Net/disk I/O · fan RPM · menu bar | — | ✅ | fan only |
+
+For the broadest TUI and DevOps feature set (network/disk I/O, a menu-bar app, more export formats), use **mactop**; for the leanest single Rust binary, **macmon**. Full head-to-head: [docs/REVIEW-architecture-comparison.md](docs/REVIEW-architecture-comparison.md).
 
 ## Installation
 
