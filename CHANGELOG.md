@@ -6,6 +6,11 @@ This project follows a Keep a Changelog-style format and uses version tags for r
 
 ## [Unreleased]
 
+## [0.9.6] - 2026-06-30
+
+### Added
+- **Esc cancels the process filter:** pressing `/` opens a live regex filter that previously could only be closed with `Enter` (committing the typed pattern). `Esc` now cancels the in-progress edit — discarding the typed text, reverting the live-applied filter to the value active before the field was opened, and restoring focus — matching the htop/vim/fzf cancel convention. `Enter` still commits as before.
+
 ## [0.9.5] - 2026-06-29
 
 ### Added
