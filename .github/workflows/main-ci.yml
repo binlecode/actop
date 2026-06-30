@@ -20,70 +20,29 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Resolve formula Python version
-        id: formula-python
-        run: |
-          set -euo pipefail
-          FORMULA_PY="$(sed -n 's/.*depends_on "python@\([0-9]\+\.[0-9]\+\)".*/\1/p' Formula/actop.rb | head -n1)"
-          if [ -z "$FORMULA_PY" ]; then
-            echo "Could not resolve python@X.Y from Formula/actop.rb" >&2
-            exit 1
-          fi
-          echo "version=$FORMULA_PY" >> "$GITHUB_OUTPUT"
-
-      - name: Set up Python (formula-aligned)
+      - name: Set up Python
         uses: actions/setup-python@v5
         with:
-          python-version: ${{ steps.formula-python.outputs.version }}
-
-      - name: Create isolated virtualenv
-        run: |
-          set -euo pipefail
-          python -m venv .ci-venv
-          .ci-venv/bin/python -m pip install --upgrade pip
-
-      - name: Install formula resources into venv
-        run: |
-          set -euo pipefail
-          python - <<'PY' > /tmp/formula_requirements.txt
-          from pathlib import Path
-          import re
-
-          text = Path("Formula/actop.rb").read_text(encoding="utf-8")
-          resources = re.findall(r'resource "([^"]+)" do\n\s+url "([^"]+)"', text)
-          if not resources:
-              raise SystemExit("No resources found in Formula/actop.rb")
-
-          for name, url in resources:
-              filename = url.rsplit("/", 1)[-1]
-              for suffix in (".tar.gz", ".zip", ".whl"):
-                  if filename.endswith(suffix):
-                      filename = filename[: -len(suffix)]
-                      break
-
-              match = re.match(rf"^{re.escape(name)}-(.+)$", filename)
-              version = match.group(1) if match else filename.split("-")[-1]
-              print(f"{name}=={version}")
-          PY
-
-          .ci-venv/bin/python -m pip install -r /tmp/formula_requirements.txt
+          # Match the Homebrew formula's python@3.13 (tap repo binlecode/homebrew-actop).
+          python-version: "3.13"
 
       - name: Install project and dev tools
         run: |
           set -euo pipefail
-          .ci-venv/bin/python -m pip install -e .
-          .ci-venv/bin/python -m pip install ruff pytest
+          python -m pip install --upgrade pip
+          python -m pip install -e .
+          python -m pip install ruff pytest
 
       - name: Lint and format check
         run: |
           set -euo pipefail
-          .ci-venv/bin/python -m ruff check .
-          .ci-venv/bin/python -m ruff format --check .
+          python -m ruff check .
+          python -m ruff format --check .
 
       - name: Run CI-safe tests
         run: |
           set -euo pipefail
-          .ci-venv/bin/python -m pytest -m "not local" -q
+          python -m pytest -m "not local" -q
 
       - name: CLI smoke test
-        run: .ci-venv/bin/python -m actop.actop --help
+        run: python -m actop.actop --help

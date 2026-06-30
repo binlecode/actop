@@ -1,0 +1,47 @@
+#!/usr/bin/env bash
+# Hard rule: redaction check. Scans staged additions for common secret/credential
+# patterns and blocks the commit if any are found. Bypass (discouraged) only with
+# `git commit --no-verify`.
+#
+# Enabled via:  git config core.hooksPath .githooks
+set -euo pipefail
+
+# Length-anchored patterns so bare prefixes (e.g. in this file) don't self-match.
+patterns=(
+  'ghp_[A-Za-z0-9]{36}'
+  'gho_[A-Za-z0-9]{36}'
+  'ghu_[A-Za-z0-9]{36}'
+  'ghs_[A-Za-z0-9]{36}'
+  'ghr_[A-Za-z0-9]{36}'
+  'github_pat_[A-Za-z0-9_]{60,}'
+  'pypi-[A-Za-z0-9_-]{50,}'
+  'AKIA[0-9A-Z]{16}'
+  'AIza[0-9A-Za-z_-]{35}'
+  'xox[baprs]-[A-Za-z0-9-]{10,}'
+  '-----BEGIN [A-Z ]*PRIVATE KEY-----'
+)
+
+# Newly added lines in staged changes, excluding the hooks themselves.
+added="$(git diff --cached --no-color -U0 --diff-filter=ACM -- . ':(exclude).githooks/*' \
+  | grep '^+' | grep -v '^+++' || true)"
+
+hits=""
+for p in "${patterns[@]}"; do
+  match="$(printf '%s\n' "$added" | grep -onE -e "$p" || true)"
+  if [[ -n "$match" ]]; then
+    hits+="  /${p}/"$'\n'
+  fi
+done
+
+if [[ -n "$hits" ]]; then
+  echo "" >&2
+  echo "BLOCKED: staged changes appear to contain a secret/credential (redaction check)." >&2
+  echo "Matched pattern(s):" >&2
+  printf '%s' "$hits" >&2
+  echo "" >&2
+  echo "Move secrets to ~/env-secrets/ or GitHub Actions secrets — never commit them." >&2
+  echo "If this is a false positive: git commit --no-verify" >&2
+  exit 1
+fi
+
+exit 0

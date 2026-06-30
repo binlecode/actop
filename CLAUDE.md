@@ -45,7 +45,7 @@ This file is the single source of truth for repository guidelines, used by Claud
 
 ## Release Process
 
-Releases are driven by `scripts/tag_release.sh [version]`. CI handles formula sync — never manually edit `Formula/actop.rb` during releases. See `docs/GUIDE-cicd-release.md` for the full runbook.
+`main` is **PR-only** (branch protection + `.githooks/pre-commit` redaction check and `.githooks/pre-push` guard; run `git config core.hooksPath .githooks` once). Bump the version + CHANGELOG via a PR, merge, then tag with `scripts/tag_release.sh [version]`. The Homebrew formula lives in the separate tap repo `binlecode/homebrew-actop` (not this repo); CI syncs it on tag and publishes to PyPI via OIDC. See `docs/GUIDE-cicd-release.md` for the full runbook.
 
 ## SDLC & Architectural Documentation
 

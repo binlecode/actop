@@ -11,17 +11,23 @@ Examples:
   scripts/tag_release.sh 0.1.3
   scripts/tag_release.sh v0.1.3
 
+Prerequisite:
+  main is PR-only. Bump pyproject.toml version + CHANGELOG.md via a PR and merge
+  it BEFORE tagging, then pull main locally. This script only tags an already-merged
+  commit; it does not push commits to main (and cannot — branch protection blocks it).
+
 Behavior:
   - Reads version from pyproject.toml by default
   - If version is provided, it must match pyproject.toml
   - Verifies working tree is clean
   - Fast-forwards local main from origin/main before tagging
   - Verifies tag does not already exist locally/remotely
-  - Pushes main branch
+  - Verifies local main is in sync with origin/main (no-op push)
   - Creates and pushes tag vX.Y.Z
 
-This tag push triggers .github/workflows/release-formula.yml.
-Formula synchronization is CI-driven; do not manually commit Formula/actop.rb for releases.
+This tag push triggers release-formula.yml (syncs the formula in the tap repo
+binlecode/homebrew-actop) and publish-pypi.yml (publishes to PyPI via OIDC).
+Formula sync is CI-driven and lives in the tap repo — there is no formula in this repo.
 EOF
 }
 
