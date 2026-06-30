@@ -73,7 +73,7 @@ HELP_TEXT = """\
   s          Cycle process sort (CPU% → RSS → PID)
   g          Toggle chart glyph (braille dots / blocks)
   t          Toggle the process table
-  /          Filter processes by regex
+  /          Filter processes by regex (when table shown)
   ?          Show / hide this help
   esc        Cancel filter / close help
 
@@ -322,11 +322,20 @@ class AgtopApp(App):
         next_mode = "block" if dash.chart_glyph == "dots" else "dots"
         dash.set_chart_glyph(next_mode)
 
+    def check_action(self, action: str, parameters: tuple[object, ...]) -> bool | None:
+        if action == "toggle_filter":
+            # The regex filter only applies to the process table; when the table
+            # is hidden the binding is hidden + inert (False), reappearing on `t`.
+            return self._show_processes
+        return True
+
     def action_toggle_processes(self) -> None:
         table = self.query_one("#process-table", DataTable)
         self._show_processes = not self._show_processes
         table.display = self._show_processes
         self._refresh_process_table()
+        # Re-evaluate check_action so the footer shows/hides `/  Filter` at once.
+        self.refresh_bindings()
 
     def _close_filter_input(self, inp) -> None:
         inp.display = False
@@ -336,6 +345,8 @@ class AgtopApp(App):
             self.set_focus(self.query_one("#hardware-dash", HardwareDashboard))
 
     def action_toggle_filter(self) -> None:
+        if not self._show_processes:
+            return  # filter applies only to the process table; no-op while hidden
         inp = self.query_one("#filter-input", Input)
         if inp.display:
             self._close_filter_input(inp)

@@ -78,7 +78,8 @@ def test_escape_cancels_filter_edit_and_hides_input():
     # the field. Drive the real key path through the mounted app and assert public
     # widget state only (no private attributes).
     async def _run():
-        app = AgtopApp(build_parser().parse_args([]))
+        # Opening the filter requires the process table to be visible.
+        app = AgtopApp(build_parser().parse_args(["--show-processes"]))
         async with app.run_test() as pilot:
             await pilot.pause()
             app.action_toggle_filter()  # open filter
@@ -97,3 +98,26 @@ def test_escape_cancels_filter_edit_and_hides_input():
     display, value = asyncio.run(_run())
     assert display is False  # field hidden
     assert value == ""  # typed text discarded (reverted)
+
+
+def test_filter_unavailable_until_process_table_shown():
+    # The `/` filter only applies to the process table, so its binding must be
+    # hidden + inert while the table is off, and become available once `t` shows
+    # the table. Drive public actions / check_action / widget state only.
+    async def _run():
+        app = AgtopApp(build_parser().parse_args([]))  # table off by default
+        async with app.run_test() as pilot:
+            await pilot.pause()
+            off = app.check_action("toggle_filter", ())  # hidden + inert
+            app.action_toggle_filter()  # body guard: should be a no-op
+            await pilot.pause()
+            hidden_while_off = app.query_one("#filter-input", Input).display
+            app.action_toggle_processes()  # reveal table (the `t` action)
+            await pilot.pause()
+            on = app.check_action("toggle_filter", ())  # now available
+            return off, hidden_while_off, on
+
+    off, hidden_while_off, on = asyncio.run(_run())
+    assert off is False  # binding hidden when table off
+    assert hidden_while_off is False  # `/` did not open the input
+    assert on is True  # binding available once table shown
