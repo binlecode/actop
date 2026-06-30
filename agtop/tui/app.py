@@ -6,6 +6,7 @@ import threading
 
 from textual.app import App, ComposeResult
 from textual import work
+from textual.binding import Binding
 from textual.containers import Horizontal, Vertical
 from textual.screen import ModalScreen
 from textual.widgets import DataTable, Footer, Header, Input, Static
@@ -74,7 +75,7 @@ HELP_TEXT = """\
   t          Toggle the process table
   /          Filter processes by regex
   ?          Show / hide this help
-  esc        Close this help
+  esc        Cancel filter / close help
 
 [b]Metric labels[/b]
 
@@ -209,6 +210,7 @@ class AgtopApp(App):
         ("t", "toggle_processes", "Processes"),
         ("/", "toggle_filter", "Filter"),
         ("question_mark", "show_help", "Help"),
+        Binding("escape", "cancel_filter", "Cancel filter", show=False),
     ]
 
     def __init__(self, args) -> None:
@@ -225,6 +227,8 @@ class AgtopApp(App):
         self._stop_polling = threading.Event()
         self._sort_mode = SORT_CPU
         self._filter_regex = self._config.process_filter_pattern
+        self._filter_regex_before_edit = self._config.process_filter_pattern
+        self._filter_text_before_edit = ""
         self._last_processes = {"cpu": [], "memory": []}
         self._show_processes = bool(self._config.show_processes)
         self._splash_frame = 0
@@ -324,17 +328,34 @@ class AgtopApp(App):
         table.display = self._show_processes
         self._refresh_process_table()
 
+    def _close_filter_input(self, inp) -> None:
+        inp.display = False
+        if self._show_processes:
+            self.set_focus(self.query_one("#process-table", DataTable))
+        else:
+            self.set_focus(self.query_one("#hardware-dash", HardwareDashboard))
+
     def action_toggle_filter(self) -> None:
         inp = self.query_one("#filter-input", Input)
         if inp.display:
-            inp.display = False
-            if self._show_processes:
-                self.set_focus(self.query_one("#process-table", DataTable))
-            else:
-                self.set_focus(self.query_one("#hardware-dash", HardwareDashboard))
+            self._close_filter_input(inp)
         else:
+            self._filter_regex_before_edit = self._filter_regex
+            self._filter_text_before_edit = inp.value
             inp.display = True
             inp.focus()
+
+    def action_cancel_filter(self) -> None:
+        inp = self.query_one("#filter-input", Input)
+        if not inp.display:
+            return  # esc does nothing outside filter mode
+        # Discard the in-progress edit and revert the live-applied filter to the
+        # value active before the field was opened. Setting inp.value re-runs
+        # on_input_changed (recomputing _filter_regex from the restored text);
+        # the explicit assignment that follows keeps the intent unambiguous.
+        inp.value = self._filter_text_before_edit
+        self._filter_regex = self._filter_regex_before_edit
+        self._close_filter_input(inp)
 
     def on_input_submitted(self, event: Input.Submitted) -> None:
         if event.input.id == "filter-input":
@@ -346,11 +367,7 @@ class AgtopApp(App):
                     pass
             else:
                 self._filter_regex = self._config.process_filter_pattern
-            event.input.display = False
-            if self._show_processes:
-                self.set_focus(self.query_one("#process-table", DataTable))
-            else:
-                self.set_focus(self.query_one("#hardware-dash", HardwareDashboard))
+            self._close_filter_input(event.input)
             # _filter_regex is read by the polling loop on each iteration;
             # no need to restart the worker.
 

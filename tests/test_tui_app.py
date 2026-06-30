@@ -1,7 +1,7 @@
 import asyncio
 
 import pytest
-from textual.widgets import Static
+from textual.widgets import Input, Static
 
 from agtop import __version__
 from agtop.agtop import build_parser
@@ -28,7 +28,7 @@ def test_opening_banner_and_header_show_version():
 
 
 def test_status_bar_exposes_only_supported_actions():
-    keys = {binding[0] for binding in AgtopApp.BINDINGS}
+    keys = {(b[0] if isinstance(b, tuple) else b.key) for b in AgtopApp.BINDINGS}
 
     # Kept utilities, including the help overlay.
     assert {"q", "p", "s", "g", "t", "/", "question_mark"} <= keys
@@ -71,3 +71,29 @@ def test_help_overlay_documents_keys_metrics_and_alert_tokens():
     # The chart time-window token and color-degradation behavior are documented.
     assert "span" in help_text
     assert "NO_COLOR" in help_text
+
+
+def test_escape_cancels_filter_edit_and_hides_input():
+    # Esc must cancel an in-progress filter edit: discard the typed text and hide
+    # the field. Drive the real key path through the mounted app and assert public
+    # widget state only (no private attributes).
+    async def _run():
+        app = AgtopApp(build_parser().parse_args([]))
+        async with app.run_test() as pilot:
+            await pilot.pause()
+            app.action_toggle_filter()  # open filter
+            await pilot.pause()
+            inp = app.query_one("#filter-input", Input)
+            assert inp.display is True
+            inp.focus()
+            for ch in "brave":  # type a regex
+                await pilot.press(ch)
+            await pilot.pause()
+            assert inp.value == "brave"
+            await pilot.press("escape")  # cancel via the real key binding
+            await pilot.pause()
+            return inp.display, inp.value
+
+    display, value = asyncio.run(_run())
+    assert display is False  # field hidden
+    assert value == ""  # typed text discarded (reverted)
