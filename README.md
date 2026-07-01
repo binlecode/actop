@@ -61,22 +61,22 @@ For the broadest TUI and DevOps feature set (network/disk I/O, a menu-bar app, m
 ### Homebrew (recommended)
 
 ```shell
-brew tap --custom-remote binlecode/actop https://github.com/binlecode/actop.git
+brew tap binlecode/actop
 brew install binlecode/actop/actop
 ```
 
-To tell Homebrew to trust your tap or specific formula:
-
-- Trust the specific formula only (Recommended):
-  ```shell
-  brew trust --formula binlecode/actop/actop
-  ```
+The tap name `binlecode/actop` resolves to the formula repo
+[`binlecode/homebrew-actop`](https://github.com/binlecode/homebrew-actop) (Homebrew's
+`user/repo` → `github.com/user/homebrew-repo` convention). The formula is
+self-contained: it depends on Homebrew's `python@3.13` and installs `actop` into its
+own isolated `libexec` virtualenv — it does **not** use (or interfere with) the macOS
+system Python.
 
 Upgrade / uninstall:
 
 ```shell
 brew upgrade binlecode/actop/actop
-brew uninstall binlecode/actop/actop
+brew uninstall binlecode/actop/actop && brew untap binlecode/actop
 ```
 
 ### uv (recommended for non-Homebrew users)
