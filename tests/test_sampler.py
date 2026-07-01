@@ -58,9 +58,9 @@ def test_sampler_sample_returns_valid_metrics():
         assert isinstance(cpu, dict)
         for key in [
             "E-Cluster_active",
-            "E-Cluster_freq_Mhz",
+            "E-Cluster_freq_MHz",
             "P-Cluster_active",
-            "P-Cluster_freq_Mhz",
+            "P-Cluster_freq_MHz",
             "ane_W",
             "cpu_W",
             "gpu_W",

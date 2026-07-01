@@ -249,13 +249,13 @@ class IOReportSampler:
 
         cpu_metrics = {
             "E-Cluster_active": 0,
-            "E-Cluster_freq_Mhz": 0,
+            "E-Cluster_freq_MHz": 0,
             # DVFS ceiling per cluster (silicon max), from the frequency table
             # discovered at startup; used by the throttle indicator.
-            "E-Cluster_max_freq_Mhz": max(ecpu_freqs) if ecpu_freqs else 0,
+            "E-Cluster_max_freq_MHz": max(ecpu_freqs) if ecpu_freqs else 0,
             "P-Cluster_active": 0,
-            "P-Cluster_freq_Mhz": 0,
-            "P-Cluster_max_freq_Mhz": max(pcpu_freqs) if pcpu_freqs else 0,
+            "P-Cluster_freq_MHz": 0,
+            "P-Cluster_max_freq_MHz": max(pcpu_freqs) if pcpu_freqs else 0,
             # Time-in-frequency-state distribution over the sample interval
             # (idle/low/mid/high buckets, relative to the cluster's DVFS
             # ceiling); the throttle indicator above uses only the ceiling
@@ -281,12 +281,12 @@ class IOReportSampler:
             sys_idx = cluster_idx
             cpu_metrics["e_core"].append(sys_idx)
             cpu_metrics["E-Cluster" + str(sys_idx) + "_active"] = active
-            cpu_metrics["E-Cluster" + str(sys_idx) + "_freq_Mhz"] = freq
+            cpu_metrics["E-Cluster" + str(sys_idx) + "_freq_MHz"] = freq
             e_freqs.append(freq)
             e_actives.append(active)
 
         if e_freqs:
-            cpu_metrics["E-Cluster_freq_Mhz"] = max(e_freqs)
+            cpu_metrics["E-Cluster_freq_MHz"] = max(e_freqs)
         if e_actives:
             cpu_metrics["E-Cluster_active"] = int(sum(e_actives) / len(e_actives))
 
@@ -297,12 +297,12 @@ class IOReportSampler:
             sys_idx = cluster_idx
             cpu_metrics["p_core"].append(sys_idx)
             cpu_metrics["P-Cluster" + str(sys_idx) + "_active"] = active
-            cpu_metrics["P-Cluster" + str(sys_idx) + "_freq_Mhz"] = freq
+            cpu_metrics["P-Cluster" + str(sys_idx) + "_freq_MHz"] = freq
             p_freqs.append(freq)
             p_actives.append(active)
 
         if p_freqs:
-            cpu_metrics["P-Cluster_freq_Mhz"] = max(p_freqs)
+            cpu_metrics["P-Cluster_freq_MHz"] = max(p_freqs)
         if p_actives:
             cpu_metrics["P-Cluster_active"] = int(sum(p_actives) / len(p_actives))
 
@@ -394,12 +394,12 @@ _CORE_INDEX_PATTERN = re.compile(r"^[EP]CPU(\d+)")
 def _is_int_cpu_metric(key):
     if key in (
         "E-Cluster_active",
-        "E-Cluster_freq_Mhz",
+        "E-Cluster_freq_MHz",
         "P-Cluster_active",
-        "P-Cluster_freq_Mhz",
+        "P-Cluster_freq_MHz",
     ):
         return True
-    return key.endswith("_active") or key.endswith("_freq_Mhz")
+    return key.endswith("_active") or key.endswith("_freq_MHz")
 
 
 def _parse_core_index(channel_name, prefix):

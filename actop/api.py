@@ -24,7 +24,7 @@ def _sample_to_snapshot(
         CoreSample(
             index=sys_idx,
             active_pct=int(cm.get("E-Cluster" + str(sys_idx) + "_active", 0)),
-            freq_mhz=int(cm.get("E-Cluster" + str(sys_idx) + "_freq_Mhz", 0)),
+            freq_mhz=int(cm.get("E-Cluster" + str(sys_idx) + "_freq_MHz", 0)),
         )
         for sys_idx in cm.get("e_core", [])
     ]
@@ -32,7 +32,7 @@ def _sample_to_snapshot(
         CoreSample(
             index=sys_idx,
             active_pct=int(cm.get("P-Cluster" + str(sys_idx) + "_active", 0)),
-            freq_mhz=int(cm.get("P-Cluster" + str(sys_idx) + "_freq_Mhz", 0)),
+            freq_mhz=int(cm.get("P-Cluster" + str(sys_idx) + "_freq_MHz", 0)),
         )
         for sys_idx in cm.get("p_core", [])
     ]
@@ -47,11 +47,11 @@ def _sample_to_snapshot(
         gpu_util_pct=float(gm["active"]),
         cpu_temp_c=sample.cpu_temp_c,
         gpu_temp_c=sample.gpu_temp_c,
-        ecpu_freq_mhz=int(cm["E-Cluster_freq_Mhz"]),
-        pcpu_freq_mhz=int(cm["P-Cluster_freq_Mhz"]),
+        ecpu_freq_mhz=int(cm["E-Cluster_freq_MHz"]),
+        pcpu_freq_mhz=int(cm["P-Cluster_freq_MHz"]),
         gpu_freq_mhz=int(gm["freq_MHz"]),
-        ecpu_max_freq_mhz=int(cm.get("E-Cluster_max_freq_Mhz", 0)),
-        pcpu_max_freq_mhz=int(cm.get("P-Cluster_max_freq_Mhz", 0)),
+        ecpu_max_freq_mhz=int(cm.get("E-Cluster_max_freq_MHz", 0)),
+        pcpu_max_freq_mhz=int(cm.get("P-Cluster_max_freq_MHz", 0)),
         gpu_max_freq_mhz=int(gm.get("max_freq_MHz", 0)),
         ecpu_residency_pct=dict(cm.get("E-Cluster_residency_pct", _EMPTY_RESIDENCY)),
         pcpu_residency_pct=dict(cm.get("P-Cluster_residency_pct", _EMPTY_RESIDENCY)),
