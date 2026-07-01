@@ -39,6 +39,11 @@ throttled right now."*
 
 # Part A — Rename `agtop → actop`
 
+> **✅ Done, and merged into design docs.** The durable substance (identity, naming
+> rationale, positioning, distribution model) now lives in
+> [`DESIGN-system.md` §1.1](DESIGN-system.md). The checklist below is retained as the
+> historical migration record and can be archived once no longer useful.
+
 ### Why
 - `agtop` = "Apple **G**PU top" — **too narrow** (we monitor CPU/GPU/ANE/mem/power/thermal).
 - `actop` = "Apple **C**hip top" — whole-chip, on-mission; plus a second reading **AC = power**.

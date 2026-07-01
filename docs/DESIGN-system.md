@@ -40,6 +40,17 @@ This document provides a highly detailed system design and implementation refere
 2. **Private API Interop**: Uses the private C library `libIOReport.dylib` to capture real-time Energy Model (Joules), DVFS (residency/frequencies), and core active percentages.
 3. **Zero Sudo Requirements**: Does not require root privileges. By querying the `AppleSMC` service and targeting the safe non-root `IOReport` channels, the tool runs securely under ordinary user accounts.
 
+### 1.1 Identity, Naming & Distribution Model (since v1.0.0)
+
+`actop` = **"Apple Chip top"** — a whole-chip Apple-Silicon `*top` (CPU / GPU / ANE / memory / power / thermal), with a second reading of *AC = power*. It was renamed from **`agtop`** ("Apple **G**PU top") at **v1.0.0 (2026-06-30)**: the old name undersold a whole-chip monitor, and the PyPI name `agtop` was squatted by an unrelated tool, blocking `pip install`.
+
+- **Clean break — no `agtop` compatibility layer anywhere.** The command, Python package, import path (`actop.*`), Homebrew formula (`class Actop`), and the Prometheus metric prefix (`agtop_*` → `actop_*`) are all `actop`. There is no deprecated alias, module, or formula shim.
+- **Mission / positioning.** The sudoless, in-process, whole-chip Apple-Silicon monitor that surfaces decision-grade signals peers don't — per-process attribution, bandwidth saturation, throttle state, DVFS residency — all without `powermetrics`/`sudo`. The Python API (`api.py` `Monitor` / `Profiler`) is the programmable layer underneath, not the headline.
+- **Distribution model.**
+  - **PyPI** (`pip install actop` / `pipx install actop`) published via **OIDC Trusted Publishing** — no stored token in CI.
+  - **Homebrew** via a **dedicated tap repo `binlecode/homebrew-actop`** (`brew tap binlecode/actop && brew install actop`). The formula does **not** live in this repo; CI syncs it to the tap on each `v*` tag. The keg is self-contained on Homebrew's `python@3.13` (isolated `libexec` venv; the macOS system Python is never used).
+  - **`main` is strictly PR-only** (branch protection + `enforce_admins` + a local `.githooks/pre-push` guard); CI never pushes to `main`. Release mechanics and secret handling are documented in [`GUIDE-cicd-release.md`](GUIDE-cicd-release.md).
+
 ---
 
 ## 2. Low-Level Native Bindings (`native_sys.py`)
@@ -195,7 +206,7 @@ The user interface is powered by Textual. It is structured into a dynamic multi-
 
 ```
 ┌──────────────────────────────────────────────────────────────────────────────┐
-│  actop  v0.9.x · [CPU Brand]    E-cores: X  P-cores: Y        [HH:MM:SS]     │
+│  actop  v1.0.0 · [CPU Brand]    E-cores: X  P-cores: Y        [HH:MM:SS]     │
 ├──────────────────────────────────────┬───────────────────────────────────────┤
 │ P-CPU 24% @3200MHz (48°C) avg 19% max 61% │  PID   Command    CPU%  MEM  THD  │
 │ ⠋⠙⠹⠸⠼⠴⠦ (Braille util chart)             │  ──────────────────────────────   │
