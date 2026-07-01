@@ -15,7 +15,12 @@ from actop import __version__
 from actop.api import Monitor
 from actop.config import create_dashboard_config
 from actop.tui.widgets import HardwareDashboard, MetricsUpdated
-from actop.utils import get_ram_metrics_dict, get_soc_info, get_top_processes
+from actop.utils import (
+    attribute_power,
+    get_ram_metrics_dict,
+    get_soc_info,
+    get_top_processes,
+)
 
 _SPINNER_FRAMES = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"]
 
@@ -33,8 +38,15 @@ SORT_LABELS = {
 _SORT_CYCLE = [SORT_CPU, SORT_POWER, SORT_MEMORY, SORT_PID]
 
 
-def sort_processes(process_metrics, sort_mode, limit):
-    """Return a sorted process list based on the active sort mode."""
+def sort_processes(process_metrics, sort_mode, limit, cpu_watts=0.0, gpu_watts=0.0):
+    """Return a sorted process list based on the active sort mode.
+
+    cpu_watts/gpu_watts are only used by SORT_POWER: ordering by attributed
+    watts isn't the same as ordering by cpu_time_share alone once GPU is
+    involved (a process can have a high GPU share and a low CPU share, and
+    cpu_watts/gpu_watts differ in magnitude), so the actual watts values are
+    needed, not just the CPU-time proxy.
+    """
     if sort_mode == SORT_MEMORY:
         return process_metrics.get("memory", [])[:limit]
     elif sort_mode == SORT_PID:
@@ -42,10 +54,19 @@ def sort_processes(process_metrics, sort_mode, limit):
         cpu_list.sort(key=lambda proc: proc.get("pid", 0))
         return cpu_list[:limit]
     elif sort_mode == SORT_POWER:
-        # PWR is proportional to cpu_time_share; sort explicitly so the label
-        # is honest (None shares — first samples — sink to the bottom).
+        # PWR is attributed CPU+GPU watts; sort explicitly so the label is
+        # honest (processes with no delta yet in either domain sink to the
+        # bottom).
         cpu_list = list(process_metrics.get("cpu", []))
-        cpu_list.sort(key=lambda proc: proc.get("cpu_time_share") or 0.0, reverse=True)
+        cpu_list.sort(
+            key=lambda proc: attribute_power(
+                proc.get("cpu_time_share"),
+                proc.get("gpu_time_share"),
+                cpu_watts,
+                gpu_watts,
+            ),
+            reverse=True,
+        )
         return cpu_list[:limit]
     else:
         # Default: CPU sort (already sorted by get_top_processes)
@@ -106,11 +127,13 @@ HELP_TEXT = """\
 [b]Process table[/b]
 
   CPU%       Per-process CPU utilization (Δ CPU-time over the interval)
-  PWR        Estimated per-process CPU power: the process's share of total
-             CPU-time × package CPU watts. CPU only — not GPU/ANE. An
-             estimate: a P-core-second draws more than an E-core-second, so
-             E-core-bound work is over-attributed and vice versa. "–" means
-             no reading yet (first sample after launch or resume).
+  PWR        Estimated per-process CPU+GPU power: the process's share of
+             total CPU-time × package CPU watts, plus its share of total
+             GPU-time (from Metal command-queue usage) × package GPU watts.
+             Not ANE. An estimate: a P-core-second draws more than an
+             E-core-second, so E-core-bound work is over-attributed and vice
+             versa. "–" means no CPU reading yet (first sample after launch
+             or resume).
   Σ shown    Reconciliation token below the table: watts the visible rows
              account for vs total package CPU watts (a partition of it).
 
@@ -265,6 +288,7 @@ class ActopApp(App):
         self._filter_text_before_edit = ""
         self._last_processes = {"cpu": [], "memory": []}
         self._last_cpu_watts = 0.0
+        self._last_gpu_watts = 0.0
         self._show_processes = bool(self._config.show_processes)
         self._splash_frame = 0
         self._sampler_ready = False
@@ -333,6 +357,7 @@ class ActopApp(App):
         self.query_one("#hardware-dash", HardwareDashboard).update_metrics(message)
         self._last_processes = message.processes
         self._last_cpu_watts = message.snapshot.cpu_watts
+        self._last_gpu_watts = message.snapshot.gpu_watts
         self._refresh_process_table()
 
     def action_toggle_pause(self) -> None:
@@ -461,18 +486,28 @@ class ActopApp(App):
             limit = max(5, table.content_size.height - 1)
         except Exception:
             limit = self._config.process_display_count
-        sorted_procs = sort_processes(self._last_processes, self._sort_mode, limit)
         cpu_watts = self._last_cpu_watts
+        gpu_watts = self._last_gpu_watts
+        sorted_procs = sort_processes(
+            self._last_processes, self._sort_mode, limit, cpu_watts, gpu_watts
+        )
         shown_pwr = 0.0
         for proc in sorted_procs:
-            # PWR is a CPU-time-share partition of package CPU watts, computed
-            # here because the TUI owns cpu_watts. A None share (first sample /
-            # just resumed) renders "–" rather than a misleading 0.0.
-            share = proc.get("cpu_time_share")
-            if share is None:
+            # PWR is a CPU+GPU time-share partition of package watts, computed
+            # here because the TUI owns cpu_watts/gpu_watts. CPU is the
+            # primary signal (every process eventually gets a cpu_time_share;
+            # gpu_time_share is 0.0, not None, for the common case of a
+            # process that never touches the GPU) -- "–" triggers on a
+            # pending first CPU sample alone. A pending GPU sample (share_gpu
+            # is None because a brand-new Metal client has no delta yet)
+            # just contributes 0 for this tick via attribute_power rather
+            # than blanking an otherwise-known CPU wattage.
+            share_cpu = proc.get("cpu_time_share")
+            share_gpu = proc.get("gpu_time_share")
+            if share_cpu is None:
                 pwr_cell = "–"
             else:
-                pwr_w = share * cpu_watts
+                pwr_w = attribute_power(share_cpu, share_gpu, cpu_watts, gpu_watts)
                 shown_pwr += pwr_w
                 pwr_cell = "{:.2f}W".format(pwr_w)
             table.add_row(
@@ -484,14 +519,14 @@ class ActopApp(App):
                 str(proc.get("num_threads", "")),
             )
 
-        # Reconciliation token: how much of package CPU power the visible rows
-        # account for. Σ over *all* PIDs equals cpu_watts by construction; the
-        # shown subset is a lower bound. Flagged an estimate (P/E-core skew,
-        # CPU only — not GPU/ANE).
-        if cpu_watts > 0:
+        # Reconciliation token: how much of package CPU+GPU power the visible
+        # rows account for. Σ over *all* PIDs equals cpu_watts + gpu_watts by
+        # construction; the shown subset is a lower bound. Flagged an
+        # estimate (P/E-core skew, CPU+GPU — not ANE).
+        if cpu_watts > 0 or gpu_watts > 0:
             table.border_subtitle = (
-                "Σ shown {:.1f}W / pkg CPU {:.1f}W · est CPU-time share".format(
-                    shown_pwr, cpu_watts
+                "Σ shown {:.1f}W / pkg CPU+GPU {:.1f}W · est CPU+GPU time share".format(
+                    shown_pwr, cpu_watts + gpu_watts
                 )
             )
         else:

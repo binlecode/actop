@@ -1,5 +1,6 @@
 import re
 import time
+from .gpu_registry import get_gpu_time_by_pid
 from .native_sys import (
     get_gpu_cores_native,
     get_sysctl_int,
@@ -103,6 +104,42 @@ def get_soc_info():
 
 
 _PROCESS_CPU_CACHE = {}
+_PROCESS_GPU_CACHE = {}
+
+
+def _delta_ns(cache, key, raw_value_ns, current_time):
+    """Delta raw_value_ns against the previous sample cached under key.
+
+    Returns (delta_ns, time_delta): delta_ns is None on a first sample for
+    this key (nothing to delta against yet), otherwise clamped to >= 0 (a
+    counter can reset mid-poll, e.g. a process closing one GPU client and
+    opening a new one). Updates the cache in place with (raw_value_ns,
+    current_time). Shared by the CPU and GPU per-process time passes below
+    so both use one delta/eviction algorithm instead of two copies of it.
+    """
+    delta_ns = None
+    time_delta = 0.0
+    if key in cache:
+        prev_value, prev_time = cache[key]
+        time_delta = current_time - prev_time
+        if time_delta > 0:
+            delta_ns = max(0, raw_value_ns - prev_value)
+    cache[key] = (raw_value_ns, current_time)
+    return delta_ns, time_delta
+
+
+def attribute_power(share_cpu, share_gpu, cpu_watts, gpu_watts):
+    """Watts attributed to a process from its CPU/GPU time shares.
+
+    A None share (first sample, no delta yet) contributes 0 rather than
+    blocking the other domain's contribution.
+    """
+    watts = 0.0
+    if share_cpu is not None:
+        watts += share_cpu * cpu_watts
+    if share_gpu is not None:
+        watts += share_gpu * gpu_watts
+    return watts
 
 
 def get_top_processes(limit=3, proc_filter=None):
@@ -125,34 +162,60 @@ def get_top_processes(limit=3, proc_filter=None):
     # delta. total_delta_ns is the denominator of the CPU-time share.
     current_keys = set()
     proc_stats = {}  # pid -> (cpu_percent, cpu_delta_ns or None)
+    start_tvsec_by_pid = {}
     total_delta_ns = 0
     for proc in native_procs:
         pid = proc["pid"]
-        key = (pid, proc.get("start_tvsec", 0))
+        start_tvsec = proc.get("start_tvsec", 0)
+        key = (pid, start_tvsec)
         current_keys.add(key)
-        cpu_time_ns = proc["cpu_time_ns"]
+        start_tvsec_by_pid[pid] = start_tvsec
+
+        cpu_delta_ns, time_delta = _delta_ns(
+            _PROCESS_CPU_CACHE, key, proc["cpu_time_ns"], current_time
+        )
         cpu_percent = 0.0
-        cpu_delta_ns = None  # None => first sample for this (pid, start)
-
-        if key in _PROCESS_CPU_CACHE:
-            prev_cpu, prev_time = _PROCESS_CPU_CACHE[key]
-            time_delta = current_time - prev_time
-            if time_delta > 0:
-                cpu_delta_ns = max(0, cpu_time_ns - prev_cpu)
-                cpu_percent = (cpu_delta_ns / 1_000_000_000) / time_delta * 100
-                total_delta_ns += cpu_delta_ns
-
-        _PROCESS_CPU_CACHE[key] = (cpu_time_ns, current_time)
+        if cpu_delta_ns is not None:
+            cpu_percent = (cpu_delta_ns / 1_000_000_000) / time_delta * 100
+            total_delta_ns += cpu_delta_ns
         proc_stats[pid] = (cpu_percent, cpu_delta_ns)
 
-    # Clean up dead (pid, start) pairs from cache
-    for dead_key in list(_PROCESS_CPU_CACHE.keys()):
-        if dead_key not in current_keys:
-            _PROCESS_CPU_CACHE.pop(dead_key, None)
+    # Pass 1b: same delta treatment for GPU time, sourced from the IOKit
+    # accelerator registry (gpu_registry.py) instead of libproc. A pid absent
+    # from get_gpu_time_by_pid() has never opened a GPU client -- that's a
+    # real, immediate 0.0, not a pending first sample, so it's handled in
+    # Pass 2 rather than seeded here.
+    #
+    # gpu_registry reads the IOKit registry directly, which (unlike libproc)
+    # doesn't require matching UID -- it can see privileged system processes
+    # (e.g. WindowServer) that get_native_processes() silently drops. Those
+    # pids never get a row (Pass 2 only iterates native_procs), so they're
+    # skipped here too: including them in total_gpu_delta_ns would dilute
+    # every visible pid's share against GPU time that can never be attributed
+    # to a row, breaking the same "numerator and denominator drawn from the
+    # same visible set" invariant the CPU pass already relies on.
+    gpu_time_by_pid = get_gpu_time_by_pid()
+    gpu_delta_by_pid = {}  # pid -> gpu_delta_ns or None (pending first sample)
+    total_gpu_delta_ns = 0
+    for pid, gpu_time_ns in gpu_time_by_pid.items():
+        if pid not in start_tvsec_by_pid:
+            continue
+        key = (pid, start_tvsec_by_pid[pid])
+        gpu_delta_ns, _ = _delta_ns(_PROCESS_GPU_CACHE, key, gpu_time_ns, current_time)
+        gpu_delta_by_pid[pid] = gpu_delta_ns
+        if gpu_delta_ns is not None:
+            total_gpu_delta_ns += gpu_delta_ns
+
+    # Clean up dead (pid, start) pairs from both caches
+    for cache in (_PROCESS_CPU_CACHE, _PROCESS_GPU_CACHE):
+        for dead_key in list(cache.keys()):
+            if dead_key not in current_keys:
+                cache.pop(dead_key, None)
 
     # Pass 2: build entries (applying the filter) and turn each PID's delta
-    # into a CPU-time share in [0, 1]. cpu_time_share is deliberately kept
-    # decoupled from watts — the TUI owns cpu_watts and multiplies.
+    # into a time share in [0, 1]. Shares are deliberately kept decoupled
+    # from watts — the TUI owns cpu_watts/gpu_watts and multiplies
+    # (utils.attribute_power).
     entries = []
     for proc in native_procs:
         pid = proc["pid"]
@@ -173,6 +236,17 @@ def get_top_processes(limit=3, proc_filter=None):
         else:
             cpu_time_share = 0.0  # fully idle poll: no divide-by-zero
 
+        if pid not in gpu_time_by_pid:
+            gpu_time_share = 0.0  # never opened a GPU client: real zero
+        else:
+            gpu_delta_ns = gpu_delta_by_pid.get(pid)
+            if gpu_delta_ns is None:
+                gpu_time_share = None  # has a client, first sample pending
+            elif total_gpu_delta_ns > 0:
+                gpu_time_share = gpu_delta_ns / total_gpu_delta_ns
+            else:
+                gpu_time_share = 0.0
+
         rss_bytes = proc["rss_bytes"]
         rss_mb = rss_bytes / 1024 / 1024
         memory_percent = (rss_bytes / total_ram * 100) if total_ram > 0 else 0.0
@@ -183,6 +257,7 @@ def get_top_processes(limit=3, proc_filter=None):
                 "command": command,
                 "cpu_percent": round(cpu_percent, 1),
                 "cpu_time_share": cpu_time_share,
+                "gpu_time_share": gpu_time_share,
                 "rss_mb": round(rss_mb, 1),
                 "memory_percent": round(memory_percent, 1),
                 "num_threads": proc["num_threads"],
