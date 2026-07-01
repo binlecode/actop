@@ -53,7 +53,7 @@ definitions *are* the source of truth for the audit.
 
 | # | Rule | What it means | Primary detector |
 |---|------|---------------|------------------|
-| R1 | **One-sided member** | A field / param / flag / dict key with only a write site OR only a read site. A value written but never read (or read but never written) is dead weight. | grep the name **both as a bare word AND as a quoted string** (`getattr(cfg, "field")` reads won't show up in a bare-word grep — this is the #1 R1 false positive, e.g. a config field read only via `getattr`); one missing = dead. Also beware serialization (`asdict`), `**kwargs`, and dataclass/NamedTuple auto-reads. |
+| R1 | **One-sided member** | A field / param / flag / dict key with only a write site OR only a read site. A value written but never read (or read but never written) is dead weight. **Sub-pattern — wiring gap (NOT dead):** a write-only field whose name/purpose matches a *hardcoded constant* used elsewhere (e.g. a config `*_window` that a deque hardcodes as `maxlen=500`) is a config knob the consumer ignores — the fix is a *decision* (wire up ⇒ behavior change, or delete as "hardcoded is intended"), not a mechanical prune. | grep the name **both as a bare word AND as a quoted string** (`getattr(cfg, "field")` reads won't show up in a bare-word grep — this is the #1 R1 false positive, e.g. a config field read only via `getattr`); one missing = dead. Also beware serialization (`asdict`), `**kwargs`, and dataclass/NamedTuple auto-reads. For a write-only field, grep the codebase for a hardcoded literal doing that field's job before proposing delete. |
 | R2 | **Redundant same-lifecycle state** | Two flags / attributes / code paths that are always written together and cleared together — they encode one concept and should be one. | read mutation sites; co-set / co-cleared pairs. |
 | R3 | **Wrapper bag / premature abstraction** | A class/dataclass that exists only as a return-value bag or one-liner passthrough with a single caller; *or* an ABC/Protocol/base class / factory whose only concrete implementation is one type. | classes whose only methods are `__init__`/field access with a single caller; ABC/Protocol with one subclass. A deliberate published-API seam or test seam is NOT a violation — confirm. |
 | R4 | **Wrong module home / layer back-edge** | Domain logic in a module that doesn't own the concern, or a lower layer importing a higher one (see the actop layer order below). | the import edge map (built in Pass 0), MODULE-scope edges only. |
@@ -260,7 +260,12 @@ The orchestrator (not a subagent) does this — keeps source-verification in one
    line. **Every DELETE/REMOVE proposal (R1/R3/R10) gets a blind re-read** — re-read the
    cited symbol with the verdict set aside and actively look for any reader / caller / test
    / serialization / re-export that disqualifies "dead". Only survivors enter the report.
-   (Empirically this flips a large fraction of removal candidates.)
+   (Empirically this flips a large fraction of removal candidates.) **Also reclassify, don't
+   just confirm:** for a write-only field, grep for a hardcoded literal doing its job
+   elsewhere — if one exists, it is a *wiring gap* (retitle the finding "decide wire-up vs
+   delete", carry a behavior-change flag), not a clean delete. (Real miss this happened on:
+   `usage_track_window` / `core_history_window` were "dead" until the deque `maxlen=500`
+   hardcode surfaced as their intended consumer.)
 
 3. **Prioritize — do not dump the whole backlog into one report.**
    - **Recurrence class first.** A violation *class* that recurs (R5 underscore leaks ×N,
