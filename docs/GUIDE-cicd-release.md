@@ -32,6 +32,22 @@ This document serves two purposes:
 - **`HOMEBREW_TAP_TOKEN`** secret on `binlecode/actop`: a fine-grained PAT scoped to `binlecode/homebrew-actop` with **Contents: Read/write**. Set via `gh secret set HOMEBREW_TAP_TOKEN --repo binlecode/actop`.
 - **PyPI Trusted Publishing (OIDC):** see the dedicated section below. The GitHub `pypi` environment is already created (tag-only deploys); the one remaining manual step is adding the trusted publisher on pypi.org.
 
+### Secret hygiene (`HOMEBREW_TAP_TOKEN`)
+
+`HOMEBREW_TAP_TOKEN` is the **only** long-lived secret in the release path (PyPI uses tokenless OIDC). Treat it accordingly.
+
+- **Least privilege — prefer a fine-grained PAT.** Scope it to **only** `binlecode/homebrew-actop` with **Contents: Read/write** and nothing else. A classic PAT (`repo`, `workflow` scopes) *works*, but its blast radius is every repo the account owns — if the CI secret leaks, so does write access to all of them. The fine-grained token caps the damage at the tap repo.
+- **Set an expiry and rotate.** Give the token a bounded lifetime (e.g. 90–180 days) and rotate on schedule or on any suspicion of exposure. Rotation is a one-liner — no workflow change needed:
+  ```bash
+  # paste the new token at the prompt; never pass it as a CLI arg
+  gh secret set HOMEBREW_TAP_TOKEN --repo binlecode/actop
+  ```
+- **Never put the token in a command argument.** Pipe it via **stdin** (as above) so it stays out of `ps`/argv and shell history. Do **not** use `--body "<token>"`, and do not `echo` it. `gh secret set` encrypts the value client-side (libsodium sealed box) with the repo's Actions public key *before* upload over TLS, so GitHub stores only ciphertext and never sees the plaintext.
+- **Logs are masked, not a safety net.** GitHub auto-redacts the registered secret value in workflow logs, but obfuscation tricks can defeat masking — the real protections are least-privilege scope + `main` being PR-only (fork-PR runs don't receive secrets).
+- **Storage.** The plaintext copy lives only in `~/env-secrets/` (never in the repo); GitHub keeps the encrypted-at-rest copy. When you rotate, revoke the old token on GitHub and update `~/env-secrets/`.
+
+> **Current state (v1.0.0):** the secret was bootstrapped from a **classic** PAT (`repo` + `workflow`). Replacing it with a tap-scoped **fine-grained** token is the recommended hardening follow-up.
+
 ## End-to-End Flow
 
 ```text
