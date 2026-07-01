@@ -21,7 +21,7 @@ classifiers = [
   "License :: OSI Approved :: MIT License",
   "Operating System :: MacOS",
 ]
-requires-python = ">=3.11,<3.15"
+requires-python = ">=3.11"
 dependencies = [
   "textual>=0.60",
 ]
