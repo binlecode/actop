@@ -18,9 +18,9 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        # Full supported range (pyproject requires-python >=3.11,<3.14).
+        # Full supported range (pyproject requires-python >=3.11,<3.15).
         # The Homebrew formula pins python@3.13.
-        python-version: ["3.11", "3.12", "3.13"]
+        python-version: ["3.11", "3.12", "3.13", "3.14"]
 
     steps:
       - name: Checkout
