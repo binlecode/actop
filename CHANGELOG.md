@@ -6,6 +6,12 @@ This project follows a Keep a Changelog-style format and uses version tags for r
 
 ## [Unreleased]
 
+## [1.0.4] - 2026-07-01 08:16:26
+
+### Changed
+- Documentation only: renamed `docs/GUIDE-launch-and-growth.md` to
+  `docs/RUNBOOK-launch-and-growth.md` to align with the `RUNBOOK-` doc prefix convention.
+
 ## [1.0.3] - 2026-07-01
 
 ### Changed
