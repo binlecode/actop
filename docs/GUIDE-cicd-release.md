@@ -30,7 +30,7 @@ This document serves two purposes:
 
 - **Tap repo:** `binlecode/homebrew-actop` exists with `Formula/actop.rb`.
 - **`HOMEBREW_TAP_TOKEN`** secret on `binlecode/actop`: a fine-grained PAT scoped to `binlecode/homebrew-actop` with **Contents: Read/write**. Set via `gh secret set HOMEBREW_TAP_TOKEN --repo binlecode/actop`.
-- **PyPI Trusted Publisher:** on pypi.org add a publisher for project `actop`, owner `binlecode`, repo `actop`, workflow `publish-pypi.yml`, environment `pypi` (see the header of `publish-pypi.yml`). Until the project exists, add it as a *pending* publisher.
+- **PyPI Trusted Publishing (OIDC):** see the dedicated section below. The GitHub `pypi` environment is already created (tag-only deploys); the one remaining manual step is adding the trusted publisher on pypi.org.
 
 ## End-to-End Flow
 
@@ -42,6 +42,45 @@ PR: bump pyproject.toml version + CHANGELOG.md
        -> release-formula (tag push) -> formula sync commit in binlecode/homebrew-actop
        -> publish-pypi   (tag push) -> sdist+wheel published to PyPI via OIDC
 ```
+
+## PyPI Publishing (OIDC Trusted Publishing)
+
+Releases publish to PyPI **without any stored API token** — GitHub Actions mints a
+short-lived OIDC identity that PyPI verifies against the exact repo + workflow +
+environment. `publish-pypi.yml` (with `id-token: write`, `environment: pypi`) uses
+`pypa/gh-action-pypi-publish` to do this on every `v*` tag.
+
+**GitHub side — already configured (no action needed):**
+- Environment **`pypi`** exists on `binlecode/actop`.
+- Deployment policy: **custom, tag-only** — only refs matching **`v*` (type: tag)**
+  can deploy to the `pypi` environment, so no branch can ever trigger a publish.
+  Recreate/inspect with:
+  ```bash
+  gh api /repos/binlecode/actop/environments/pypi
+  gh api /repos/binlecode/actop/environments/pypi/deployment-branch-policies
+  ```
+- *(Optional hardening)* add yourself as a required reviewer on the `pypi`
+  environment for a manual approve-gate before each publish.
+
+**PyPI side — one-time manual step (must be done in the browser as the project owner):**
+PyPI has no token-authenticated API for managing trusted publishers, so add it via the UI:
+1. Go to <https://pypi.org/manage/project/actop/settings/publishing/> → **Add a new publisher** (GitHub).
+2. Enter these values **exactly** (they must match the workflow):
+   | Field | Value |
+   | --- | --- |
+   | Owner | `binlecode` |
+   | Repository name | `actop` |
+   | Workflow name | `publish-pypi.yml` |
+   | Environment name | `pypi` |
+   | PyPI Project Name | `actop` |
+   (If the project didn't yet exist you'd add it as a *pending* publisher; `actop`
+   exists as of 1.0.0, so it's a normal publisher.)
+
+**Bootstrap note:** `1.0.0` was published **manually** (`twine upload` with an
+account-scoped API token) to claim the name. Once the trusted publisher above is
+confirmed working on the next release, **delete that account-scoped token** from
+PyPI and from `~/env-secrets/api_keys/` — OIDC replaces it. `skip-existing` in the
+workflow means a tag-triggered run for an already-uploaded version is a safe no-op.
 
 ## Release Steps
 
@@ -143,7 +182,7 @@ Usually a missing or under-scoped `HOMEBREW_TAP_TOKEN`. Confirm the secret exist
 
 ### `publish-pypi` fails with OIDC / trusted-publisher error
 
-The pending publisher isn't configured (or names don't match). Verify the publisher on pypi.org matches repo `binlecode/actop`, workflow `publish-pypi.yml`, environment `pypi`. `skip-existing` means re-runs after a successful upload are safe.
+The trusted publisher isn't configured (or names don't match). Verify the publisher on pypi.org matches repo `binlecode/actop`, workflow `publish-pypi.yml`, environment `pypi` (see the PyPI Publishing section). Also confirm the tag matches the `pypi` environment's `v*` tag deployment policy — a run from a non-`v*` ref won't be allowed into the environment. `skip-existing` means re-runs after a successful upload are safe.
 
 ### Emergency rerun without resource refresh
 
@@ -157,6 +196,7 @@ gh run view -R binlecode/actop <RUN_ID>            # inspect run
 gh run view -R binlecode/actop <RUN_ID> --log-failed
 git ls-remote --tags origin "v*"                   # remote tags
 gh secret list -R binlecode/actop                  # confirm HOMEBREW_TAP_TOKEN
+gh api /repos/binlecode/actop/environments/pypi/deployment-branch-policies  # OIDC tag policy
 ```
 
 **Source of truth:** version in `pyproject.toml`, notes in `CHANGELOG.md`, formula in the tap repo `binlecode/homebrew-actop` (`Formula/actop.rb`), tag helper in `scripts/tag_release.sh`, CI in `.github/workflows/`.
