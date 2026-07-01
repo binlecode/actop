@@ -49,6 +49,9 @@ How the sudoless, in-process field stacks up:
 |---|:---:|:---:|:---:|
 | Unprivileged, in-process (no sudo) | ✅ | ✅ | ✅ |
 | CPU/GPU/ANE power · temps · bandwidth | ✅ | ✅ | ✅ |
+| Per-process power/energy attribution (`PWR` column) | ✅ | — | — |
+| Bandwidth % of SoC peak + `MEM-BOUND` saturation alert | ✅ | — | — |
+| Throttle-state indicator (`THROTTLING:CPU/GPU`) | ✅ | — | — |
 | Python API (`Monitor`/`Profiler`, `to_pandas()`) | ✅ | — | — |
 | SoC-accurate power scaling (M1–M4 profiles) | ✅ | rolling peak | rolling peak |
 | Session energy (∫ package power) | ✅ | — | — |

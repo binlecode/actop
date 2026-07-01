@@ -94,7 +94,9 @@ Network I/O, disk I/O, fan RPM, SSD/battery temps. mactop/silitop already have t
 ## Update the comparison table
 Add rows to README `## Where actop fits` for the white-space metrics so the table reads
 as "things **only actop** has": **per-process power/energy**, **bandwidth % of peak**,
-**throttle state**, **DVFS residency**.
+**throttle state**, **DVFS residency**. — ✅ **done** for the three shipped Tier-1 rows
+(per-process power, bandwidth %, throttle state); DVFS residency row deferred until
+Tier 2 #4 ships.
 
 ---
 
