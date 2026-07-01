@@ -34,7 +34,6 @@ def test_defaults_produce_consistent_config():
     assert cfg.chart_glyph == "dots"
     assert cfg.show_processes is False
     assert cfg.process_filter_pattern is None
-    assert cfg.proc_filter_raw == ""
     assert cfg.subsamples >= 1
     assert cfg.alert_sustain_samples >= 1
     assert cfg.e_core_count >= 0
@@ -49,14 +48,12 @@ def test_package_ref_combines_cpu_gpu_and_ane_headroom():
         cfg.cpu_chart_ref_w + cfg.gpu_chart_ref_w + cfg.ane_max_power
     )
     assert cfg.package_ref_w >= cfg.cpu_chart_ref_w
-    assert cfg.max_media_bw == max(cfg.max_cpu_bw, cfg.max_gpu_bw)
     assert cfg.max_cpu_bw >= 1.0 and cfg.max_gpu_bw >= 1.0
 
 
 def test_proc_filter_is_compiled_into_usable_regex():
     cfg = _make_config(["--proc-filter", "python|ollama"])
 
-    assert cfg.proc_filter_raw == "python|ollama"
     assert isinstance(cfg.process_filter_pattern, re.Pattern)
     assert cfg.process_filter_pattern.search("PYTHON3.12")  # case-insensitive
     assert not cfg.process_filter_pattern.search("finder")

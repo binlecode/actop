@@ -26,15 +26,12 @@ def _config() -> DashboardConfig:
     return DashboardConfig(
         sample_interval=1,
         avg_window=30,
-        usage_track_window=200,
-        core_history_window=200,
         cpu_chart_ref_w=20.0,
         gpu_chart_ref_w=30.0,
         ane_max_power=8.0,
         package_ref_w=58.0,
         max_cpu_bw=100.0,
         max_gpu_bw=100.0,
-        max_media_bw=100.0,
         e_core_count=4,
         p_core_count=4,
         power_scale="profile",
@@ -48,7 +45,6 @@ def _config() -> DashboardConfig:
         process_display_count=50,
         show_processes=False,
         process_filter_pattern=None,
-        proc_filter_raw="",
     )
 
 

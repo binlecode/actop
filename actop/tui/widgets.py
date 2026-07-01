@@ -285,7 +285,7 @@ class HardwareDashboard(Widget):
         cfg = config
         self._chart_glyph = getattr(cfg, "chart_glyph", "dots")
 
-        maxlen = 500
+        maxlen = self._CHART_HIST_MAXLEN
         swap_maxlen = max(2, cfg.alert_sustain_samples + 1)
 
         self._ecpu_hist: deque = deque([0] * maxlen, maxlen=maxlen)
@@ -592,7 +592,13 @@ class HardwareDashboard(Widget):
         self._compute_alerts(s, ram)
 
     _CORE_GRID_SEP = " │ "
-    _CORE_HIST_MAXLEN = 500
+    # History buffer depth (samples retained per metric/core). Must be >= the
+    # widest a chart can render (one sample per terminal column) so a very wide
+    # terminal never starves the sparkline. This is a space/width cap, not a
+    # time window — deliberately independent of --avg. Bump it if you expect
+    # terminals wider than this many columns.
+    _CHART_HIST_MAXLEN = 500
+    _CORE_HIST_MAXLEN = _CHART_HIST_MAXLEN
     _CORE_MIN_SPARK_CHARS = 3
 
     def _avg_max(self, hist) -> tuple[float, float]:

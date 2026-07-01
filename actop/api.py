@@ -65,9 +65,7 @@ class Monitor:
 
     def __init__(self, interval_s: float = 1.0, subsamples: int = 1):
         self._interval_s = max(1, int(interval_s))
-        self._sampler, self.backend_name = create_sampler(
-            self._interval_s, subsamples=subsamples
-        )
+        self._sampler, _ = create_sampler(self._interval_s, subsamples=subsamples)
         # Prime delta: first sample() always returns None
         self._sampler.sample()
 
