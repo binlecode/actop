@@ -20,11 +20,17 @@ from actop.utils import get_ram_metrics_dict, get_soc_info, get_top_processes
 _SPINNER_FRAMES = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"]
 
 SORT_CPU = "cpu"
+SORT_POWER = "power"
 SORT_MEMORY = "memory"
 SORT_PID = "pid"
-SORT_LABELS = {SORT_CPU: "CPU%", SORT_MEMORY: "RSS", SORT_PID: "PID"}
+SORT_LABELS = {
+    SORT_CPU: "CPU%",
+    SORT_POWER: "PWR",
+    SORT_MEMORY: "RSS",
+    SORT_PID: "PID",
+}
 
-_SORT_CYCLE = [SORT_CPU, SORT_MEMORY, SORT_PID]
+_SORT_CYCLE = [SORT_CPU, SORT_POWER, SORT_MEMORY, SORT_PID]
 
 
 def sort_processes(process_metrics, sort_mode, limit):
@@ -34,6 +40,12 @@ def sort_processes(process_metrics, sort_mode, limit):
     elif sort_mode == SORT_PID:
         cpu_list = list(process_metrics.get("cpu", []))
         cpu_list.sort(key=lambda proc: proc.get("pid", 0))
+        return cpu_list[:limit]
+    elif sort_mode == SORT_POWER:
+        # PWR is proportional to cpu_time_share; sort explicitly so the label
+        # is honest (None shares — first samples — sink to the bottom).
+        cpu_list = list(process_metrics.get("cpu", []))
+        cpu_list.sort(key=lambda proc: proc.get("cpu_time_share") or 0.0, reverse=True)
         return cpu_list[:limit]
     else:
         # Default: CPU sort (already sorted by get_top_processes)
@@ -70,7 +82,7 @@ HELP_TEXT = """\
 
   q          Quit
   p          Pause / resume sampling
-  s          Cycle process sort (CPU% → RSS → PID)
+  s          Cycle process sort (CPU% → PWR → RSS → PID)
   g          Toggle chart glyph (braille dots / blocks)
   t          Toggle the process table
   /          Filter processes by regex (when table shown)
@@ -86,6 +98,17 @@ HELP_TEXT = """\
   Mem BW          Unified-memory bandwidth in GB/s (hidden if unavailable)
   CPU/GPU Power   Live package-rail power draw in watts
   Package Power   Total SoC power draw in watts (CPU + GPU + ANE + other rails)
+
+[b]Process table[/b]
+
+  CPU%       Per-process CPU utilization (Δ CPU-time over the interval)
+  PWR        Estimated per-process CPU power: the process's share of total
+             CPU-time × package CPU watts. CPU only — not GPU/ANE. An
+             estimate: a P-core-second draws more than an E-core-second, so
+             E-core-bound work is over-attributed and vice versa. "–" means
+             no reading yet (first sample after launch or resume).
+  Σ shown    Reconciliation token below the table: watts the visible rows
+             account for vs total package CPU watts (a partition of it).
 
   avg · max       Rolling average (over the --avg window) and session peak,
                   shown next to each live reading.
@@ -230,6 +253,7 @@ class ActopApp(App):
         self._filter_regex_before_edit = self._config.process_filter_pattern
         self._filter_text_before_edit = ""
         self._last_processes = {"cpu": [], "memory": []}
+        self._last_cpu_watts = 0.0
         self._show_processes = bool(self._config.show_processes)
         self._splash_frame = 0
         self._sampler_ready = False
@@ -297,6 +321,7 @@ class ActopApp(App):
             self.query_one("#main-section").display = True
         self.query_one("#hardware-dash", HardwareDashboard).update_metrics(message)
         self._last_processes = message.processes
+        self._last_cpu_watts = message.snapshot.cpu_watts
         self._refresh_process_table()
 
     def action_toggle_pause(self) -> None:
@@ -407,13 +432,15 @@ class ActopApp(App):
         if self._sort_mode != self._last_sort_mode:
             self._last_sort_mode = self._sort_mode
             table.clear(columns=True)
-            cols = ["PID", "Command", "CPU%", "MEM (MB)", "Threads"]
+            cols = ["PID", "Command", "CPU%", "PWR", "MEM (MB)", "Threads"]
             if self._sort_mode == SORT_PID:
                 cols[0] = "*PID"
             elif self._sort_mode == SORT_CPU:
                 cols[2] = "*CPU%"
+            elif self._sort_mode == SORT_POWER:
+                cols[3] = "*PWR"
             elif self._sort_mode == SORT_MEMORY:
-                cols[3] = "*MEM (MB)"
+                cols[4] = "*MEM (MB)"
             table.add_columns(*cols)
         else:
             table.clear()
@@ -424,11 +451,37 @@ class ActopApp(App):
         except Exception:
             limit = self._config.process_display_count
         sorted_procs = sort_processes(self._last_processes, self._sort_mode, limit)
+        cpu_watts = self._last_cpu_watts
+        shown_pwr = 0.0
         for proc in sorted_procs:
+            # PWR is a CPU-time-share partition of package CPU watts, computed
+            # here because the TUI owns cpu_watts. A None share (first sample /
+            # just resumed) renders "–" rather than a misleading 0.0.
+            share = proc.get("cpu_time_share")
+            if share is None:
+                pwr_cell = "–"
+            else:
+                pwr_w = share * cpu_watts
+                shown_pwr += pwr_w
+                pwr_cell = "{:.2f}W".format(pwr_w)
             table.add_row(
                 str(proc.get("pid", "")),
                 _process_display_name(proc.get("command", ""), max_len=28),
                 "{:.1f}".format(proc.get("cpu_percent", 0.0) or 0.0),
+                pwr_cell,
                 "{:.1f}".format(proc.get("rss_mb", 0.0) or 0.0),
                 str(proc.get("num_threads", "")),
             )
+
+        # Reconciliation token: how much of package CPU power the visible rows
+        # account for. Σ over *all* PIDs equals cpu_watts by construction; the
+        # shown subset is a lower bound. Flagged an estimate (P/E-core skew,
+        # CPU only — not GPU/ANE).
+        if cpu_watts > 0:
+            table.border_subtitle = (
+                "Σ shown {:.1f}W / pkg CPU {:.1f}W · est CPU-time share".format(
+                    shown_pwr, cpu_watts
+                )
+            )
+        else:
+            table.border_subtitle = ""

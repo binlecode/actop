@@ -1,6 +1,6 @@
 # TODO — Tier 1 #1: Per-process power / energy attribution ⭐
 
-**Status:** not started · **Effort:** S–M (revised down after Phase-0) · **Parent:** [`TODO-actop-feature-gap-roadmap.md`](TODO-actop-feature-gap-roadmap.md) Tier 1 #1 (the flagship differentiator).
+**Status:** implemented (pending live visual check + PR) · **Effort:** S–M (revised down after Phase-0) · **Parent:** [`TODO-actop-feature-gap-roadmap.md`](TODO-actop-feature-gap-roadmap.md) Tier 1 #1 (the flagship differentiator).
 
 ## Goal
 
@@ -86,12 +86,17 @@ export.py (optional)                                 # see cardinality caveat be
 
 ## Implementation checklist
 
-- [ ] **`utils.py` `get_top_processes` (line 120)** — the loop already computes each
+> **Note (as-built):** the process table lives in **`tui/app.py`** (a Textual
+> `DataTable` built in `_refresh_process_table`), not `tui/widgets.py` as the data
+> flow above sketched. The `PWR` column, `SORT_POWER`, and the reconciliation token
+> were added there. Everything else landed as planned.
+
+- [x] **`utils.py` `get_top_processes` (line 120)** — the loop already computes each
       PID's `cpu_delta_ns` for `cpu_percent` (line 150-159). Accumulate `total_delta_ns`
       across all PIDs, then set `cpu_time_share = cpu_delta_ns / total_delta_ns` (0 if
       total is 0). Add `"cpu_time_share"` to the entry dict (line 165-174). Keep watts
       **out** of utils — the TUI owns `cpu_watts`.
-- [ ] **PID-reuse hardening** — the current `_PROCESS_CPU_CACHE` keys on `pid` alone; a
+- [x] **PID-reuse hardening** — the current `_PROCESS_CPU_CACHE` keys on `pid` alone; a
       reused PID can yield a bogus positive Δ. Key the cache on **`(pid, pbi_start_tvsec)`**.
       Surface the process start time from `get_native_processes`: `pbi_start_tvsec` is a
       `uint64` at **offset 120** in `PROC_PIDTASKALLINFO` (verified against the SDK
@@ -99,18 +104,22 @@ export.py (optional)                                 # see cardinality caveat be
       the 136-byte `proc_bsdinfo`). Add `_OFF_START_TVSEC = 120` and one
       `struct.unpack_from("<Q", raw, 120)`. A changed start time for the same PID ⇒ treat
       as first sample.
-- [ ] **`tui/widgets.py`** — add the `PWR` column: `share * snapshot.cpu_watts`, plus a
-      heatmapped `share` bar reusing the `BrailleChart` gradient / `_pct_to_color` (no
-      new color path). Render `–` when `cpu_time_share is None` (first sample). Add the
-      reconciliation status token (acceptance #2). Add a one-word `est.` marker / help
-      note for the P-vs-E model caveat.
-- [ ] **`tui/app.py`** — add `SORT_POWER = "power"` to `SORT_LABELS` (line 25) /
-      `_SORT_CYCLE` (line 27) / `sort_processes` (line 30). Since `PWR ∝ cpu_time_share
-      ∝ cpu_percent`, this sorts identically to `SORT_CPU` — so it can alias the CPU sort
-      order, just relabelled; no cost tension (power is derived, not separately sampled).
-- [ ] **`--help` / `HelpScreen`** — document the `PWR` column, that it's a CPU-time-share
-      **estimate** of package CPU power (not GPU/ANE), and the reconciliation token.
-- [ ] **`export.py`** (optional, after TUI) — processes are **not** exported today
+- [x] **`tui/app.py` process table** (not `widgets.py` — see as-built note) — added the
+      `PWR` column = `share * snapshot.cpu_watts`. Renders `–` when `cpu_time_share is
+      None` (first sample / just resumed). Reconciliation token in the table's
+      `border_subtitle` (acceptance #2): `Σ shown N.NW / pkg CPU M.MW · est CPU-time
+      share`. The `est` marker carries the P-vs-E model caveat. _(Deferred: the
+      heatmapped `share` bar — CPU% already conveys ordering in the `DataTable`; can add
+      later as a follow-up.)_
+- [x] **`tui/app.py`** — added `SORT_POWER = "power"` to `SORT_LABELS` / `_SORT_CYCLE` /
+      `sort_processes`. Sorts by `cpu_time_share` desc (None sinks to the bottom); since
+      `PWR ∝ cpu_time_share ∝ cpu_percent` this matches `SORT_CPU` order but is honest to
+      the label.
+- [x] **`HelpScreen`** — added a "Process table" section documenting `CPU%`, `PWR` (a
+      CPU-time-share **estimate** of package CPU power, not GPU/ANE, with the P-vs-E
+      caveat), and the `Σ shown` reconciliation token. Sort-cycle line updated to
+      `CPU% → PWR → RSS → PID`.
+- [ ] **`export.py`** (optional, after TUI — NOT yet done) — processes are **not** exported today
       (`snapshot_to_*` is `SystemSnapshot`-only, export.py:39-75). If added: **Prometheus
       per-PID labels are a cardinality anti-pattern** (churny short-lived PIDs explode
       series). Restrict to top-N, drop the `pid` label (use `comm` only) or gate behind an
@@ -144,17 +153,18 @@ export.py (optional)                                 # see cardinality caveat be
 ## Testing (functional only — per CLAUDE.md)
 
 Drive **public surfaces**; no private-attr or mock-the-data tests.
+All in `tests/test_per_process_power.py` (4 tests, green).
 
-- [ ] `utils.get_top_processes()` on the real host returns entries with
+- [x] `utils.get_top_processes()` on the real host returns entries with
       `cpu_time_share`, every non-`None` value in `[0.0, 1.0]`, and the sum over all
-      returned procs ≤ 1.0 (partition bound) — mirrors the existing bounds contract in
-      `tests/test_cli_contract.py`.
-- [ ] Under a self-induced busy loop, the current process's `cpu_time_share` rises on the
+      returned procs ≤ 1.0 (partition bound).
+- [x] Under a self-induced busy loop, the current process's `cpu_time_share` rises on the
       second poll — proves the attribution tracks real compute end-to-end.
-- [ ] `sort_processes(..., SORT_POWER, ...)` (public, `tui/app.py`) orders by share.
-- [ ] `HardwareDashboard` mounted via `App.run_test()`, fed real `SystemSnapshot`s +
-      process lists through its public update path, renders the `PWR` column + share bar
-      + reconciliation token, and **Σ PWR ≈ cpu_watts** within rounding, without raising.
+- [x] `sort_processes(..., SORT_POWER, ...)` (public, `tui/app.py`) orders by share.
+- [x] `ActopApp` mounted via `App.run_test()`, fed a real `MetricsUpdated` (snapshot +
+      process list) through its message handler, renders the `PWR` column + reconciliation
+      token, `–` for a `None` share, and **Σ shown ≈ cpu_watts**, without raising.
+      _(Table is in `ActopApp`, not `HardwareDashboard` — see as-built note.)_
 - [ ] If export lands: bounded Prometheus/NDJSON proc output with no unbounded `pid` label.
 
 ## Risks

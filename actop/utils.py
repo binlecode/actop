@@ -129,12 +129,45 @@ def get_top_processes(limit=3, proc_filter=None):
     total_ram = get_sysctl_int("hw.memsize") or (16 * 1024 * 1024 * 1024)
 
     native_procs = get_native_processes()
-    entries = []
 
-    current_pids = set()
+    # Pass 1: compute CPU-time deltas for *every* PID (independent of any
+    # filter) so per-process power can later be attributed as a partition of
+    # the total CPU watts. The cache is keyed on (pid, start_tvsec) so a reused
+    # PID with a fresh start time is treated as a first sample, not a bogus
+    # delta. total_delta_ns is the denominator of the CPU-time share.
+    current_keys = set()
+    proc_stats = {}  # pid -> (cpu_percent, cpu_delta_ns or None)
+    total_delta_ns = 0
     for proc in native_procs:
         pid = proc["pid"]
-        current_pids.add(pid)
+        key = (pid, proc.get("start_tvsec", 0))
+        current_keys.add(key)
+        cpu_time_ns = proc["cpu_time_ns"]
+        cpu_percent = 0.0
+        cpu_delta_ns = None  # None => first sample for this (pid, start)
+
+        if key in _PROCESS_CPU_CACHE:
+            prev_cpu, prev_time = _PROCESS_CPU_CACHE[key]
+            time_delta = current_time - prev_time
+            if time_delta > 0:
+                cpu_delta_ns = max(0, cpu_time_ns - prev_cpu)
+                cpu_percent = (cpu_delta_ns / 1_000_000_000) / time_delta * 100
+                total_delta_ns += cpu_delta_ns
+
+        _PROCESS_CPU_CACHE[key] = (cpu_time_ns, current_time)
+        proc_stats[pid] = (cpu_percent, cpu_delta_ns)
+
+    # Clean up dead (pid, start) pairs from cache
+    for dead_key in list(_PROCESS_CPU_CACHE.keys()):
+        if dead_key not in current_keys:
+            _PROCESS_CPU_CACHE.pop(dead_key, None)
+
+    # Pass 2: build entries (applying the filter) and turn each PID's delta
+    # into a CPU-time share in [0, 1]. cpu_time_share is deliberately kept
+    # decoupled from watts — the TUI owns cpu_watts and multiplies.
+    entries = []
+    for proc in native_procs:
+        pid = proc["pid"]
         command = proc["name"]
         if pattern:
             if not pattern.search(command):
@@ -144,19 +177,13 @@ def get_top_processes(limit=3, proc_filter=None):
                 else:
                     continue
 
-        cpu_time_ns = proc["cpu_time_ns"]
-        cpu_percent = 0.0
-
-        if pid in _PROCESS_CPU_CACHE:
-            prev_cpu, prev_time = _PROCESS_CPU_CACHE[pid]
-            time_delta = current_time - prev_time
-            if time_delta > 0:
-                cpu_delta_ns = cpu_time_ns - prev_cpu
-                cpu_percent = max(
-                    0.0, (cpu_delta_ns / 1_000_000_000) / time_delta * 100
-                )
-
-        _PROCESS_CPU_CACHE[pid] = (cpu_time_ns, current_time)
+        cpu_percent, cpu_delta_ns = proc_stats.get(pid, (0.0, None))
+        if cpu_delta_ns is None:
+            cpu_time_share = None  # first sample: no delta yet
+        elif total_delta_ns > 0:
+            cpu_time_share = cpu_delta_ns / total_delta_ns
+        else:
+            cpu_time_share = 0.0  # fully idle poll: no divide-by-zero
 
         rss_bytes = proc["rss_bytes"]
         rss_mb = rss_bytes / 1024 / 1024
@@ -167,16 +194,12 @@ def get_top_processes(limit=3, proc_filter=None):
                 "pid": pid,
                 "command": command,
                 "cpu_percent": round(cpu_percent, 1),
+                "cpu_time_share": cpu_time_share,
                 "rss_mb": round(rss_mb, 1),
                 "memory_percent": round(memory_percent, 1),
                 "num_threads": proc["num_threads"],
             }
         )
-
-    # Clean up dead PIDs from cache
-    for dead_pid in list(_PROCESS_CPU_CACHE.keys()):
-        if dead_pid not in current_pids:
-            _PROCESS_CPU_CACHE.pop(dead_pid, None)
 
     top_cpu = sorted(
         entries,
