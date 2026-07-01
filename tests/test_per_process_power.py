@@ -18,6 +18,8 @@ widget through its public update path. No private attrs, no mocked data/logic.
 import asyncio
 import time
 
+import pytest
+
 from actop import utils
 from actop.actop import build_parser
 from actop.models import SystemSnapshot
@@ -61,6 +63,7 @@ _RAM = {
 }
 
 
+@pytest.mark.local  # needs real processes (get_native_processes is Darwin-only)
 def test_get_top_processes_exposes_bounded_cpu_time_share():
     # Every non-first-sample share is a valid fraction, and the shares form a
     # partition of total CPU time (Σ ≤ 1.0 — a short-lived PID vanishing mid
@@ -82,6 +85,7 @@ def test_get_top_processes_exposes_bounded_cpu_time_share():
     assert total <= 1.0 + 1e-9
 
 
+@pytest.mark.local  # needs real CPU-time deltas from live processes
 def test_cpu_time_share_tracks_busy_loop():
     # A process burning CPU must climb in attributed share — this proves the
     # attribution tracks real compute, not just liveness.
@@ -151,6 +155,7 @@ async def _render_process_table(cpu_watts, processes):
         return columns, rows, str(table.border_subtitle or "")
 
 
+@pytest.mark.local  # ActopApp reads real SoC info (int("?") on non-Darwin)
 def test_process_table_renders_pwr_column_and_reconciliation_token():
     processes = {
         "cpu": [
