@@ -276,6 +276,29 @@ class MetricsUpdated(Message):
         super().__init__()
 
 
+# Throttle detection gates (heuristics). A cluster is only "throttling" when it is
+# working hard yet held below its DVFS ceiling while hot — an idle or power-capped
+# cluster at low freq is not throttling. The thermal-pressure signal is the primary
+# "hot" test; the die-temp gate is a fallback for machines whose SMC temps read 0.
+_THROTTLE_UTIL_GATE = 80.0  # percent: cluster must be at least this busy
+_THROTTLE_TEMP_C = 90.0  # °C: die-temp fallback when thermal_state stays Nominal
+
+
+def _domain_throttling(util, freq, max_freq, temp, thermal_state, cfg) -> bool:
+    """True when a silicon domain is busy + slow + hot (see gates above).
+
+    slow = current freq below `alert_throttle_freq_percent`% of the DVFS ceiling.
+    Returns False when the ceiling is unknown (max_freq <= 0) — the ratio is
+    uncomputable, so we cannot claim throttling.
+    """
+    if max_freq <= 0:
+        return False
+    busy = util >= _THROTTLE_UTIL_GATE
+    slow = freq < (cfg.alert_throttle_freq_percent / 100.0) * max_freq
+    hot = thermal_state not in ("Nominal", "Unknown") or temp >= _THROTTLE_TEMP_C
+    return busy and slow and hot
+
+
 def _bandwidth_percent(snapshot, cfg) -> float:
     """Memory bandwidth as a percent of summed CPU+GPU channel capacity.
 
@@ -330,6 +353,8 @@ class HardwareDashboard(Widget):
 
         self._high_bw_counter: int = 0
         self._high_pkg_counter: int = 0
+        self._throttle_cpu_counter: int = 0
+        self._throttle_gpu_counter: int = 0
 
         # Cumulative session energy (joules), integrated as package_watts ×
         # interval each frame — the "what did this run cost" readout, mirroring
@@ -742,6 +767,34 @@ class HardwareDashboard(Widget):
             self._high_pkg_counter = 0
         pkg_alert = self._high_pkg_counter >= cfg.alert_sustain_samples
 
+        # Thermal throttle, per silicon domain (P-cluster CPU, GPU): busy + held
+        # below the DVFS ceiling + hot. Sustained like the other alerts.
+        if _domain_throttling(
+            s.pcpu_util_pct,
+            s.pcpu_freq_mhz,
+            s.pcpu_max_freq_mhz,
+            s.cpu_temp_c,
+            s.thermal_state,
+            cfg,
+        ):
+            self._throttle_cpu_counter += 1
+        else:
+            self._throttle_cpu_counter = 0
+        cpu_throttle = self._throttle_cpu_counter >= cfg.alert_sustain_samples
+
+        if _domain_throttling(
+            s.gpu_util_pct,
+            s.gpu_freq_mhz,
+            s.gpu_max_freq_mhz,
+            s.gpu_temp_c,
+            s.thermal_state,
+            cfg,
+        ):
+            self._throttle_gpu_counter += 1
+        else:
+            self._throttle_gpu_counter = 0
+        gpu_throttle = self._throttle_gpu_counter >= cfg.alert_sustain_samples
+
         # Swap rise
         swap_history_points = cfg.alert_sustain_samples + 1
         swap_rise = (
@@ -766,8 +819,13 @@ class HardwareDashboard(Widget):
         active_alerts = []
         if thermal_alert:
             active_alerts.append("THERMAL")
+        throttled = [
+            name for name, on in (("CPU", cpu_throttle), ("GPU", gpu_throttle)) if on
+        ]
+        if throttled:
+            active_alerts.append("THROTTLING:{}".format(",".join(throttled)))
         if bw_alert:
-            active_alerts.append("BW>{}%".format(cfg.alert_bw_sat_percent))
+            active_alerts.append("MEM-BOUND>{}%".format(cfg.alert_bw_sat_percent))
         if swap_alert:
             active_alerts.append("SWAP+{:.1f}G".format(swap_rise))
         if pkg_alert:

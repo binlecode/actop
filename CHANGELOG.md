@@ -6,6 +6,37 @@ This project follows a Keep a Changelog-style format and uses version tags for r
 
 ## [Unreleased]
 
+## [1.1.0] - 2026-07-01
+
+### Added
+- **Thermal-throttle indicator (`THROTTLING:CPU`/`:GPU`)** — the last Tier-1
+  differentiator. The status line now says explicitly when a silicon domain is being
+  throttled *right now*: it fires per domain (P-cluster CPU, GPU) on a "busy + slow +
+  hot" rule — utilization ≥ 80% AND current frequency below
+  `--alert-throttle-freq-percent`% (default 90) of the domain's DVFS max frequency AND
+  thermal pressure elevated (or die temp ≥ 90°C) — sustained over
+  `--alert-sustain-samples` frames. Fully read-only. Documented in the `?` help overlay.
+- New `--alert-throttle-freq-percent` CLI flag (default 90).
+- `SystemSnapshot` gains `ecpu_max_freq_mhz` / `pcpu_max_freq_mhz` / `gpu_max_freq_mhz`
+  (the per-domain DVFS ceiling, sourced from the frequency table the sampler already
+  discovers), so the throttle ratio is computable through the public API.
+
+### Changed
+- Renamed the memory-bandwidth saturation alert token from `BW>N%` to
+  **`MEM-BOUND>N%`** (status line + `?` help overlay) so the indicator reads as the
+  "am I memory-bandwidth-bound?" decision signal it was designed to be. No change to
+  the underlying threshold, sustain logic, or `--alert-bw-sat-percent` flag.
+- Docs: marked roadmap feature #2 (bandwidth as % of SoC reference + `MEM-BOUND`
+  indicator) as **shipped** in `docs/TODO-actop-feature-gap-roadmap.md`, recording the
+  as-built normalisation (summed CPU+GPU channel refs, not a separate
+  `peak_bandwidth_gbps` field) and the token rename. Updated the matching
+  `docs/DESIGN-system.md` references.
+- Docs: rewrote roadmap feature #3 (thermal-throttle indicator) into an
+  implementation-ready spec — locked the "busy + slow + hot" detection rule, corrected
+  the max-frequency source (DVFS table, not `soc_profiles.py`), flagged the
+  `throttled_count` memory-counter red herring, and enumerated the required
+  `SystemSnapshot`/config/CLI plumbing and functional test.
+
 ## [1.0.4] - 2026-07-01 08:16:26
 
 ### Changed

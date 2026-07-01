@@ -69,6 +69,13 @@ def build_parser():
         help="Package power alert threshold percent (1-100, profile-relative)",
     )
     parser.add_argument(
+        "--alert-throttle-freq-percent",
+        type=_validate_percent_threshold,
+        default=90,
+        help="Throttle alert: flag when a busy, hot cluster holds below this "
+        "percent of its DVFS max frequency (1-100)",
+    )
+    parser.add_argument(
         "--alert-swap-rise-gb",
         type=_validate_swap_rise_gb,
         default=0.3,

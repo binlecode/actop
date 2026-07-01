@@ -241,8 +241,12 @@ class IOReportSampler:
         cpu_metrics = {
             "E-Cluster_active": 0,
             "E-Cluster_freq_Mhz": 0,
+            # DVFS ceiling per cluster (silicon max), from the frequency table
+            # discovered at startup; used by the throttle indicator.
+            "E-Cluster_max_freq_Mhz": max(ecpu_freqs) if ecpu_freqs else 0,
             "P-Cluster_active": 0,
             "P-Cluster_freq_Mhz": 0,
+            "P-Cluster_max_freq_Mhz": max(pcpu_freqs) if pcpu_freqs else 0,
             "ane_W": ane_e,
             "cpu_W": cpu_e,
             "gpu_W": gpu_e,
@@ -285,6 +289,7 @@ class IOReportSampler:
 
         gpu_metrics = {
             "freq_MHz": gpu_freq_mhz,
+            "max_freq_MHz": max(gpu_freqs) if gpu_freqs else 0,
             "active": gpu_active_pct,
         }
 

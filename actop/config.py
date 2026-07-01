@@ -28,6 +28,7 @@ class DashboardConfig:
 
     alert_bw_sat_percent: int
     alert_package_power_percent: int
+    alert_throttle_freq_percent: int
     alert_swap_rise_gb: float
     alert_sustain_samples: int
 
@@ -75,6 +76,7 @@ def create_dashboard_config(args, soc_info_dict):
         show_cores=args.show_cores,
         alert_bw_sat_percent=args.alert_bw_sat_percent,
         alert_package_power_percent=args.alert_package_power_percent,
+        alert_throttle_freq_percent=args.alert_throttle_freq_percent,
         alert_swap_rise_gb=args.alert_swap_rise_gb,
         alert_sustain_samples=max(1, int(args.alert_sustain_samples)),
         process_display_count=50,

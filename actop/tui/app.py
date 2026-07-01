@@ -120,7 +120,10 @@ HELP_TEXT = """\
   energy     Cumulative session energy (∫ package power dt since launch), in
              mWh / Wh — the "what did this run cost" figure.
   THERMAL    Thermal pressure above Nominal (Fair / Serious / Critical)
-  BW>N%      Memory bandwidth sustained above N% of SoC capacity
+  THROTTLING:CPU/GPU  A busy, hot cluster is held below its DVFS max
+             frequency right now (you are losing performance to heat)
+  MEM-BOUND>N%  Memory bandwidth sustained above N% of SoC capacity
+             (you are memory-bandwidth-bound)
   PKG>N%     Package power sustained above N% of the SoC reference
   SWAP+N.NG  Swap grew by N.N GB over the sustain window
 

@@ -30,5 +30,11 @@ class SystemSnapshot:
     thermal_state: str  # "Nominal", "Fair", "Serious", "Critical"
     bandwidth_gbps: float  # Total memory bandwidth (read + write); 0.0 if unavailable
     bandwidth_available: bool
+    # DVFS max (silicon ceiling) per domain, in MHz; 0 when unavailable. Defaulted so
+    # existing SystemSnapshot(...) call sites stay valid. The throttle indicator
+    # expresses current freq as a fraction of the ceiling.
+    ecpu_max_freq_mhz: int = 0
+    pcpu_max_freq_mhz: int = 0
+    gpu_max_freq_mhz: int = 0
     e_cores: list = field(default_factory=list)  # list[CoreSample]
     p_cores: list = field(default_factory=list)  # list[CoreSample]

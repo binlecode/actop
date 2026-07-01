@@ -61,7 +61,7 @@ def test_help_overlay_documents_keys_metrics_and_alert_tokens():
         assert action in help_text
 
     # The previously-undocumented alert tokens are now explained in-app.
-    for token in ("THERMAL", "BW>", "PKG>", "SWAP+"):
+    for token in ("THERMAL", "THROTTLING", "MEM-BOUND>", "PKG>", "SWAP+"):
         assert token in help_text
 
     # The new cur/avg/max chart context is explained too.
