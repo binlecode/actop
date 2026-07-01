@@ -6,6 +6,17 @@ This project follows a Keep a Changelog-style format and uses version tags for r
 
 ## [Unreleased]
 
+## [1.0.2] - 2026-07-01
+
+### Added
+- **Per-process power (`PWR`) column** in the process table — attributes package
+  CPU power to each process by its share of total CPU-time (a partition that sums
+  to the package CPU figure), the sudoless in-process answer to "which process is
+  drawing the watts." Adds a `SORT_POWER` sort mode and a `Σ shown / pkg CPU`
+  reconciliation token. Labelled an estimate: attribution is by wall CPU-time, so
+  P-core work is under- and E-core work over-attributed vs. true watts. First
+  sample / just-resumed rows render `–`, never a wrong `0.0`.
+
 ## [1.0.1] - 2026-07-01
 
 ### Fixed

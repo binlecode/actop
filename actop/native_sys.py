@@ -582,6 +582,7 @@ _PROC_PIDTASKALLINFO = 2
 _PTAI_SIZE = 232  # sizeof(struct proc_taskallinfo)
 _OFF_COMM = 48  # char p_comm[16]  (fallback name)
 _OFF_NAME = 64  # char proc_name[32]
+_OFF_START_TVSEC = 120  # uint64 pbi_start_tvsec (process start, seconds)
 _OFF_PROC_METRICS = 136  # uint64 x4: vms, rss, user_time, sys_time
 _OFF_THREADS = 220  # uint32 pti_threadnum
 
@@ -629,6 +630,9 @@ def get_native_processes() -> list:
                     "<QQQQ", raw, _OFF_PROC_METRICS
                 )
                 (threads_count,) = struct.unpack_from("<I", raw, _OFF_THREADS)
+                # Process start time: disambiguates a reused PID so CPU-time
+                # deltas are not computed across two unrelated processes.
+                (start_tvsec,) = struct.unpack_from("<Q", raw, _OFF_START_TVSEC)
 
                 entries.append(
                     {
@@ -637,6 +641,7 @@ def get_native_processes() -> list:
                         "rss_bytes": rss_bytes,
                         "num_threads": threads_count,
                         "cpu_time_ns": user_ns + sys_ns,
+                        "start_tvsec": start_tvsec,
                     }
                 )
         return entries
