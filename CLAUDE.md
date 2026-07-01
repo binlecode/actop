@@ -83,6 +83,7 @@ The `docs/` directory contains essential system reviews, research, operations gu
 - For parser or metric changes, include a reproducible sample input/output note in the PR description.
 
 ## Commit & Pull Request Guidelines
+- **Branch from `main`; PR strictly into `main`.** Every branch forks from `main` and targets `main`. **Never fork a feature branch off another feature branch** (no stacked PRs): if you need work that is still on an unmerged branch, wait for it to merge and re-branch from `main`. This holds especially for CI/CD and release changes — they land via a single PR into `main`, never a chained branch.
 - Use concise, imperative commit subjects (as seen in history), e.g. `Add support for M1 Ultra` or `actop/utils.py: add bandwidth of M2`.
 - Keep commits scoped to one logical change.
 - Before every commit and before every push, always run:

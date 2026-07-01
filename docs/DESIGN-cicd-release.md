@@ -218,6 +218,7 @@ brew info binlecode/actop/actop
 ## Rules
 
 **Do:**
+- **Branch from `main` and PR strictly into `main`** — one logical change per branch. **Never fork a feature branch off another feature branch** (no stacked PRs); if you need unmerged work, wait for it to land and re-branch from `main`. CI/CD and release changes in particular go in via a single PR to `main`.
 - Bump version/changelog through a **PR** (never push `main` directly).
 - Use `scripts/tag_release.sh` for all release tags.
 - Let `release-formula.yml` own formula sync commits (in the tap repo).
