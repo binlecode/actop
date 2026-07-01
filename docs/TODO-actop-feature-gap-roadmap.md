@@ -4,8 +4,9 @@ Status: **The `agtop → actop` rename shipped as `v1.0.0` (2026-06-30).** Its d
 record — identity, naming rationale, positioning, and the PyPI/Homebrew/PR-only
 distribution model — now lives in [`DESIGN-system.md` §1.1](DESIGN-system.md). This file
 is the single source of truth for the **mission-specific feature roadmap** that
-justifies `actop` staying a `*top`. The flagship item (#1) is split into its own
-impl-ready spec: [`TODO-t1-per-process-power.md`](TODO-t1-per-process-power.md).
+justifies `actop` staying a `*top`. The flagship item (#1) shipped in v1.0.2; its
+as-built design lives in [`DESIGN-system.md` §5.7](DESIGN-system.md) and the
+decision trail (rejected paths, validating spike) is in git history (PR #11).
 
 ## Mission (first principles)
 
@@ -31,11 +32,11 @@ Everything below is feasible on the existing **sudoless in-process** stack.
 
 ## Tier 1 — headline differentiators (build on what exists; ship these as "why actop")
 
-### 1. Per-process power / energy attribution ⭐ *the flagship* — ✅ **SHIPPED (v1.0.2)** · [spec / as-built →](TODO-t1-per-process-power.md)
+### 1. Per-process power / energy attribution ⭐ *the flagship* — ✅ **SHIPPED (v1.0.2)** · [as-built → `DESIGN-system.md` §5.7](DESIGN-system.md)
 - **What**: an **Energy/Power (`PWR`) column** in the process table — "which process is drawing the watts." Activity Monitor's "Energy Impact," but in a sudoless TUI.
 - **Why white space**: asitop/mactop/macmon/silitop show *system-total* power and a CPU%/RSS process list; **none attributes power/energy per process**. Nobody does it.
 - **As built** (PR #11, `d659853`): **no new native binding.** A Phase-0 spike disproved the original `proc_pid_rusage`/`RUsageInfoV4` energy path (`ri_billed_energy`/`ri_serviced_energy` stay flat at 0 for ordinary compute). Instead `PWR` partitions `SystemSnapshot.cpu_watts` by each process's **CPU-time share** — reusing the `cpu_time_ns` already gathered by `PROC_PIDTASKALLINFO` for the `CPU%` column. Data flow `native_sys → utils.get_top_processes → tui/app.py` (process table lives in `ActopApp._refresh_process_table`, not `tui/widgets.py`). Ships with `SORT_POWER`, a `Σ shown / pkg CPU` reconciliation token, and a labelled P-vs-E estimate caveat.
-- **Effort**: S–M (as delivered). **Acceptance met**: `PWR` tracks a known busy process and Σ(per-proc CPU power) reconciles to package CPU power by construction. **Remaining (optional):** `export.py` per-process output + `DESIGN-system.md` fold-in (see spec).
+- **Effort**: S–M (as delivered). **Acceptance met**: `PWR` tracks a known busy process and Σ(per-proc CPU power) reconciles to package CPU power by construction. **Remaining (optional):** `export.py` per-process output — bounded cardinality (top-N, `comm` label not `pid`); NDJSON can carry a bounded `processes` array. (The `DESIGN-system.md` fold-in is now done — §5.7.)
 
 ### 2. Bandwidth as % of SoC peak + saturation indicator ⭐ *the LLM answer*
 - **What**: render memory bandwidth not just as GB/s but as **% of this chip's theoretical peak**, with a saturation/`MEM-BOUND` indicator.
@@ -93,5 +94,5 @@ as "things **only actop** has": **per-process power/energy**, **bandwidth % of p
 
 # Suggested overall order
 1. ~~Rename to `actop`~~ ✅ shipped as `v1.0.0` (record in [`DESIGN-system.md` §1.1](DESIGN-system.md)) — cleared install friction + set the brand.
-2. Ship **Tier 1** (#1–#3) as the launch story ("the `*top` that shows what others don't"). #1 is spec'd in [`TODO-t1-per-process-power.md`](TODO-t1-per-process-power.md).
+2. Ship **Tier 1** (#1–#3) as the launch story ("the `*top` that shows what others don't"). #1 shipped in v1.0.2 ([`DESIGN-system.md` §5.7](DESIGN-system.md)).
 3. Then **Tier 2** (#4–#5); **Tier 3** only as parity demand arises.

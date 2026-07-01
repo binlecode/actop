@@ -100,8 +100,9 @@ Instead of traversing `/proc` (which doesn't exist on macOS) or spawning `ps`, `
 2. For each PID, calls `proc_pidinfo(pid, flavor=2, arg=0, buffer, buffersize)` which corresponds to `PROC_PIDTASKALLINFO`. This fills a `ProcTaskAllInfo` structure combining BSD information (`ProcBSDInfo`) and Mach task information (`ProcTaskInfo`):
    - **Name Extraction**: Unpacked from `pbi_name` (32 bytes) or fallback `pbi_comm` (16 bytes).
    - **RAM Extraction**: Unpacked from `pti_resident_size` (RSS bytes) and `pti_virtual_size` (VMS bytes) at offset 136.
-   - **CPU Time**: Unpacked from accumulated microsecond durations `pti_total_user` and `pti_total_system`.
+   - **CPU Time**: Unpacked from accumulated microsecond durations `pti_total_user` and `pti_total_system`. The per-poll delta of this value (cached per PID) drives both the `CPU%` column and the per-process power share (see §5.7).
    - **Threads Count**: Unpacked from `pti_threads_count` at offset 220.
+   - **Start time (PID-reuse guard)**: `pbi_start_tvsec` (`uint64` at offset 120) is read so the CPU-time cache can key on `(pid, start_tvsec)` — a reused PID with a changed start time is treated as a fresh first sample rather than yielding a bogus delta.
 
 ### 2.4 Command Line Parsing (`KERN_PROCARGS2`)
 Command names are often truncated in process listings. `actop` resolves exact command-lines via sysctl:
@@ -175,7 +176,7 @@ These boundaries are intentional and recorded here so they are not mistaken for 
 
 - **Memory bandwidth is exposed as a single aggregate.** `SystemSnapshot.bandwidth_gbps` is the total (read + write) across channels, which is what the Mem BW readout and `BW>` alert consume (see §5.3). A per-channel breakdown (CPU / GPU / media / DCS) is feasible in principle but would require the sampler to surface per-channel figures rather than the aggregate — deferred as a sampler change, not a presentation gap.
 - **Network / disk I/O is a non-goal.** Present in `psutil`-based tools (mactop / btop) but orthogonal to the IOReport-first SoC-power focus; adding it would reintroduce the `psutil` dependency surface actop is moving away from.
-- **Per-process GPU / ANE / energy attribution is not available.** macOS does not expose this to unprivileged processes, and no direct peer (asitop / macmon) does either. Per-process CPU/RSS/threads come from the native process enumeration in §2.3; power/GPU/ANE remain system-wide only.
+- **Per-process CPU power *is* attributed (since v1.0.2); GPU / ANE / true-energy per process are not.** actop partitions `SystemSnapshot.cpu_watts` across processes by each PID's CPU-time share (the `PWR` column, see §5.7) — an estimate, since a P-core-second draws more than an E-core-second, but one that reconciles to package CPU power by construction. This is white space no direct peer (asitop / mactop / macmon) fills. What remains unavailable sudoless: per-process **GPU / ANE** power, and a true hardware per-process **energy** counter (`proc_pid_rusage`'s `ri_*_energy` fields stay flat at 0 for ordinary compute — a Phase-0 spike disproved that path). Per-process CPU/RSS/threads come from the native process enumeration in §2.3.
 - **GPU per-core metrics** are a hardware limitation, not a scope choice — see §3.4.
 
 ---
@@ -208,12 +209,12 @@ The user interface is powered by Textual. It is structured into a dynamic multi-
 ┌──────────────────────────────────────────────────────────────────────────────┐
 │  actop  v1.0.0 · [CPU Brand]    E-cores: X  P-cores: Y        [HH:MM:SS]     │
 ├──────────────────────────────────────┬───────────────────────────────────────┤
-│ P-CPU 24% @3200MHz (48°C) avg 19% max 61% │  PID   Command    CPU%  MEM  THD  │
+│ P-CPU 24% @3200MHz (48°C) avg 19% max 61% │ PID  Command   CPU%  PWR   MEM THD │
 │ ⠋⠙⠹⠸⠼⠴⠦ (Braille util chart)             │  ──────────────────────────────   │
-│ P00 12% ⠴⠦ │ P01 10% ⠴⠂                   │  1025  python     45.0  120   4   │
-│ E-CPU  4% @1200MHz (42°C) avg 6% max 22%  │  2041  ollama     12.1  8400  18  │
-│ ⠋⠙⠹⠸⠼⠴⠦ (Braille util chart)             │  502   WindowSrv   5.2  350   3   │
-│ GPU 5% @900MHz  avg 8% · max 47%          │  ...                              │
+│ P00 12% ⠴⠦ │ P01 10% ⠴⠂                   │ 2041 ollama    112  18.7W 8.4G 18 │
+│ E-CPU  4% @1200MHz (42°C) avg 6% max 22%  │ 1025 python     45   3.1W 120M  4 │
+│ ⠋⠙⠹⠸⠼⠴⠦ (Braille util chart)             │ 502  WindowSrv   5   0.6W 350M  3 │
+│ GPU 5% @900MHz  avg 8% · max 47%          │ Σ shown 22.4W / pkg CPU 25.3W est │
 │ ANE 0% (0.0W) · RAM 18/32GB                │                                  │
 │ Mem BW 120 GB/s · CPU/GPU/Package Power…  │                                  │
 │ span 2m08s  ·  thermal: Nominal  alerts: none                                 │
@@ -224,7 +225,7 @@ The user interface is powered by Textual. It is structured into a dynamic multi-
 `ActopApp` handles TUI setup and maintains keybindings:
 - `q`: Quit.
 - `p`: Pause / resume the sampling thread.
-- `s`: Cycle process sorting column (`CPU%` \u2192 `RSS` \u2192 `PID`).
+- `s`: Cycle process sorting column (`CPU%` \u2192 `PWR` \u2192 `RSS` \u2192 `PID`).
 - `g`: Toggle charts between Braille dots and block glyphs.
 - `t`: Show/hide the top processes table.
 - `/`: Open the process regex filter bar.
@@ -259,6 +260,15 @@ To alert users of resource bottlenecks, the `HardwareDashboard` monitors and tra
 The same `Monitor` sampling layer feeds two non-TUI output modes, routed from `main()` ahead of the TUI, turning actop from a viewer into an observability source:
 - `--json`: streams metrics as NDJSON to stdout (`dataclasses.asdict` over `SystemSnapshot`), one line per sample.
 - `--serve PORT`: runs a stdlib `ThreadingHTTPServer` exposing Prometheus `/metrics` (scalar plus per-core labelled gauges), backed by a warm background sampler.
+
+> The export modes are `SystemSnapshot`-only today; per-process rows (§5.7) are **not** exported. Adding them means bounding cardinality (top-N, `comm` label not `pid`) — tracked in `TODO-actop-feature-gap-roadmap.md`, not yet built.
+
+### 5.7 Per-Process Power Attribution (`PWR`) — shipped v1.0.2
+The process table's `PWR` column answers "which process is drawing the watts" sudoless — Activity Monitor's "Energy Impact" without `sudo`. No new native binding was added: it reuses the per-PID CPU-time deltas already computed for `CPU%` (§2.3).
+- **Model**: `PWR = (proc CPU-time Δ / Σ all-procs CPU-time Δ) × SystemSnapshot.cpu_watts`. This is a **partition** of package CPU power, so `Σ(PWR)` reconciles to `cpu_watts` by construction — surfaced as a `Σ shown N.NW / pkg CPU M.MW` token in the table's border subtitle.
+- **Labelled estimate**: attribution is by wall CPU-time, so a process pinned to E-cores is over-attributed and one on P-cores under-attributed (DVFS scales it further). The token carries an `est` marker and the `HelpScreen` documents the P-vs-E caveat. A cycle-/per-core-power-weighted refinement is a future improvement.
+- **Lifecycle**: first sample / just-resumed / dead PID render `–`, never a wrong `0.0`. A fully idle poll (Σ Δ = 0) yields all-zero shares with no divide-by-zero.
+- **Where it lives**: `utils.get_top_processes` emits `cpu_time_share` (watts stay out of `utils`); the process table (`ActopApp._refresh_process_table` in `tui/app.py`) multiplies by `snapshot.cpu_watts` and adds the `SORT_POWER` sort mode. Rejected alternatives (`proc_pid_rusage` energy fields, `TASK_POWER_INFO_V2`) and the validating spike are recorded in git history (PR #11).
 
 ---
 

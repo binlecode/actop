@@ -9,8 +9,21 @@ This project follows a Keep a Changelog-style format and uses version tags for r
 ## [1.0.4] - 2026-07-01 08:16:26
 
 ### Changed
-- Documentation only: renamed `docs/GUIDE-launch-and-growth.md` to
-  `docs/RUNBOOK-launch-and-growth.md` to align with the `RUNBOOK-` doc prefix convention.
+- Documentation only (no runtime code changes):
+  - Renamed `docs/GUIDE-launch-and-growth.md` to `docs/RUNBOOK-launch-and-growth.md` to
+    align with the `RUNBOOK-` doc prefix convention.
+  - `DESIGN-system.md`: folded in the shipped per-process power (`PWR`) feature — new
+    §5.7 (attribution model, reconciliation token, P-vs-E estimate caveat), corrected
+    §3.5 (per-process CPU power *is* attributed since v1.0.2; GPU/ANE/true-energy are
+    not), documented the `(pid, start_tvsec)` PID-reuse guard in §2.3, and updated the
+    sort-cycle (`CPU% → PWR → RSS → PID`) and the layout mock.
+  - `RUNBOOK-launch-and-growth.md`: reconciled the Homebrew-notability bar with the
+    design doc (was a conflicting figure), noted the repo is pre-launch, marked the
+    README Quick Start done, fixed the r/LocalLLaMA `brew tap` one-liner, and refreshed
+    the release-cadence note to 1.0.x.
+  - Deleted `docs/TODO-t1-per-process-power.md` (the flagship feature shipped in v1.0.2;
+    its as-built design now lives in `DESIGN-system.md` §5.7 and the roadmap, with the
+    decision trail preserved in git/PR #11). Rewired the roadmap's inbound links.
 
 ## [1.0.3] - 2026-07-01
 

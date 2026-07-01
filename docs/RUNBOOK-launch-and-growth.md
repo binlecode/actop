@@ -1,9 +1,11 @@
 # Launch & Growth Runbook
 
 Your remaining, human-only work to give actop its best shot at adoption — and the
-star/notability base that a future homebrew-core submission needs (self-submission
-bar: ≥225 stars **or** ≥90 forks **or** ≥90 watchers; see `docs/DESIGN-sdlc-cicd-release.md`
-context). Do the steps in order; the launch posts at the end are ready to paste.
+star/notability base that a future homebrew-core submission needs (notability bar:
+~75+ stars / 30+ watchers — see the *Homebrew Core Submission Guide* in
+`docs/DESIGN-sdlc-cicd-release.md` for the authoritative figure). As of the last check
+the repo is pre-launch (0 stars/forks/watchers), so this whole runbook is still ahead
+of you. Do the steps in order; the launch posts at the end are ready to paste.
 
 > Note: this file is intentionally not part of the shipped product. Keep it private,
 > or delete it before it ends up in a release if you'd rather not publish growth notes.
@@ -72,10 +74,18 @@ These are the things a first-time visitor judges in 10 seconds:
       `uv` one-liners on a fresh shell / another Mac. Broken install = lost star.
 - [ ] **Repo description + topics** — already set (apple-silicon, mlx, llm, ollama, …);
       confirm they still read well.
-- [ ] **A short "Quickstart"** near the top: install → `actop` → the 3 keys that matter
-      (`t`, `/`, `?`). Lower the time-to-first-success.
-- [ ] **A `Profiler` code snippet** in the README (5–8 lines) — the Python API is your
-      differentiator; show it, don't just claim it. `Monitor`/`Profiler` → `to_pandas()`.
+- [x] **A short "Quick Start"** near the top — **done**: the README has a `## Quick Start`
+      block (common invocations) plus an interactive-keys line (`p s g t / ? q`). Sanity-check
+      it still reads well before launch.
+- [ ] **A `Profiler` code snippet** in the README (5–8 lines) — **still missing**: the README
+      names `Monitor`/`Profiler`/`to_pandas()` in prose but shows no runnable Python. The API
+      is your differentiator; show it. A verified minimal snippet (matches `actop/api.py`):
+      ```python
+      from actop import Profiler
+      with Profiler() as p:
+          run_my_inference()
+      df = p.to_pandas()   # rows = samples; cols = power/freq/residency/energy
+      ```
 - [ ] **License + Background credit to asitop** — already present; keep it (good faith
       with the upstream community matters when they see your launch).
 - [ ] **Issues enabled, a CONTRIBUTING note or at least a "PRs welcome" line.**
@@ -163,7 +173,7 @@ for comparing quantizations or batch sizes with real power context.
 [GIF]
 
 Install (Homebrew or uv):
-    brew tap --custom-remote binlecode/actop https://github.com/binlecode/actop.git
+    brew tap binlecode/actop
     brew install binlecode/actop/actop
     # or: uv tool install git+https://github.com/binlecode/actop.git
 
@@ -212,8 +222,9 @@ Feedback very welcome.
 ## After launch — keep the compounding loop going
 
 - Reply to every issue/PR quickly for the first weeks (alive = trustworthy).
-- Cut releases on a visible cadence (you already ship v0.9.x frequently — good).
+- Cut releases on a visible cadence (you already ship 1.0.x frequently under the
+  patch-per-PR rule — good).
 - Add actop to relevant **awesome-*** lists via PR.
-- Re-check notability every so often; once you clear ~225 stars (or 90 forks/watchers),
-  the homebrew-core formula-audit side is already clean (`brew audit --strict --online`
-  passes today), so submission becomes viable.
+- Re-check notability every so often; once you clear the homebrew-core bar (~75 stars /
+  30 watchers — see `docs/DESIGN-sdlc-cicd-release.md`), the formula-audit side is already
+  clean (`brew audit --strict --online` passes today), so submission becomes viable.
