@@ -1,11 +1,11 @@
-# Release Operations Guide
+# CI/CD & Release Design
 
 This document serves two purposes:
 
-1. **Tutorial** — explains the Homebrew packaging model, CI/CD component ownership, and end-to-end release flow so that new contributors (human or AI) can understand how releases work without reading CI workflow files.
+1. **Design / tutorial** — explains the Homebrew packaging model, CI/CD component ownership, the CI validation matrix, and the end-to-end release flow so that new contributors (human or AI) can understand how releases work without reading CI workflow files.
 2. **Runbook** — provides step-by-step release instructions, operational rules, and failure recovery playbooks for day-to-day release execution.
 
-> **Architecture note (since v1.0.0):** `main` of `binlecode/actop` is **strictly PR-only** (branch protection + a local `.githooks/pre-push` guard). CI never pushes to `main`. The Homebrew formula lives in a **separate tap repo**, `binlecode/homebrew-actop`, and the release workflow syncs it there. PyPI is published via **OIDC Trusted Publishing** on tag.
+> **Architecture note (since v1.0.0):** `main` of `binlecode/actop` is **strictly PR-only** (branch protection + `.githooks/pre-commit` redaction check + `.githooks/pre-push` guard). CI never pushes to `main`. The Homebrew formula lives in a **separate tap repo**, `binlecode/homebrew-actop`, and the release workflow syncs it there using a **token-driven** push (`HOMEBREW_TAP_TOKEN`). PyPI publishing supports **two flows**: the current **tokenless OIDC Trusted Publishing** flow and a legacy **token-driven** (`twine` + API token) flow retained as fallback — both are detailed below.
 
 ## Homebrew Packaging Model
 
@@ -22,9 +22,9 @@ This document serves two purposes:
 | --- | --- |
 | **Maintainer** | Bumps `pyproject.toml` version + `CHANGELOG.md` **via a PR**, runs local checks, merges, then triggers the release tag |
 | **`scripts/tag_release.sh`** | Verifies clean tree, validates version vs `pyproject.toml`, confirms local `main` matches `origin/main`, creates and pushes `vX.Y.Z` tag. Does **not** modify any formula |
-| **`main-ci.yml`** | Runs on `main` push **and on `pull_request` to `main`**. Installs the package + dev tools, runs lint/format/help/tests. (Required for PR validation.) |
-| **`release-formula.yml`** | Runs on `v*` tag push (or manual `workflow_dispatch`). Validates tag/version match, computes the source tarball SHA256, updates `url` + `sha256` (+ regenerates `resource` blocks) in **`binlecode/homebrew-actop`** and pushes there using the `HOMEBREW_TAP_TOKEN` secret. Never touches `main` of this repo |
-| **`publish-pypi.yml`** | Runs on `v*` tag push (or manual). Validates tag/version, builds sdist+wheel, publishes to PyPI via **OIDC Trusted Publishing** (`skip-existing`) |
+| **`main-ci.yml`** | Runs on `main` push **and on `pull_request` to `main`**. `validate` job runs a Python **matrix (3.11, 3.12, 3.13, 3.14)**: installs `-e .` + `ruff`/`pytest`, runs `ruff check` + `ruff format --check`, runs `pytest -m "not local"` (CI-safe tests only), then the `--help` CLI smoke test. A non-blocking `canary-next-python` job (`continue-on-error`) repeats the checks on pre-release **3.15** for early warning. (Required for PR validation.) |
+| **`release-formula.yml`** | Runs on `v*` tag push (or manual `workflow_dispatch`). Runs on `macos-latest` under a `formula-sync-tap` concurrency group. Validates tag/version match **from the tag commit**, computes the source tarball SHA256, updates `url` + `sha256` (and regenerates `resource` blocks via `brew update-python-resources` unless `refresh_resources=false`) in **`binlecode/homebrew-actop`**, and pushes there using the `HOMEBREW_TAP_TOKEN` secret (**token-driven**). Never touches `main` of this repo |
+| **`publish-pypi.yml`** | Runs on `v*` tag push (or manual). Builds on Python 3.12 in the `pypi` environment with `id-token: write`. Validates tag/version, builds sdist+wheel, publishes to PyPI via **OIDC Trusted Publishing** (`skip-existing`). See both PyPI flows below |
 
 ### One-time setup (prerequisites)
 
@@ -48,26 +48,59 @@ This document serves two purposes:
 
 > **Current state (v1.0.0):** the secret was bootstrapped from a **classic** PAT (`repo` + `workflow`). Replacing it with a tap-scoped **fine-grained** token is the recommended hardening follow-up.
 
+## CI Validation (`main-ci.yml`)
+
+Every push to `main` and every PR targeting `main` runs `main-ci.yml`. It has two jobs:
+
+- **`validate`** (required) — a Python matrix over **3.11, 3.12, 3.13, 3.14** (`fail-fast: false`, so one version's failure does not cancel the others). Each leg:
+  1. installs the package editable (`pip install -e .`) plus `ruff` and `pytest`;
+  2. `ruff check .` and `ruff format --check .` (lint + format gate);
+  3. `pytest -m "not local"` — runs the **CI-safe** subset only. Host-dependent tests (SMC/IOReport/Apple-Silicon-specific) are marked `@pytest.mark.local` and skipped in CI because the GitHub runners are not Apple Silicon;
+  4. `python -m actop.actop --help` smoke test.
+- **`canary-next-python`** (non-blocking, `continue-on-error: true`) — repeats install + `pytest -m "not local"` + `--help` on the **pre-release 3.15** toolchain. Since `requires-python` is uncapped (`>=3.11`), this is an early-warning signal for breakage on the next CPython before it ships; a red canary never blocks a merge.
+
+> The Homebrew formula pins `python@3.13`; the matrix is the set actively verified, not a compatibility cap.
+
 ## End-to-End Flow
 
 ```text
 PR: bump pyproject.toml version + CHANGELOG.md
+  -> main-ci (pull_request)        # matrix lint/format/test/help must pass
   -> merge PR to main (squash/merge)
-  -> git pull --ff-only           # local main now has the bump
+  -> main-ci (push to main)        # same checks on the merge commit
+  -> git pull --ff-only            # local main now has the bump
   -> scripts/tag_release.sh        # pushes tag vX.Y.Z only (main is already in sync)
-       -> release-formula (tag push) -> formula sync commit in binlecode/homebrew-actop
-       -> publish-pypi   (tag push) -> sdist+wheel published to PyPI via OIDC
+       -> release-formula (tag push) -> formula sync commit in binlecode/homebrew-actop  [token-driven: HOMEBREW_TAP_TOKEN]
+       -> publish-pypi   (tag push) -> sdist+wheel published to PyPI                       [OIDC by default; token-driven fallback]
 ```
 
-## PyPI Publishing (OIDC Trusted Publishing)
+## PyPI Publishing — two flows
 
-Releases publish to PyPI **without any stored API token** — GitHub Actions mints a
-short-lived OIDC identity that PyPI verifies against the exact repo + workflow +
-environment. `publish-pypi.yml` (with `id-token: write`, `environment: pypi`) uses
-`pypa/gh-action-pypi-publish` to do this on every `v*` tag.
+Publishing to PyPI can authenticate two ways. `actop` uses **OIDC Trusted Publishing**
+as the default (no stored secret); the **token-driven** flow is documented as the
+fallback and as the mechanism used to bootstrap the project name. Both produce the
+identical artifacts (`sdist` + `wheel` from `python -m build`) and both should keep
+`skip-existing: true` so re-running a tag whose version already exists is a safe no-op.
+
+| | **OIDC Trusted Publishing (default)** | **Token-driven (fallback / bootstrap)** |
+| --- | --- | --- |
+| Credential | Short-lived OIDC identity minted per run | Long-lived PyPI API token stored as a secret |
+| Stored secret | **None** | `PYPI_API_TOKEN` on `binlecode/actop` |
+| Trust anchor | repo + workflow + environment must match the PyPI publisher | possession of the token |
+| Setup | one-time publisher registration on pypi.org (browser) | generate a project-scoped token on pypi.org, store via `gh secret set` |
+| Blast radius if compromised | none to steal — nothing at rest | token = publish rights until revoked |
+| When used | every `v*` tag release | emergency fallback, or first-ever upload to claim the name |
+
+### Flow A — OIDC Trusted Publishing (current default)
+
+GitHub Actions mints a short-lived OIDC identity that PyPI verifies against the exact
+repo + workflow + environment. `publish-pypi.yml` (with `id-token: write`,
+`environment: pypi`) uses `pypa/gh-action-pypi-publish@release/v1` to do this on every
+`v*` tag — **no API token is stored anywhere**.
 
 **GitHub side — already configured (no action needed):**
-- Environment **`pypi`** exists on `binlecode/actop`.
+- Environment **`pypi`** exists on `binlecode/actop`, and the job declares
+  `permissions: id-token: write` (required to mint the OIDC token).
 - Deployment policy: **custom, tag-only** — only refs matching **`v*` (type: tag)**
   can deploy to the `pypi` environment, so no branch can ever trigger a publish.
   Recreate/inspect with:
@@ -92,11 +125,40 @@ PyPI has no token-authenticated API for managing trusted publishers, so add it v
    (If the project didn't yet exist you'd add it as a *pending* publisher; `actop`
    exists as of 1.0.0, so it's a normal publisher.)
 
-**Bootstrap note:** `1.0.0` was published **manually** (`twine upload` with an
-account-scoped API token) to claim the name. Once the trusted publisher above is
-confirmed working on the next release, **delete that account-scoped token** from
-PyPI and from `~/env-secrets/api_keys/` — OIDC replaces it. `skip-existing` in the
-workflow means a tag-triggered run for an already-uploaded version is a safe no-op.
+### Flow B — Token-driven publish (fallback / bootstrap)
+
+Used to **bootstrap** the project (`1.0.0` was uploaded this way to claim the name),
+and retained as a break-glass fallback if OIDC is unavailable (e.g. PyPI publisher
+config drift, or publishing from a machine/CI without OIDC).
+
+**Manual, from a trusted machine** (token lives only in `~/env-secrets/`, never in argv):
+```bash
+python -m build                       # produces dist/*.tar.gz and dist/*.whl
+python -m twine upload --skip-existing dist/*
+# username: __token__   password: <PyPI project-scoped API token from ~/env-secrets/>
+```
+Prefer a `~/.pypirc` or `TWINE_USERNAME=__token__` + `TWINE_PASSWORD` env var over
+typing the token so it stays out of shell history.
+
+**In CI (only if OIDC must be bypassed):** store a **project-scoped** token as a secret
+and pass it to the same publish action — never commit it, never echo it:
+```bash
+# paste the token at the prompt; stdin keeps it out of argv/history
+gh secret set PYPI_API_TOKEN --repo binlecode/actop
+```
+```yaml
+# variant of the Publish step in publish-pypi.yml (drop id-token/environment)
+- name: Publish to PyPI (token)
+  uses: pypa/gh-action-pypi-publish@release/v1
+  with:
+    password: ${{ secrets.PYPI_API_TOKEN }}
+    skip-existing: true
+```
+
+**Migration / hygiene note:** OIDC supersedes the bootstrap token. Once trusted
+publishing is confirmed on a release, **delete the account/project-scoped token** from
+pypi.org and from `~/env-secrets/api_keys/` so no long-lived PyPI credential remains.
+Only regenerate one if you must invoke Flow B again.
 
 ## Release Steps
 
@@ -198,7 +260,7 @@ Usually a missing or under-scoped `HOMEBREW_TAP_TOKEN`. Confirm the secret exist
 
 ### `publish-pypi` fails with OIDC / trusted-publisher error
 
-The trusted publisher isn't configured (or names don't match). Verify the publisher on pypi.org matches repo `binlecode/actop`, workflow `publish-pypi.yml`, environment `pypi` (see the PyPI Publishing section). Also confirm the tag matches the `pypi` environment's `v*` tag deployment policy — a run from a non-`v*` ref won't be allowed into the environment. `skip-existing` means re-runs after a successful upload are safe.
+The trusted publisher isn't configured (or names don't match). Verify the publisher on pypi.org matches repo `binlecode/actop`, workflow `publish-pypi.yml`, environment `pypi` (see **PyPI Publishing — Flow A**). Also confirm the tag matches the `pypi` environment's `v*` tag deployment policy — a run from a non-`v*` ref won't be allowed into the environment. `skip-existing` means re-runs after a successful upload are safe. **Break-glass:** if OIDC cannot be fixed in time, publish that version manually with the token-driven **Flow B** (`twine upload --skip-existing`), then restore OIDC for subsequent releases.
 
 ### Emergency rerun without resource refresh
 

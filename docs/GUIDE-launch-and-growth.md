@@ -2,7 +2,7 @@
 
 Your remaining, human-only work to give actop its best shot at adoption — and the
 star/notability base that a future homebrew-core submission needs (self-submission
-bar: ≥225 stars **or** ≥90 forks **or** ≥90 watchers; see `docs/GUIDE-cicd-release.md`
+bar: ≥225 stars **or** ≥90 forks **or** ≥90 watchers; see `docs/DESIGN-cicd-release.md`
 context). Do the steps in order; the launch posts at the end are ready to paste.
 
 > Note: this file is intentionally not part of the shipped product. Keep it private,
