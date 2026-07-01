@@ -68,5 +68,8 @@ Catch: the user must have `uv` installed — but `uv` is the de-facto standard a
 
 ## Tier 3 — Hardware & Metric Coverage
 
-*   [ ] **Unknown-SoC fallback engine** — estimate reference package power/bandwidth from PMGR voltage states when `soc_profiles.py` has no match for a new chip (M5/M6+).
-*   [ ] **Local JSON telemetry socket** — unprivileged socket/named pipe streaming metrics, so menu-bar apps and widgets can consume them without a full TUI.
+*   [ ] **Unknown-SoC fallback engine** — estimate reference package power/bandwidth from PMGR voltage states when `soc_profiles.py` has no match for a new chip (M5/M6+). Today `get_soc_profile()` (`soc_profiles.py`) falls back to *static* per-tier defaults (base/Pro/Max/Ultra); this item is the dynamic, voltage-state-derived successor.
+*   [~] **Headless metrics export** — largely shipped in `actop/export.py`; two CLI-exposed backends let consumers read metrics without the full TUI:
+    *   [x] **NDJSON stream** (`--json` → `run_json_stream`): line-delimited `SystemSnapshot` JSON on stdout.
+    *   [x] **Prometheus endpoint** (`--serve PORT` → `serve_prometheus`): an unprivileged HTTP `/metrics` socket for scrapers and dashboards.
+    *   [ ] **Dedicated JSON push socket / named pipe** — the one transport not yet built. Only pursue if a concrete menu-bar/widget consumer needs a persistent local push channel that the Prometheus scrape endpoint and NDJSON stream don't already cover.
