@@ -12,6 +12,12 @@ SoC-accurate power and energy context.
      the dashboard live during an MLX/Ollama inference run — motion is what gets shared. -->
 ![actop dashboard: live E-CPU/P-CPU/GPU/ANE utilization, per-core frequency, memory bandwidth, and power charts on Apple Silicon](images/actop.png)
 
+*Above: the default two-column `grid` layout. Below: the single-column `stack` preset and the optional process panel — the same telemetry, rearranged live (`l` cycles layout, `t` toggles the process table).*
+
+| Single-column `stack` layout | Process panel (`--show-processes` / `t`) |
+| :--: | :--: |
+| ![actop in the stack layout: a single full-width column of CPU, GPU·ANE, Memory, and Power sections with wide braille-sparkline history on Apple Silicon](images/actop_stacked.png) | ![actop with the process panel enabled: the dashboard on the left and a sortable PID / Command / CPU% / PWR / MEM / Threads process table on the right, including the watt-attributed PWR column, on Apple Silicon](images/actop_procs.png) |
+
 **Who it's for**
 
 - **Running LLMs locally** (MLX, llama.cpp, Ollama) and want to see whether you're

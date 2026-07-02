@@ -6,6 +6,16 @@ This project follows a Keep a Changelog-style format and uses version tags for r
 
 ## [Unreleased]
 
+## [1.4.3] - 2026-07-02
+
+### Docs
+- README: refresh the `grid` hero to v1.4.2 (shows the aligned column bottoms) and
+  add two screenshots side by side below it in a two-column table — the single-column
+  `stack` preset (`images/actop_stacked.png`) and the process panel
+  (`images/actop_procs.png`, `--show-processes` / `t`, with the watt-attributed
+  per-process `PWR` column). A markdown table is used so the side-by-side layout
+  renders on both GitHub and the PyPI project page.
+
 ## [1.4.2] - 2026-07-02
 
 ### Fixed
