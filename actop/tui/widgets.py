@@ -393,6 +393,10 @@ class HardwareDashboard(Widget):
     }
     HardwareDashboard.layout-grid #section-cpu {
         row-span: 3;
+        /* Fill the 3-row span (not just content height) so the CPU box's bottom
+           border aligns with the lowest right-column box (Power) instead of
+           closing early and leaving dead space below it. */
+        height: 100%;
     }
     .dash-section {
         border: round $accent;

@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "actop"
-version = "1.4.1"
+version = "1.4.2"
 description = "Performance monitoring CLI tool for Apple Silicon"
 readme = "README.md"
 license = { text = "MIT" }
