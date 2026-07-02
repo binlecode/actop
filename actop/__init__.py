@@ -1,7 +1,7 @@
 import importlib.metadata
 
 from .api import AsyncMonitor, Monitor, Profiler
-from .models import CoreSample, SystemSnapshot
+from .models import CoreSample, FanReading, SystemSnapshot
 
 try:
     __version__ = importlib.metadata.version("actop")
@@ -14,5 +14,6 @@ __all__ = [
     "AsyncMonitor",
     "SystemSnapshot",
     "CoreSample",
+    "FanReading",
     "__version__",
 ]

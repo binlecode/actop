@@ -2,8 +2,10 @@
 
 Reads temperature sensors and fan tachometers from Apple Silicon's AppleSMC
 service without requiring sudo. Uses dynamic key discovery to find CPU
-(Tp*/Te*), GPU (Tg*) temperature keys and per-fan actual-RPM keys (F{n}Ac,
-one per fan reported by the `FNum` key) and classify them.
+(Tp*/Te*), GPU (Tg*) temperature keys and per-fan actual/max-RPM keys
+(F{n}Ac / F{n}Mx, one pair per fan reported by the `FNum` key) and classify
+them. This reader is strictly read-only — it never writes fan-control keys
+(F{n}Tg/F{n}Md), which would require root and a persistent privileged path.
 
 Temperature and fan-RPM keys both use SMC type "flt " (4-byte IEEE 754 float).
 """
@@ -12,6 +14,8 @@ import ctypes
 import struct
 import sys
 from typing import NamedTuple
+
+from .models import FanReading
 
 _DARWIN = sys.platform == "darwin"
 
@@ -291,12 +295,29 @@ def _discover_temperature_keys(conn):
     return {"cpu": cpu_keys, "gpu": gpu_keys}
 
 
-def _discover_fan_keys(conn):
-    """Discover per-fan actual-RPM keys (F{n}Ac, flt type).
+def _discover_flt4_key(conn, key_str):
+    """Discover a single flt/size-4 SMC key. Returns (key_uint32, size, type)
+    or None if the key is absent or not a 4-byte float. Fan RPM keys are all
+    `flt ` on Apple Silicon (peers implement only flt+ui8, omitting fpe2)."""
+    key_uint32 = _key_to_uint32(key_str)
+    info = _read_key_info(conn, key_uint32)
+    if info is None:
+        return None
+    size, dtype = info
+    if dtype != _TYPE_FLT or size != 4:
+        return None
+    return (key_uint32, size, dtype)
 
-    The `FNum` key (ui8) gives the fan count; fanless Macs (e.g. MacBook Air)
-    report zero. Returns a list of (key_uint32, data_size, data_type) tuples,
-    one per fan, in index order.
+
+def _discover_fan_keys(conn):
+    """Discover per-fan actual/max-RPM keys (F{n}Ac / F{n}Mx, flt type).
+
+    The `FNum` key gives the fan count; fanless Macs (e.g. MacBook Air) report
+    zero. Returns a list of {"ac": (key, size, type), "mx": (key, size, type)
+    or None} dicts, one per fan, in index order. A fan whose max key is absent
+    keeps "mx": None rather than being dropped. F{n}Mn (min) is intentionally
+    not probed — peers read it only to clamp fan-set writes, which actop
+    doesn't perform.
     """
     fan_count_info = _read_key_info(conn, _key_to_uint32("FNum"))
     if fan_count_info is None:
@@ -309,14 +330,11 @@ def _discover_fan_keys(conn):
 
     fan_keys = []
     for i in range(fan_count):
-        key_uint32 = _key_to_uint32("F{}Ac".format(i))
-        info = _read_key_info(conn, key_uint32)
-        if info is None:
+        ac = _discover_flt4_key(conn, "F{}Ac".format(i))
+        if ac is None:
             continue
-        fan_size, fan_type = info
-        if fan_type != _TYPE_FLT or fan_size != 4:
-            continue
-        fan_keys.append((key_uint32, fan_size, fan_type))
+        mx = _discover_flt4_key(conn, "F{}Mx".format(i))
+        fan_keys.append({"ac": ac, "mx": mx})
 
     return fan_keys
 
@@ -385,23 +403,33 @@ class SMCReader:
 
         return TemperatureReading(cpu_temps_c=cpu_temps, gpu_temps_c=gpu_temps)
 
-    def read_fan_rpms(self):
-        """Read current actual RPM for each discovered fan.
+    def read_fan_info(self):
+        """Read current + max RPM for each discovered fan.
 
-        Returns a list of floats, one per fan, in index order. Returns []
-        when SMC is unavailable or the machine has no fan keys (e.g. a
-        fanless MacBook Air) — 0 RPM is a legitimate idle reading and is not
-        filtered out here (unlike temperature's invalid-sentinel handling).
+        Returns a list of FanReading(current, max), one per fan, in index
+        order. Returns [] when SMC is unavailable or the machine has no fan
+        keys (e.g. a fanless MacBook Air). 0 RPM is a legitimate idle current
+        reading and is kept; a fan whose current reading is out of range is
+        dropped. `max` is None when the fan exposes no max key or reports
+        max <= 0 (peers treat that as unknown).
         """
         if not self._ensure_open():
             return []
 
-        rpms = []
-        for key_uint32, data_size, data_type in self._fan_keys:
-            val = _read_float_cached(self._conn, key_uint32, data_size, data_type)
-            if val is not None and 0.0 <= val < 20000.0:
-                rpms.append(val)
-        return rpms
+        fans = []
+        for entry in self._fan_keys:
+            ac_key, ac_size, ac_type = entry["ac"]
+            current = _read_float_cached(self._conn, ac_key, ac_size, ac_type)
+            if current is None or not (0.0 <= current < 20000.0):
+                continue
+            max_rpm = None
+            if entry["mx"] is not None:
+                mx_key, mx_size, mx_type = entry["mx"]
+                val = _read_float_cached(self._conn, mx_key, mx_size, mx_type)
+                if val is not None and 0.0 < val < 20000.0:
+                    max_rpm = val
+            fans.append(FanReading(current=current, max=max_rpm))
+        return fans
 
     @property
     def available(self):

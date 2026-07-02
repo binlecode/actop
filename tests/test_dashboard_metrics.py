@@ -18,7 +18,7 @@ from textual.app import App, ComposeResult
 from textual.widgets import Static
 
 from actop.config import DashboardConfig
-from actop.models import SystemSnapshot
+from actop.models import FanReading, SystemSnapshot
 from actop.tui.widgets import BrailleChart, HardwareDashboard, MetricsUpdated
 
 
@@ -67,10 +67,10 @@ def _snapshot(
     ecpu_residency_pct: dict = None,
     pcpu_residency_pct: dict = None,
     gpu_residency_pct: dict = None,
-    fan_rpms: list = None,
+    fans: list = None,
     fan_available: bool = False,
 ) -> SystemSnapshot:
-    fan_rpms = [] if fan_rpms is None else fan_rpms
+    fans = [] if fans is None else fans
     idle_residency = {"idle": 100, "low": 0, "mid": 0, "high": 0}
     return SystemSnapshot(
         timestamp=0.0,
@@ -91,7 +91,8 @@ def _snapshot(
         thermal_state=thermal_state,
         bandwidth_gbps=bandwidth_gbps,
         bandwidth_available=bandwidth_available,
-        fan_rpms=fan_rpms,
+        fans=fans,
+        fan_rpms=[f.current for f in fans],
         fan_available=fan_available,
         pcpu_max_freq_mhz=pcpu_max_freq_mhz,
         gpu_max_freq_mhz=gpu_max_freq_mhz,
@@ -176,12 +177,41 @@ def test_mem_bw_row_hidden_when_bandwidth_unavailable():
     assert state["bw_chart_display"] is False
 
 
-def test_fan_row_shows_rpm_when_available():
+def test_fan_row_shows_current_and_max_when_available():
+    # Two fans, each with a known max: render "current/max" per fan, joined by
+    # " · " so the inter-fan separator never collides with the current/max "/".
     state = asyncio.run(
-        _drive([_snapshot(0.0, False, fan_rpms=[1200.0, 980.0], fan_available=True)])
+        _drive(
+            [
+                _snapshot(
+                    0.0,
+                    False,
+                    fans=[FanReading(1200.0, 6000.0), FanReading(980.0, 6000.0)],
+                    fan_available=True,
+                )
+            ]
+        )
     )
     assert state["fan_label_display"] is True
-    assert "1200/980 RPM" in state["fan_label"]
+    assert "1200/6000 · 980/6000 RPM" in state["fan_label"]
+
+
+def test_fan_row_falls_back_to_bare_rpm_when_max_unknown():
+    # A fan whose max key is absent (max=None) renders bare current RPM.
+    state = asyncio.run(
+        _drive(
+            [
+                _snapshot(
+                    0.0,
+                    False,
+                    fans=[FanReading(1200.0, None)],
+                    fan_available=True,
+                )
+            ]
+        )
+    )
+    assert state["fan_label_display"] is True
+    assert "Fan 1200 RPM" in state["fan_label"]
 
 
 def test_fan_row_hidden_when_fan_unavailable():
