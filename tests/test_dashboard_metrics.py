@@ -44,6 +44,7 @@ def _config(show_residency: bool = True) -> DashboardConfig:
         gpu_core_count=10,
         power_scale="profile",
         chart_glyph="dots",
+        palette="thermal",
         layout="grid",
         show_cores=False,
         show_residency=show_residency,

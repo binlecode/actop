@@ -32,7 +32,7 @@ The original `asitop` shells out to Apple's `powermetrics` CLI, a high-level too
 
 ## Key Features
 
-- **Textual TUI dashboard**: custom `BrailleChart` sparklines for E-CPU, P-CPU, GPU, ANE, RAM, and power — rendered on the [Textual](https://textual.textualize.io/) framework. Four titled sections (CPU, GPU·ANE, Memory, Power) in two switchable layout presets — `grid` (two columns, fits short terminals) and `stack` (single full-width column), cycled live with `l`. Supports `dots` (braille) and `block` glyph styles. Resizes cleanly; no raw ANSI escape sequences.
+- **Textual TUI dashboard**: custom `BrailleChart` sparklines for E-CPU, P-CPU, GPU, ANE, RAM, and power — rendered on the [Textual](https://textual.textualize.io/) framework. Four titled sections (CPU, GPU·ANE, Memory, Power) in two switchable layout presets — `grid` (two columns, fits short terminals) and `stack` (single full-width column), cycled live with `l`. Supports `dots` (braille) and `block` glyph styles, and selectable color palettes (`--palette`: `thermal`, colorblind-safe `viridis`, grayscale `mono`) on top of adaptive truecolor/256/16-color/`NO_COLOR` degradation. Resizes cleanly; no raw ANSI escape sequences.
 - **In-process IOReport sampling**: reads Apple Silicon power, frequency, and residency metrics via Python ctypes bindings to `libIOReport.dylib` and CoreFoundation. No subprocesses, no temp files.
 - **Per-core visibility**: per-core panels on by default; toggle with `--no-show_cores` for a cluster-level view.
 - **Diagnosis-oriented alerts**: configurable sustained-sample thresholds for thermal pressure, bandwidth saturation, swap growth, and package power. Active alerts are shown inline in the status line.
@@ -159,6 +159,7 @@ with Monitor(include_processes=True) as m:
 | `--show-processes` | Show top process panel at startup | `off` |
 | `--power-scale profile\|auto` | Power chart scaling | `profile` |
 | `--chart-glyph dots\|block` | Chart glyph style | `dots` |
+| `--palette thermal\|viridis\|mono` | Chart color palette: `thermal` (blue→red), `viridis` (colorblind-safe), `mono` (grayscale). Applies at truecolor/256 tiers | `thermal` |
 | `--layout grid\|stack` | Dashboard layout preset (`grid` auto-degrades to `stack` under ~96 cols; cycle live with `l`) | `grid` |
 | `--proc-filter REGEX` | Filter process panel by command name | all (applies when panel is enabled) |
 | `--alert-bw-sat-percent` | Bandwidth saturation alert threshold | `85` |

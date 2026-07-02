@@ -6,6 +6,28 @@ This project follows a Keep a Changelog-style format and uses version tags for r
 
 ## [Unreleased]
 
+## [1.4.1] - 2026-07-02
+
+### Added
+- `--palette {thermal,viridis,mono}` CLI flag and matching `DashboardConfig.palette`
+  field: selects the chart gradient for the session. `thermal` (default) is the
+  existing blue→red gradient, unchanged; `viridis` is a colorblind-safe perceptual
+  ramp; `mono` is grayscale intensity. Applies at the truecolor and 256-color tiers
+  (the 16-color severity ramp and `NO_COLOR`/`none` are palette-independent).
+  Accessibility-first: a set-once startup preference, not a decorative toggle.
+
+### Changed
+- `--help` now surfaces every option's default value (via
+  `ArgumentDefaultsHelpFormatter`), so the supported value set (from `choices`) and
+  the default are documented for all arguments.
+
+### Notes
+- A runtime color-cycle keybind (peer parity with mactop/macmon's decorative theme
+  cycling) was evaluated and deliberately deferred: the startup `--palette` flag
+  delivers the accessibility value, and set-once is the right model for it. See
+  `docs/DESIGN-system.md` §5.2. The palette registry is ordered so the keybind
+  remains a purely additive follow-on if ever wanted.
+
 ## [1.4.0] - 2026-07-02
 
 ### Added

@@ -23,6 +23,27 @@ from actop.power_scaling import (
 _COOL_RGB = (66, 135, 245)  # blue
 _HOT_RGB = (240, 70, 64)  # red
 
+# Chart color palettes selected by --palette / the `palette` config field. Each
+# value is a list of RGB control points that _pct_to_rgb interpolates
+# piecewise-linearly (every entry must have >= 2 stops). `thermal` (the default)
+# is literally [_COOL_RGB, _HOT_RGB], so it reproduces the pre-palette blue->red
+# gradient byte-for-byte; `viridis` is a colorblind-safe perceptual ramp; `mono`
+# is grayscale intensity for a monochrome / high-contrast preference. Dict
+# insertion order is the order a future runtime cycle keybind would advance
+# through (deliberately deferred — see docs/DESIGN-system.md §5.2).
+_PALETTES = {
+    "thermal": [_COOL_RGB, _HOT_RGB],
+    "viridis": [
+        (68, 1, 84),
+        (59, 82, 139),
+        (33, 145, 140),
+        (94, 201, 98),
+        (253, 231, 37),
+    ],
+    "mono": [(30, 30, 30), (230, 230, 230)],
+}
+_DEFAULT_PALETTE = "thermal"
+
 # Color tiers, coolest-to-hottest, used when the terminal cannot render the
 # truecolor gradient. The 16-color tier is a conventional severity ramp (the
 # blue->red interpolation has no faithful 16-color analogue), keyed by percent.
@@ -51,13 +72,23 @@ _BLOCK_FULL_GLYPH = "\u2588"
 _BLOCK_BLANK = " "
 
 
-def _pct_to_rgb(pct: float) -> tuple[int, int, int]:
-    """Interpolate 0-100 percent along the blue->red gradient to an RGB triple."""
+def _pct_to_rgb(pct: float, palette: str = _DEFAULT_PALETTE) -> tuple[int, int, int]:
+    """Interpolate 0-100 percent piecewise-linearly across a palette's RGB stops.
+
+    A 2-stop palette (e.g. the default `thermal` = [_COOL_RGB, _HOT_RGB]) reduces
+    to a plain blue->red lerp identical to the pre-palette behavior. Unknown
+    names fall back to the default palette.
+    """
+    stops = _PALETTES.get(palette) or _PALETTES[_DEFAULT_PALETTE]
     p = min(100.0, max(0.0, float(pct))) / 100.0
-    r = round(_COOL_RGB[0] + (_HOT_RGB[0] - _COOL_RGB[0]) * p)
-    g = round(_COOL_RGB[1] + (_HOT_RGB[1] - _COOL_RGB[1]) * p)
-    b = round(_COOL_RGB[2] + (_HOT_RGB[2] - _COOL_RGB[2]) * p)
-    return (r, g, b)
+    seg = p * (len(stops) - 1)  # position along the (len-1) segments
+    i = min(int(seg), len(stops) - 2)  # segment index, clamped for p == 1.0
+    t = seg - i
+    a, b = stops[i], stops[i + 1]
+    r = round(a[0] + (b[0] - a[0]) * t)
+    g = round(a[1] + (b[1] - a[1]) * t)
+    b_ = round(a[2] + (b[2] - a[2]) * t)
+    return (r, g, b_)
 
 
 def resolve_color_mode(console=None, env=None) -> str:
@@ -89,12 +120,17 @@ def resolve_color_mode(console=None, env=None) -> str:
     return "16"
 
 
-def _pct_to_color(pct: float, mode: str = "truecolor") -> str:
+def _pct_to_color(
+    pct: float, mode: str = "truecolor", palette: str = _DEFAULT_PALETTE
+) -> str:
     """Map 0-100 percent to a Rich style string for the given color tier.
 
-    Degrades the blue->red truecolor gradient across terminal capabilities:
-    truecolor -> `rgb()`, 256-color -> nearest `color()` cube index, 16-color ->
-    a named severity ramp, and `none` -> no style (NO_COLOR / dumb terminals).
+    Degrades the truecolor gradient across terminal capabilities: truecolor ->
+    `rgb()`, 256-color -> nearest `color()` cube index, 16-color -> a named
+    severity ramp, and `none` -> no style (NO_COLOR / dumb terminals). The
+    palette selects the gradient stops and applies at the truecolor and 256
+    tiers (256 follows automatically, since its cube index quantizes the palette
+    RGB); the 16-color severity ramp and `none` are palette-independent.
     """
     if mode == "none":
         return ""
@@ -104,7 +140,7 @@ def _pct_to_color(pct: float, mode: str = "truecolor") -> str:
             if p < threshold:
                 return name
         return _ANSI16_HOT
-    r, g, b = _pct_to_rgb(pct)
+    r, g, b = _pct_to_rgb(pct, palette)
     if mode == "256":
         idx = 16 + 36 * round(r / 255 * 5) + 6 * round(g / 255 * 5) + round(b / 255 * 5)
         return "color({})".format(idx)
@@ -178,7 +214,11 @@ class BrailleChart(Widget):
     """
 
     def __init__(
-        self, glyph_mode: str = "dots", color_mode: str = None, **kwargs
+        self,
+        glyph_mode: str = "dots",
+        color_mode: str = None,
+        palette: str = _DEFAULT_PALETTE,
+        **kwargs,
     ) -> None:
         super().__init__(**kwargs)
         self._data = []
@@ -186,6 +226,9 @@ class BrailleChart(Widget):
         # None => resolve lazily from the running app's console (and NO_COLOR)
         # once mounted; falls back to environment detection before then.
         self._color_mode = color_mode
+        # Gradient palette (set once at construction from config — there is no
+        # runtime cycle in the MVP, so no mutator is needed).
+        self._palette = palette
 
     def on_mount(self) -> None:
         if self._color_mode is None:
@@ -243,7 +286,7 @@ class BrailleChart(Widget):
                 i = offset + col
                 raw_v = float(self._data[i]) if i >= 0 else 0.0
                 v, level = _clamped_value_and_level(raw_v, total_levels=total)
-                line_color = _pct_to_color(v, color_mode)
+                line_color = _pct_to_color(v, color_mode, self._palette)
                 if level > 0:
                     dot_row = height - 1 - (level - 1) // 4
                     if row > dot_row:
@@ -398,6 +441,9 @@ class HardwareDashboard(Widget):
         self._config = config
         cfg = config
         self._chart_glyph = getattr(cfg, "chart_glyph", "dots")
+        # Gradient palette, fixed for the session (--palette). Passed eagerly to
+        # every chart at compose time, exactly like _chart_glyph.
+        self._palette = getattr(cfg, "palette", _DEFAULT_PALETTE)
 
         requested = getattr(cfg, "layout", "grid")
         if requested not in self._VALID_PRESETS:
@@ -476,6 +522,7 @@ class HardwareDashboard(Widget):
                 )
                 yield BrailleChart(
                     glyph_mode=self._chart_glyph,
+                    palette=self._palette,
                     id="pcpu-chart",
                     classes="metric-chart",
                 )
@@ -491,6 +538,7 @@ class HardwareDashboard(Widget):
                 )
                 yield BrailleChart(
                     glyph_mode=self._chart_glyph,
+                    palette=self._palette,
                     id="ecpu-chart",
                     classes="metric-chart",
                 )
@@ -503,26 +551,38 @@ class HardwareDashboard(Widget):
             gpu_sec.border_title = "GPU · ANE"
             yield Static("GPU 0% @0MHz", id="gpu-label", classes="metric-label")
             yield BrailleChart(
-                glyph_mode=self._chart_glyph, id="gpu-chart", classes="metric-chart"
+                glyph_mode=self._chart_glyph,
+                palette=self._palette,
+                id="gpu-chart",
+                classes="metric-chart",
             )
             if cfg.show_residency:
                 yield Static("", id="gpu-residency-row", classes="residency-row")
             yield Static("ANE 0%", id="ane-label", classes="metric-label")
             yield BrailleChart(
-                glyph_mode=self._chart_glyph, id="ane-chart", classes="metric-chart"
+                glyph_mode=self._chart_glyph,
+                palette=self._palette,
+                id="ane-chart",
+                classes="metric-chart",
             )
 
         with Vertical(id="section-memory", classes="dash-section") as mem_sec:
             mem_sec.border_title = "Memory"
             yield Static("RAM 0%", id="ram-label", classes="metric-label")
             yield BrailleChart(
-                glyph_mode=self._chart_glyph, id="ram-chart", classes="metric-chart"
+                glyph_mode=self._chart_glyph,
+                palette=self._palette,
+                id="ram-chart",
+                classes="metric-chart",
             )
             # Memory bandwidth: shown only when the sampler exposes a DCS channel
             # (gated per-snapshot via SystemSnapshot.bandwidth_available).
             yield Static("Mem BW 0 GB/s", id="bw-label", classes="metric-label")
             yield BrailleChart(
-                glyph_mode=self._chart_glyph, id="bw-chart", classes="metric-chart"
+                glyph_mode=self._chart_glyph,
+                palette=self._palette,
+                id="bw-chart",
+                classes="metric-chart",
             )
 
         with Vertical(id="section-power", classes="dash-section") as pwr_sec:
@@ -534,7 +594,10 @@ class HardwareDashboard(Widget):
             yield Static("GPU 0.00W", id="gpupwr-row", classes="metric-label")
             yield Static("Package Power 0W", id="pkgpwr-label", classes="metric-label")
             yield BrailleChart(
-                glyph_mode=self._chart_glyph, id="pkgpwr-chart", classes="metric-chart"
+                glyph_mode=self._chart_glyph,
+                palette=self._palette,
+                id="pkgpwr-chart",
+                classes="metric-chart",
             )
             # Fan RPM: hidden entirely on fanless Macs (no chart — a single
             # tachometer reading doesn't warrant a sparkline like the power/BW

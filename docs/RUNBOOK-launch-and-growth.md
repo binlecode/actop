@@ -10,6 +10,18 @@ of you. Do the steps in order; the launch posts at the end are ready to paste.
 > Note: this file is intentionally not part of the shipped product. Keep it private,
 > or delete it before it ends up in a release if you'd rather not publish growth notes.
 
+> **Launch readiness (2026-07-02): no *engineering* work blocks launch.** The product
+> story is fully shipped as of v1.2.2 — sudoless in-process telemetry, per-process GPU
+> attribution (v1.2.0), fan RPM (v1.2.2), the `Monitor`/`AsyncMonitor`/`Profiler` Python
+> API with `to_pandas()` and cumulative session energy, and 16 M1–M4 SoC reference
+> profiles — and the README now carries the runnable `Profiler` snippet (Step 3, shipped
+> v1.2.1). The **only** remaining blockers are human-only: the hero GIF (Steps 1–2) and a
+> clean-machine install test (Step 3). What remains on the architecture roadmap
+> (`docs/TODO-architecture-roadmap.md`) is now just net/disk I/O — the convergence quick
+> wins have since shipped (fan RPM current+max v1.2.3, accessibility color palettes
+> `--palette` v1.4.1) — and it is deliberately **post-launch** and must **not** gate posting.
+> Do not wait on code to launch.
+
 ---
 
 ## Step 1 — Record the hero capture (the single highest-leverage task)
@@ -77,15 +89,12 @@ These are the things a first-time visitor judges in 10 seconds:
 - [x] **A short "Quick Start"** near the top — **done**: the README has a `## Quick Start`
       block (common invocations) plus an interactive-keys line (`p s g t / ? q`). Sanity-check
       it still reads well before launch.
-- [ ] **A `Profiler` code snippet** in the README (5–8 lines) — **still missing**: the README
-      names `Monitor`/`Profiler`/`to_pandas()` in prose but shows no runnable Python. The API
-      is your differentiator; show it. A verified minimal snippet (matches `actop/api.py`):
-      ```python
-      from actop import Profiler
-      with Profiler() as p:
-          run_my_inference()
-      df = p.to_pandas()   # rows = samples; cols = power/freq/residency/energy
-      ```
+- [x] **A `Profiler` code snippet** in the README (5–8 lines) — **done** (shipped v1.2.1;
+      lives in the README `## Quick Start` section). The README now shows a runnable Python
+      block (`from actop import Profiler` → `with Profiler() as p:` → `df = p.to_pandas()`),
+      verified against `actop/api.py`, so the differentiating API is demonstrated rather than
+      only named in prose. Before launch, re-confirm the snippet still matches the public API
+      (`Profiler` / `to_pandas()` are present in `actop/api.py`).
 - [ ] **License + Background credit to asitop** — already present; keep it (good faith
       with the upstream community matters when they see your launch).
 - [ ] **Issues enabled, a CONTRIBUTING note or at least a "PRs welcome" line.**
@@ -222,7 +231,7 @@ Feedback very welcome.
 ## After launch — keep the compounding loop going
 
 - Reply to every issue/PR quickly for the first weeks (alive = trustworthy).
-- Cut releases on a visible cadence (you already ship 1.0.x frequently under the
+- Cut releases on a visible cadence (you already ship 1.2.x frequently under the
   patch-per-PR rule — good).
 - Add actop to relevant **awesome-*** lists via PR.
 - Re-check notability every so often; once you clear the homebrew-core bar (~75 stars /

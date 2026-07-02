@@ -24,6 +24,11 @@ def test_cli_help_runs_and_exposes_show_cores_as_flag():
     assert "--subsamples SUBSAMPLES" in result.stdout
     assert "--chart-glyph {dots,block}" in result.stdout
     assert "--layout {grid,stack}" in result.stdout
+    assert "--palette {thermal,viridis,mono}" in result.stdout
+    # --help surfaces every option's default (ArgumentDefaultsHelpFormatter), so
+    # the supported value set + default is documented for all args.
+    assert "(default:" in result.stdout
+    assert "(default: 2)" in result.stdout  # --interval
 
 
 def test_cli_rejects_legacy_show_cores_value_form():
@@ -89,6 +94,28 @@ def test_cli_rejects_unknown_layout():
 
     assert result.returncode == 2
     assert "invalid choice: 'foo'" in result.stderr
+
+
+def test_cli_palette_default_is_thermal():
+    args = build_parser().parse_args([])
+    assert args.palette == "thermal"
+
+
+def test_cli_palette_accepts_viridis():
+    args = build_parser().parse_args(["--palette", "viridis"])
+    assert args.palette == "viridis"
+
+
+def test_cli_rejects_unknown_palette():
+    result = subprocess.run(
+        [sys.executable, "-m", "actop.actop", "--palette", "rainbow"],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+
+    assert result.returncode == 2
+    assert "invalid choice: 'rainbow'" in result.stderr
 
 
 def test_cli_help_exposes_export_flags():
