@@ -31,17 +31,17 @@ This file is the single source of truth for repository guidelines, used by Claud
 | `actop/ioreport.py` | ctypes bindings to `libIOReport.dylib` and CoreFoundation (`IOReportSubscription`, `cfstr`, `cf_release`) |
 | `actop/smc.py` | SMC temperature reader: IOKit ctypes bindings to `AppleSMC`, key discovery, CPU/GPU die temperature reads |
 | `actop/gpu_registry.py` | Per-process GPU time via IOKit ctypes bindings: `get_gpu_time_by_pid()` sums `accumulatedGPUTime` off each `AGXDeviceUserClient` |
-| `actop/utils.py` | System queries: native `ctypes` RAM/swap metrics and process collection (via `native_sys.py`), `sysctl`/`system_profiler` SoC info |
+| `actop/utils.py` | L1 acquisition + platform discovery: native `ctypes` RAM/swap metrics and per-process CPU/GPU time collection (via `native_sys.py`), `sysctl`/`system_profiler` SoC info. Holds no derived domain math |
+| `actop/analytics.py` | L2 domain analytics over acquired data points (imports only `models`/`power_scaling`, never `tui/*`): per-process power attribution (`attribute_power`), throttle detection (`domain_throttling`), bandwidth/package-power normalization, and the stateful `AlertEngine` (sustain-counted alerts + session-energy integral → `AlertFrame`) |
 | `actop/soc_profiles.py` | 16 built-in M1–M4 SoC profiles with power/bandwidth reference values; tier fallbacks for unknown chips |
 | `actop/power_scaling.py` | Power chart scaling: `auto` mode (rolling peak x1.25) vs `profile` mode (SoC reference wattage) |
 | `actop/config.py` | `DashboardConfig` frozen dataclass; `create_dashboard_config()` merges CLI args with SoC info |
-| `actop/models.py` | `SystemSnapshot` and `CoreSample` dataclasses (public API types) |
-| `actop/api.py` | `Monitor`, `Profiler`, `AsyncMonitor` — public Python API for hardware profiling |
+| `actop/models.py` | `SystemSnapshot`, `CoreSample`, `ProcessSample` dataclasses (public API types) |
+| `actop/api.py` | `Monitor`, `Profiler`, `AsyncMonitor` — public Python API for hardware profiling; `Monitor(include_processes=True)` opts into watt-attributed `ProcessSample`s |
 | `actop/tui/app.py` | `ActopApp`: Textual `App` with polling worker, process table, interactive sort/filter/pause |
-| `actop/tui/widgets.py` | `HardwareDashboard` widget with braille `Sparkline` charts, core rows, and alert computation |
-| `actop/tui/styles.tcss` | Textual CSS layout for the dashboard |
+| `actop/tui/widgets.py` | `HardwareDashboard` widget plus the custom `BrailleChart` sparkline widget, core rows, and alert computation. TUI CSS is embedded inline as each component's `DEFAULT_CSS` (no separate `.tcss` file). |
 
-**Data flow**: `ioreport.py` provides ctypes bindings for IOReport snapshots and deltas → `sampler.py` subscribes to Energy Model / CPU Stats / GPU Stats channels, computes deltas between consecutive snapshots, reads SMC die temperatures via `smc.py`, and converts raw items into a `SampleResult` (power in watts, frequency in MHz, activity in percent, temperatures in °C) → `api.py` wraps the sampler in `Monitor` and maps `SampleResult` to `SystemSnapshot` (including `CoreSample` lists for per-core data) → `tui/widgets.py` feeds `SystemSnapshot` into Textual `Sparkline` charts and `tui/app.py` drives the render loop.
+**Data flow**: `ioreport.py` provides ctypes bindings for IOReport snapshots and deltas → `sampler.py` subscribes to Energy Model / CPU Stats / GPU Stats channels, computes deltas between consecutive snapshots, reads SMC die temperatures via `smc.py`, and converts raw items into a `SampleResult` (power in watts, frequency in MHz, activity in percent, temperatures in °C) → `api.py` wraps the sampler in `Monitor` and maps `SampleResult` to `SystemSnapshot` (including `CoreSample` lists and, when `include_processes=True`, watt-attributed `ProcessSample` lists computed in L2 via `analytics.attribute_power`) → `SystemSnapshot` is the **sole per-frame contract**: `tui/widgets.py` feeds it into custom `BrailleChart` sparkline widgets and `tui/app.py` reads processes off it and drives the render loop (the TUI imports no L1 acquisition/attribution).
 
 **SoC compatibility**: Explicit M1–M4 recognition (16 profiles). Unknown future chips fall back to tier defaults (base/Pro/Max/Ultra) using the latest known generation's reference values.
 

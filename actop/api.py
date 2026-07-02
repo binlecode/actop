@@ -4,14 +4,58 @@ import dataclasses
 import threading
 import time
 
-from .models import _EMPTY_RESIDENCY, CoreSample, SystemSnapshot
+from .analytics import attribute_power
+from .models import _EMPTY_RESIDENCY, CoreSample, ProcessSample, SystemSnapshot
 from .power_scaling import clamp_percent
 from .sampler import SampleResult, create_sampler
-from .utils import get_ram_metrics_dict, get_soc_info
+from .utils import get_ram_metrics_dict, get_soc_info, get_top_processes
+
+# Sentinel distinguishing "argument not passed" (fall back to the Monitor's
+# configured value) from an explicit None (which is a meaningful process_filter
+# value: no filter). Only get_snapshot's keyword args use it.
+_UNSET = object()
+
+
+def _processes_to_samples(proc_dict: dict, cpu_watts: float, gpu_watts: float) -> list:
+    """Turn get_top_processes' dual dict into a single CPU-sorted
+    list[ProcessSample], attributing watts in L2.
+
+    The union of the CPU-top and memory-top candidate sets (deduped by pid) is
+    carried so the TUI's memory sort re-orders a faithful pool — a high-memory
+    but idle process still appears even though it is not CPU-top. attributed_w
+    is None exactly when the CPU delta is still pending (matches the "–" cell).
+    """
+    seen = {}
+    for entry in list(proc_dict.get("cpu", [])) + list(proc_dict.get("memory", [])):
+        pid = entry["pid"]
+        if pid in seen:
+            continue
+        share_cpu = entry.get("cpu_time_share")
+        share_gpu = entry.get("gpu_time_share")
+        attributed_w = (
+            None
+            if share_cpu is None
+            else attribute_power(share_cpu, share_gpu, cpu_watts, gpu_watts)
+        )
+        seen[pid] = ProcessSample(
+            pid=pid,
+            command=entry.get("command", ""),
+            cpu_percent=float(entry.get("cpu_percent", 0.0) or 0.0),
+            cpu_time_share=share_cpu,
+            gpu_time_share=share_gpu,
+            rss_mb=float(entry.get("rss_mb", 0.0) or 0.0),
+            num_threads=int(entry.get("num_threads", 0) or 0),
+            attributed_w=attributed_w,
+        )
+    return sorted(seen.values(), key=lambda p: (p.cpu_percent, p.rss_mb), reverse=True)
 
 
 def _sample_to_snapshot(
-    sample: SampleResult, ram: dict, interval_s: float, ane_max_w: float = 8.0
+    sample: SampleResult,
+    ram: dict,
+    interval_s: float,
+    ane_max_w: float = 8.0,
+    proc_dict: dict | None = None,
 ) -> SystemSnapshot:
     """Map raw SampleResult + RAM dict to a clean SystemSnapshot."""
     cm = sample.cpu_metrics
@@ -21,8 +65,15 @@ def _sample_to_snapshot(
     # total_gbps is a residency-weighted average already in GB/s — not a
     # byte counter, so it is not divided by the sample interval.
     total_bw = float(bw.get("total_gbps", 0.0)) if bw_avail else 0.0
+    cpu_watts = cm["cpu_W"] / interval_s
+    gpu_watts = cm["gpu_W"] / interval_s
     ane_watts = cm["ane_W"] / interval_s
     ane_util_pct = clamp_percent(ane_watts / ane_max_w * 100) if ane_max_w > 0 else 0.0
+    processes = (
+        _processes_to_samples(proc_dict, cpu_watts, gpu_watts)
+        if proc_dict is not None
+        else []
+    )
     e_cores = [
         CoreSample(
             index=sys_idx,
@@ -41,8 +92,8 @@ def _sample_to_snapshot(
     ]
     return SystemSnapshot(
         timestamp=sample.timestamp,
-        cpu_watts=cm["cpu_W"] / interval_s,
-        gpu_watts=cm["gpu_W"] / interval_s,
+        cpu_watts=cpu_watts,
+        gpu_watts=gpu_watts,
         ane_watts=ane_watts,
         package_watts=cm["package_W"] / interval_s,
         ecpu_util_pct=float(cm["E-Cluster_active"]),
@@ -73,19 +124,33 @@ def _sample_to_snapshot(
         fan_available=sample.fan_available,
         e_cores=e_cores,
         p_cores=p_cores,
+        processes=processes,
     )
 
 
 class Monitor:
     """Synchronous, single-sample hardware monitor."""
 
-    def __init__(self, interval_s: float = 1.0, subsamples: int = 1):
+    def __init__(
+        self,
+        interval_s: float = 1.0,
+        subsamples: int = 1,
+        *,
+        include_processes: bool = False,
+        process_limit: int = 50,
+        process_filter=None,
+    ):
         self._interval_s = max(1, int(interval_s))
         self._sampler, _ = create_sampler(self._interval_s, subsamples=subsamples)
         # ANE reference power (denominator for SystemSnapshot.ane_util_pct),
         # read once from the SoC profile so utilization is a data point rather
         # than a render-time divide against a UI config constant.
         self._ane_max_w = float(get_soc_info().get("ane_max_w", 8.0))
+        # Opt-in per-process collection: kept off by default so API consumers
+        # that only want SoC metrics don't pay the process-enumeration cost.
+        self._include_processes = bool(include_processes)
+        self._process_limit = int(process_limit)
+        self._process_filter = process_filter
         # Prime delta: first sample() always returns None
         self._sampler.sample()
 
@@ -94,8 +159,22 @@ class Monitor:
         """True if the underlying sampler manages its own sleep timing."""
         return bool(getattr(self._sampler, "manages_timing", False))
 
-    def get_snapshot(self) -> SystemSnapshot:
-        """Block for interval_s (unless sampler manages timing), return SystemSnapshot."""
+    def get_snapshot(
+        self, *, include_processes=None, process_filter=_UNSET
+    ) -> SystemSnapshot:
+        """Block for interval_s (unless sampler manages timing), return SystemSnapshot.
+
+        `include_processes`/`process_filter` override the Monitor's construction
+        defaults for this call only (None ⇒ use the configured default). The
+        per-call filter lets a caller (e.g. the TUI worker) apply a live-changing
+        regex each tick without a mutable Monitor attribute or restart.
+        """
+        include = (
+            self._include_processes if include_processes is None else include_processes
+        )
+        proc_filter = (
+            self._process_filter if process_filter is _UNSET else process_filter
+        )
         if not self.manages_timing:
             time.sleep(self._interval_s)
         sample = self._sampler.sample()
@@ -106,7 +185,14 @@ class Monitor:
             time.sleep(0.01)
             sample = self._sampler.sample()
         ram = get_ram_metrics_dict()
-        return _sample_to_snapshot(sample, ram, self._interval_s, self._ane_max_w)
+        proc_dict = (
+            get_top_processes(limit=self._process_limit, proc_filter=proc_filter)
+            if include
+            else None
+        )
+        return _sample_to_snapshot(
+            sample, ram, self._interval_s, self._ane_max_w, proc_dict
+        )
 
     def close(self):
         self._sampler.close()

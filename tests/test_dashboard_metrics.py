@@ -71,11 +71,12 @@ def _snapshot(
     gpu_residency_pct: dict = None,
     fans: list = None,
     fan_available: bool = False,
+    timestamp: float = 0.0,
 ) -> SystemSnapshot:
     fans = [] if fans is None else fans
     idle_residency = {"idle": 100, "low": 0, "mid": 0, "high": 0}
     return SystemSnapshot(
-        timestamp=0.0,
+        timestamp=timestamp,
         cpu_watts=8.0,
         gpu_watts=12.0,
         ane_watts=0.0,
@@ -124,7 +125,7 @@ async def _drive(snapshots, config=None):
     app = _Host(dash)
     async with app.run_test() as pilot:
         for snap in snapshots:
-            dash.update_metrics(MetricsUpdated(snap, {"cpu": [], "memory": []}))
+            dash.update_metrics(MetricsUpdated(snap))
             await pilot.pause()
         state = {
             "pkg_label": str(dash.query_one("#pkgpwr-label", Static).render()),
@@ -241,14 +242,17 @@ def test_label_avg_is_windowed_and_max_is_session_peak():
 
 
 def test_status_line_reports_cumulative_session_energy():
-    # Session energy integrates package_watts × interval each frame. With
-    # interval=1s and package draws of 50W then 70W: 120 J = 120/3600 Wh ≈
-    # 33 mWh (sub-0.1Wh renders in mWh).
+    # LC-3: session energy integrates package_watts over the real inter-frame
+    # dt from snapshot.timestamp (not a fixed interval). The first frame has no
+    # prior timestamp, so it contributes 0 J. With timestamps 0s/1s/2s and a
+    # steady 60W draw: frame1 → 0 J, frame2 → 60W·1s, frame3 → +60W·1s = 120 J
+    # total = 120/3600 Wh ≈ 33 mWh (sub-0.1Wh renders in mWh).
     state = asyncio.run(
         _drive(
             [
-                _snapshot(120.0, True, package_watts=50.0),
-                _snapshot(120.0, True, package_watts=70.0),
+                _snapshot(120.0, True, package_watts=60.0, timestamp=0.0),
+                _snapshot(120.0, True, package_watts=60.0, timestamp=1.0),
+                _snapshot(120.0, True, package_watts=60.0, timestamp=2.0),
             ]
         )
     )

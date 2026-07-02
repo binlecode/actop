@@ -32,7 +32,7 @@ The original `asitop` shells out to Apple's `powermetrics` CLI, a high-level too
 
 ## Key Features
 
-- **Textual TUI dashboard**: `Sparkline` charts for E-CPU, P-CPU, GPU, ANE, RAM, and power — rendered by the [Textual](https://textual.textualize.io/) framework. Supports `dots` (braille) and `block` glyph styles. Resizes cleanly; no raw ANSI escape sequences.
+- **Textual TUI dashboard**: custom `BrailleChart` sparklines for E-CPU, P-CPU, GPU, ANE, RAM, and power — rendered on the [Textual](https://textual.textualize.io/) framework. Supports `dots` (braille) and `block` glyph styles. Resizes cleanly; no raw ANSI escape sequences.
 - **In-process IOReport sampling**: reads Apple Silicon power, frequency, and residency metrics via Python ctypes bindings to `libIOReport.dylib` and CoreFoundation. No subprocesses, no temp files.
 - **Per-core visibility**: per-core panels on by default; toggle with `--no-show_cores` for a cluster-level view.
 - **Diagnosis-oriented alerts**: configurable sustained-sample thresholds for thermal pressure, bandwidth saturation, swap growth, and package power. Active alerts are shown inline in the status line.
@@ -135,6 +135,17 @@ df = p.to_pandas()   # rows = samples; cols = power/freq/residency/energy
 ```
 
 `to_pandas()` needs the `pandas` extra: `pip install "actop[pandas]"`. For a single point-in-time reading instead of a background collector, use `Monitor().get_snapshot()`.
+
+Per-process data is opt-in (off by default, so metrics-only callers pay no process-enumeration cost). Enable it to get the same watt-attributed processes the TUI shows:
+
+```python
+from actop import Monitor
+
+with Monitor(include_processes=True) as m:
+    snap = m.get_snapshot()
+    for p in snap.processes:            # list[ProcessSample], CPU-sorted
+        print(p.pid, p.command, p.attributed_w)  # attributed_w is None until the first CPU delta
+```
 
 ## CLI Reference
 
@@ -243,15 +254,15 @@ No sudo required. Degrades to `Unknown` if the ObjC runtime call fails.
 | `actop/ioreport.py` | ctypes bindings to `libIOReport.dylib` and CoreFoundation — `IOReportSubscription` lifecycle, snapshot, delta, and CF helpers |
 | `actop/sampler.py` | `IOReportSampler`: two-snapshot delta logic, `SampleResult` conversion, DVFS table discovery from `ioreg pmgr`, SMC temperature integration |
 | `actop/smc.py` | SMC temperature reader: IOKit ctypes bindings to `AppleSMC`, key discovery, CPU/GPU die temperature reads |
-| `actop/utils.py` | System context: native `ctypes` RAM/swap and process enumeration (via `native_sys.py`), `sysctl`/`system_profiler` SoC info |
+| `actop/utils.py` | L1 acquisition + platform discovery: native `ctypes` RAM/swap and per-process CPU/GPU time enumeration (via `native_sys.py`), `sysctl`/`system_profiler` SoC info |
+| `actop/analytics.py` | L2 domain analytics over acquired data points: per-process power attribution (`attribute_power`), throttle detection, and the `AlertEngine` (sustain-counted alerts + session-energy integral) |
 | `actop/soc_profiles.py` | 16 `SocProfile` dataclasses (M1–M4) with reference wattage/bandwidth; tier fallbacks for unknown chips |
 | `actop/power_scaling.py` | `power_to_percent()`: profile mode (SoC reference) vs auto mode (rolling peak x1.25) |
 | `actop/config.py` | `DashboardConfig` frozen dataclass; `create_dashboard_config()` merges CLI args with SoC info |
-| `actop/models.py` | `SystemSnapshot` and `CoreSample` dataclasses (public API types) |
-| `actop/api.py` | `Monitor`, `Profiler`, `AsyncMonitor` — public Python API for hardware profiling |
+| `actop/models.py` | `SystemSnapshot`, `CoreSample`, `ProcessSample` dataclasses (public API types) |
+| `actop/api.py` | `Monitor`, `Profiler`, `AsyncMonitor` — public Python API; `Monitor(include_processes=True)` opts into watt-attributed `ProcessSample`s |
 | `actop/tui/app.py` | `ActopApp`: Textual `App` with polling worker, process table, interactive sort/filter/pause |
-| `actop/tui/widgets.py` | `HardwareDashboard` widget with braille `Sparkline` charts, core rows, and alert computation |
-| `actop/tui/styles.tcss` | Textual CSS layout for the dashboard |
+| `actop/tui/widgets.py` | `HardwareDashboard` widget plus the custom `BrailleChart` sparkline widget, core rows, and alert computation. TUI CSS is embedded inline as each component's `DEFAULT_CSS` (no separate `.tcss` file). |
 
 ```mermaid
 graph TD

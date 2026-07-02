@@ -27,6 +27,29 @@ class CoreSample:
 
 
 @dataclass
+class ProcessSample:
+    """One process's per-frame resource use (public API type).
+
+    Collected only when the caller opts in (Monitor(include_processes=True)).
+    `attributed_w` is the process's share of package CPU+GPU watts, computed
+    in L2 (api) via analytics.attribute_power; it is None when there is no CPU
+    delta yet (a first sample after launch/resume) — the TUI renders that as
+    "–" rather than a misleading 0.0. `cpu_time_share`/`gpu_time_share` are the
+    underlying [0, 1] partitions of total CPU/GPU time, likewise None while a
+    domain's first delta is still pending.
+    """
+
+    pid: int
+    command: str
+    cpu_percent: float  # Δ CPU-time over the interval, as a percent
+    cpu_time_share: Optional[float]  # fraction of total CPU time, or None
+    gpu_time_share: Optional[float]  # fraction of total GPU time, or None
+    rss_mb: float
+    num_threads: int
+    attributed_w: Optional[float]  # CPU+GPU watts, or None (no CPU delta yet)
+
+
+@dataclass
 class SystemSnapshot:
     timestamp: float
     cpu_watts: float
@@ -74,6 +97,10 @@ class SystemSnapshot:
     fan_available: bool = False
     e_cores: list = field(default_factory=list)  # list[CoreSample]
     p_cores: list = field(default_factory=list)  # list[CoreSample]
+    # Per-process resource use, CPU-sorted; empty unless the caller opted in
+    # (Monitor(include_processes=True)). Watt attribution happens in L2, so a
+    # public-API user gets the same PWR data the TUI shows without touching L1.
+    processes: list = field(default_factory=list)  # list[ProcessSample]
     # P-state residency distribution: percent of time (ints summing to ~100)
     # spent in idle/low/mid/high DVFS buckets since the last sample, per
     # domain. Bucketed relative to the domain's DVFS ceiling (see
