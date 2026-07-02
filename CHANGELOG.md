@@ -6,6 +6,15 @@ This project follows a Keep a Changelog-style format and uses version tags for r
 
 ## [Unreleased]
 
+## [1.3.2] - 2026-07-02
+
+### Changed
+- Docs: synced `docs/DESIGN-system.md` with the as-built LC-1/2/3 layering — §1
+  now documents the L1→L2→L3 data-flow pillar and names `analytics.py` as the L2
+  judgments module; §3.7 documents the `SocProfile.ane_max_w` reference field.
+- Removed the completed `docs/TODO-layering-cleanup-2026-07-02.md` plan (LC-1/2/3
+  all shipped in v1.2.4–v1.3.1; the as-built design now lives in `DESIGN-system.md`).
+
 ## [1.3.1] - 2026-07-02
 
 ### Changed
