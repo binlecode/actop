@@ -126,6 +126,10 @@ actop --serve 9095                                  # serve Prometheus metrics a
 
 Interactive keys: `p` pause · `s` cycle sort (CPU%→RSS→PID) · `g` toggle chart glyph (`dots`/`block`) · `l` cycle layout (`grid`⇄`stack`) · `t` toggle process panel · `/` filter processes · `?` help overlay · `q` quit
 
+With the process panel enabled (`--show-processes`, or `t` at runtime), the dashboard narrows and a sortable top-process table appears — including the watt-attributed per-process `PWR` column (CPU+GPU time-share of package power) that's unique to actop:
+
+![actop with the process panel enabled: the dashboard on the left and a sortable PID / Command / CPU% / PWR / MEM / Threads process table on the right on Apple Silicon](images/actop_procs.png)
+
 ## Python API
 
 Wrap any workload to get a pandas frame of power/frequency/residency/energy — no TUI needed:

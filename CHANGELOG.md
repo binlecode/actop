@@ -11,7 +11,9 @@ This project follows a Keep a Changelog-style format and uses version tags for r
 ### Docs
 - README: add a `stack`-layout screenshot (`images/actop_stacked.png`) alongside
   the default `grid` hero, so both layout presets are shown; refresh the grid hero
-  to v1.4.2 (shows the aligned column bottoms).
+  to v1.4.2 (shows the aligned column bottoms). Add a process-panel screenshot
+  (`images/actop_procs.png`) in Quick Start, illustrating `--show-processes` / `t`
+  and the watt-attributed per-process `PWR` column.
 
 ## [1.4.2] - 2026-07-02
 
