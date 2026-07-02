@@ -32,6 +32,7 @@ def test_defaults_produce_consistent_config():
     assert cfg.avg_window >= 1
     assert cfg.power_scale == "profile"
     assert cfg.chart_glyph == "dots"
+    assert cfg.palette == "thermal"
     assert cfg.layout == "grid"
     assert cfg.show_processes is False
     assert cfg.process_filter_pattern is None
@@ -75,6 +76,8 @@ def test_flags_propagate_into_config():
             "auto",
             "--chart-glyph",
             "block",
+            "--palette",
+            "viridis",
             "--layout",
             "stack",
             "--show-processes",
@@ -89,6 +92,7 @@ def test_flags_propagate_into_config():
     assert cfg.avg_window == 30  # avg / interval
     assert cfg.power_scale == "auto"
     assert cfg.chart_glyph == "block"
+    assert cfg.palette == "viridis"
     assert cfg.layout == "stack"
     assert cfg.show_processes is True
     assert cfg.subsamples == 4

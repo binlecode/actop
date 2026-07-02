@@ -6,7 +6,11 @@ from actop import __version__
 
 def build_parser():
     parser = argparse.ArgumentParser(
-        description="actop: Performance monitoring CLI tool for Apple Silicon"
+        description="actop: Performance monitoring CLI tool for Apple Silicon",
+        # Surface every option's default in --help (appended as "(default: X)");
+        # choices already render as "{a,b,c}", so together --help documents the
+        # full supported value set + default for every argument.
+        formatter_class=argparse.ArgumentDefaultsHelpFormatter,
     )
     parser.add_argument(
         "--version", action="version", version=f"%(prog)s {__version__}"
@@ -62,6 +66,15 @@ def build_parser():
         ),
     )
     parser.add_argument(
+        "--palette",
+        choices=["thermal", "viridis", "mono"],
+        default="thermal",
+        help=(
+            "Chart color palette: thermal (blue->red), "
+            "viridis (colorblind-safe), or mono (grayscale)"
+        ),
+    )
+    parser.add_argument(
         "--proc-filter",
         type=_validate_proc_filter,
         default="",
@@ -71,7 +84,7 @@ def build_parser():
         "--show-processes",
         action="store_true",
         default=False,
-        help="Show top process panel at startup (default: off)",
+        help="Show top process panel at startup",
     )
     parser.add_argument(
         "--alert-bw-sat-percent",

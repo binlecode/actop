@@ -26,6 +26,7 @@ class DashboardConfig:
 
     power_scale: str
     chart_glyph: str
+    palette: str
     layout: str
     show_cores: bool
     show_residency: bool
@@ -81,6 +82,7 @@ def create_dashboard_config(args, soc_info_dict):
         gpu_core_count=gpu_core_count,
         power_scale=args.power_scale,
         chart_glyph=getattr(args, "chart_glyph", "dots"),
+        palette=getattr(args, "palette", "thermal"),
         layout=getattr(args, "layout", "grid"),
         show_cores=args.show_cores,
         show_residency=bool(getattr(args, "show_residency", True)),

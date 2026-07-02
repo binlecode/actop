@@ -22,7 +22,7 @@ _BLOCK_BLANK = " "
 class _ChartHost(App):
     """Mounts one BrailleChart pinned to an exact cell size."""
 
-    def __init__(self, width, height, glyph_mode, color_mode) -> None:
+    def __init__(self, width, height, glyph_mode, color_mode, palette) -> None:
         super().__init__()
         self._w = width
         self._h = height
@@ -31,10 +31,15 @@ class _ChartHost(App):
         # the terminal the suite runs under (CI has no TERM, which otherwise
         # resolves to the "none" tier and drops all color).
         self._color_mode = color_mode
+        self._palette = palette
         self.chart = None
 
     def compose(self) -> ComposeResult:
-        chart = BrailleChart(glyph_mode=self._glyph_mode, color_mode=self._color_mode)
+        chart = BrailleChart(
+            glyph_mode=self._glyph_mode,
+            color_mode=self._color_mode,
+            palette=self._palette,
+        )
         chart.styles.width = self._w
         chart.styles.height = self._h
         self.chart = chart
@@ -42,10 +47,10 @@ class _ChartHost(App):
 
 
 def _render_chart(
-    data, width, height, glyph_mode="dots", color_mode="truecolor"
+    data, width, height, glyph_mode="dots", color_mode="truecolor", palette="thermal"
 ) -> Text:
     async def _run() -> Text:
-        app = _ChartHost(width, height, glyph_mode, color_mode)
+        app = _ChartHost(width, height, glyph_mode, color_mode, palette)
         async with app.run_test(size=(width + 8, height + 8)) as pilot:
             app.chart.data = data
             await pilot.pause()
@@ -120,3 +125,19 @@ def test_block_mode_uses_block_glyphs_with_uniform_color() -> None:
     assert len(styles) == 4
     assert len(set(styles)) == 1
     assert styles[0].startswith("rgb(")
+
+
+def test_palette_selects_a_different_gradient_for_the_same_value() -> None:
+    # The same reading rendered under a non-default palette must emit a
+    # different rgb() style than the default `thermal` gradient — proof the
+    # --palette selection actually reaches the render path. Truecolor is pinned
+    # (the default for _render_chart) so the styles are rgb() on any host.
+    thermal = _column_styles(
+        _render_chart([80.0], 1, 4, palette="thermal"), width=1, height=4, col=0
+    )
+    viridis = _column_styles(
+        _render_chart([80.0], 1, 4, palette="viridis"), width=1, height=4, col=0
+    )
+
+    assert thermal[0].startswith("rgb(") and viridis[0].startswith("rgb(")
+    assert thermal[0] != viridis[0]
