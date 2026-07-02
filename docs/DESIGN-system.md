@@ -35,11 +35,14 @@ This document provides a highly detailed system design and implementation refere
 └──────────────────┘└──────────────────┘└──────────────────┘└──────────────────┘
 ```
 
+> The diagram shows the runtime data *flow*; the middle is the **L2 data-points layer** (Pillar 5): `api.py` orchestrates the per-frame pull, `analytics.py` derives the judgments (power attribution, throttling, alerts, session energy), and `models.py` defines the `SystemSnapshot` contract the TUI/export consume. `sampler.py`/`utils.py` sit in L1 (acquisition) beneath it.
+
 ### Core Architecture Pillars:
 1. **Direct Memory Access via `ctypes`**: Zero spawning of shell commands. All virtual memory, swap space, and process listings are pulled directly from memory in microsecond ranges.
 2. **Private API Interop**: Uses the private C library `libIOReport.dylib` to capture real-time Energy Model (Joules), DVFS (residency/frequencies), and core active percentages.
 3. **Zero Sudo Requirements**: Does not require root privileges. By querying the `AppleSMC` service and targeting the safe non-root `IOReport` channels, the tool runs securely under ordinary user accounts.
 4. **Cross-Platform-Safe Imports**: All four native ctypes modules (`ioreport.py`, `native_sys.py`, `smc.py`, `gpu_registry.py`) guard their `ctypes.cdll.LoadLibrary` calls under `sys.platform == "darwin"`, so `import actop` and `python -m actop.actop --help` succeed on non-Darwin CI runners; public entry points degrade to empty/unavailable sentinels off-Darwin instead of crashing at import time.
+5. **Three-Layer Data Flow (L1 → L2 → L3)**: Acquisition, data points, and presentation are separated by a strict seam (established by the LC-1/2/3 layering cleanup, v1.2.4–v1.3.1). **L1 — acquisition:** `ioreport.py`, `smc.py`, `gpu_registry.py`, `native_sys.py`, `sampler.py`, and `utils.py`'s raw `sysctl`/`system_profiler`/RAM/process queries produce raw `SampleResult`s. **L2 — data points:** `models.py` (`SystemSnapshot`, `ProcessSample`, `CoreSample`), `api.py` (`Monitor`/`Profiler`/`AsyncMonitor`), `analytics.py` (per-process power attribution, throttle detection, and the `AlertEngine` → `AlertFrame`), `soc_profiles.py`, and `power_scaling.py` turn raw samples into the typed `SystemSnapshot` — the **sole per-frame contract** — plus its derived judgments. **L3 — presentation:** `tui/*` and `export.py` consume *only* L2 types. This is why the TUI holds no acquisition or domain math, and why any API/export consumer can obtain the same data points the dashboard renders.
 
 ### 1.1 Identity, Naming & Distribution Model (since v1.0.0)
 
@@ -199,7 +202,7 @@ These boundaries are intentional and recorded here so they are not mistaken for 
 
 Chart scaling (`--power-scale profile`) and alert thresholds (§5.5) need a reference wattage/bandwidth ceiling per chip. `get_soc_profile(raw_name)` resolves the `sysctl`-reported chip brand string to one of three tiers of specificity, and is a **total function** — every path returns a valid `SocProfile`; none raise:
 
-1. **Exact match** — 16 hand-calibrated `KNOWN_SOC_PROFILES` entries spanning M1–M4 (base/Pro/Max/Ultra), each with real reference `cpu_chart_ref_w` / `gpu_chart_ref_w` / `cpu_max_bw` / `gpu_max_bw`.
+1. **Exact match** — 16 hand-calibrated `KNOWN_SOC_PROFILES` entries spanning M1–M4 (base/Pro/Max/Ultra), each with real reference `cpu_chart_ref_w` / `gpu_chart_ref_w` / `cpu_max_bw` / `gpu_max_bw`, plus an `ane_max_w` field (ANE reference power, defaulted to `8.0 W` across M1–M4 pending per-generation calibration) that L2 reads as the denominator for `SystemSnapshot.ane_util_pct` — the LC-1 fix that moved the ANE ceiling out of `DashboardConfig` and into the profile layer where every other reference wattage lives.
 2. **Generation-agnostic tier fallback** — `APPLE_M_SERIES_PATTERN = re.compile(r"^Apple M\d+")` matches *any* `Apple M<N>` string regardless of the generation number, so an unrecognized chip (M5, M6, M99, …) is still routed correctly by substring (`Ultra`/`Max`/`Pro`/else `base`) to `TIER_FALLBACKS`, without any code change. This routing is already future-proof; nothing here needs revisiting per chip launch.
 3. **Generic catch-all** — a name that doesn't even match the `Apple M\d+` pattern (or is empty/`None`, normalized by `normalize_soc_name`) falls to `GENERIC_APPLE_SILICON_PROFILE` rather than raising.
 
