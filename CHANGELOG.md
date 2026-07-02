@@ -6,6 +6,27 @@ This project follows a Keep a Changelog-style format and uses version tags for r
 
 ## [Unreleased]
 
+## [1.3.3] - 2026-07-02
+
+### Changed
+- TUI layout PR1 (sectioned dashboard) — the dashboard is now four titled,
+  bordered section containers (`CPU`, `GPU · ANE`, `Memory`, `Power`) instead of
+  one undifferentiated bordered stack; section titles live in the border (no
+  content-row cost). This is the first of two layout PRs; the grid/stack preset
+  switch (`--layout`, `l` key) follows in the next milestone.
+- Power section compaction — the CPU and GPU power blocks (label + 3-row chart
+  each) collapse into single inline-sparkline rows
+  (`CPU 6.59W <spark>  avg … · max …`), reclaiming ~4 rows. Package Power keeps
+  its full chart; the `g` glyph toggle re-renders the inline power sparks too.
+- The RAM chart shrinks from 4 rows to 2 (slow-moving signal).
+- The thermal/alerts status line moved out of the (scrollable) dashboard into
+  fixed app chrome, via a new `AlertsComputed` message posted by
+  `HardwareDashboard` and rendered by `ActopApp` — so it stays visible while a
+  tall dashboard scrolls. Same string format and tokens; no export/API change.
+- The first post-splash paint is deferred until after the dashboard is laid out
+  (`call_after_refresh`), so width-adaptive rows (cluster summary, core grid,
+  power rows) no longer flash as a single truncated character on the first frame.
+
 ## [1.3.2] - 2026-07-02
 
 ### Changed

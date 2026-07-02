@@ -270,6 +270,20 @@ class MetricsUpdated(Message):
         super().__init__()
 
 
+class AlertsComputed(Message):
+    """Posted by HardwareDashboard each frame with the formatted status string.
+
+    The status line lives in fixed app chrome (not the dashboard subtree, so it
+    stays visible while a stacked dashboard scrolls). The dashboard composes the
+    thermal/alerts/span/energy tokens and hands the string up to ActopApp, which
+    renders it into the app-level #status-line bar.
+    """
+
+    def __init__(self, status: str) -> None:
+        self.status = status
+        super().__init__()
+
+
 _RESIDENCY_ORDER = ("idle", "low", "mid", "high")
 _RESIDENCY_GLYPHS = {"idle": "░", "low": "▒", "mid": "▓", "high": "█"}
 
@@ -368,7 +382,11 @@ class HardwareDashboard(Widget):
     def compose(self) -> ComposeResult:
         cfg = self._config
 
-        with Vertical(id="cpu-section"):
+        # Four titled section containers (border_title lives in the border, so
+        # it costs no content row). Every child widget id is unchanged so the
+        # update_metrics query paths keep working after sectionizing.
+        with Vertical(id="section-cpu", classes="dash-section") as cpu_sec:
+            cpu_sec.border_title = "CPU"
             with Vertical(classes="cpu-half"):
                 yield Static(
                     "P-CPU   0% @0MHz",
@@ -400,53 +418,47 @@ class HardwareDashboard(Widget):
                 if cfg.show_residency:
                     yield Static("", id="ecpu-residency-row", classes="residency-row")
 
-        yield Static("GPU 0% @0MHz", id="gpu-label", classes="metric-label")
-        yield BrailleChart(
-            glyph_mode=self._chart_glyph, id="gpu-chart", classes="metric-chart"
-        )
-        if cfg.show_residency:
-            yield Static("", id="gpu-residency-row", classes="residency-row")
+        with Vertical(id="section-gpu-ane", classes="dash-section") as gpu_sec:
+            gpu_sec.border_title = "GPU · ANE"
+            yield Static("GPU 0% @0MHz", id="gpu-label", classes="metric-label")
+            yield BrailleChart(
+                glyph_mode=self._chart_glyph, id="gpu-chart", classes="metric-chart"
+            )
+            if cfg.show_residency:
+                yield Static("", id="gpu-residency-row", classes="residency-row")
+            yield Static("ANE 0%", id="ane-label", classes="metric-label")
+            yield BrailleChart(
+                glyph_mode=self._chart_glyph, id="ane-chart", classes="metric-chart"
+            )
 
-        yield Static("ANE 0%", id="ane-label", classes="metric-label")
-        yield BrailleChart(
-            glyph_mode=self._chart_glyph, id="ane-chart", classes="metric-chart"
-        )
+        with Vertical(id="section-memory", classes="dash-section") as mem_sec:
+            mem_sec.border_title = "Memory"
+            yield Static("RAM 0%", id="ram-label", classes="metric-label")
+            yield BrailleChart(
+                glyph_mode=self._chart_glyph, id="ram-chart", classes="metric-chart"
+            )
+            # Memory bandwidth: shown only when the sampler exposes a DCS channel
+            # (gated per-snapshot via SystemSnapshot.bandwidth_available).
+            yield Static("Mem BW 0 GB/s", id="bw-label", classes="metric-label")
+            yield BrailleChart(
+                glyph_mode=self._chart_glyph, id="bw-chart", classes="metric-chart"
+            )
 
-        yield Static("RAM 0%", id="ram-label", classes="metric-label")
-        yield BrailleChart(
-            glyph_mode=self._chart_glyph, id="ram-chart", classes="metric-chart"
-        )
-
-        # Memory bandwidth: shown only when the sampler exposes a DCS channel
-        # (gated per-snapshot in update_metrics via SystemSnapshot.bandwidth_available).
-        yield Static("Mem BW 0 GB/s", id="bw-label", classes="metric-label")
-        yield BrailleChart(
-            glyph_mode=self._chart_glyph, id="bw-chart", classes="metric-chart"
-        )
-
-        yield Static("CPU Power 0W", id="cpupwr-label", classes="metric-label")
-        yield BrailleChart(
-            glyph_mode=self._chart_glyph, id="cpupwr-chart", classes="metric-chart"
-        )
-
-        yield Static("GPU Power 0W", id="gpupwr-label", classes="metric-label")
-        yield BrailleChart(
-            glyph_mode=self._chart_glyph, id="gpupwr-chart", classes="metric-chart"
-        )
-
-        yield Static("Package Power 0W", id="pkgpwr-label", classes="metric-label")
-        yield BrailleChart(
-            glyph_mode=self._chart_glyph, id="pkgpwr-chart", classes="metric-chart"
-        )
-
-        # Fan RPM: hidden entirely on fanless Macs (no chart — a single
-        # tachometer reading doesn't warrant a sparkline like the power/BW
-        # rows), gated per-snapshot via SystemSnapshot.fan_available.
-        yield Static("Fan 0 RPM", id="fan-label", classes="metric-label")
-
-        yield Static(
-            "thermal: Nominal  alerts: none", id="status-line", classes="status-line"
-        )
+        with Vertical(id="section-power", classes="dash-section") as pwr_sec:
+            pwr_sec.border_title = "Power"
+            # CPU/GPU power are single inline-spark rows (compact); Package keeps
+            # the full 2-row chart. The *_hist percent deques still feed the
+            # sparks and the *_w_hist watt deques still feed the avg/max suffix.
+            yield Static("CPU 0.00W", id="cpupwr-row", classes="metric-label")
+            yield Static("GPU 0.00W", id="gpupwr-row", classes="metric-label")
+            yield Static("Package Power 0W", id="pkgpwr-label", classes="metric-label")
+            yield BrailleChart(
+                glyph_mode=self._chart_glyph, id="pkgpwr-chart", classes="metric-chart"
+            )
+            # Fan RPM: hidden entirely on fanless Macs (no chart — a single
+            # tachometer reading doesn't warrant a sparkline like the power/BW
+            # rows), gated per-snapshot via SystemSnapshot.fan_available.
+            yield Static("Fan 0 RPM", id="fan-label", classes="metric-label")
 
     @property
     def chart_glyph(self) -> str:
@@ -456,6 +468,9 @@ class HardwareDashboard(Widget):
         self._chart_glyph = _normalize_chart_glyph_mode(glyph_mode)
         for chart in self.query(BrailleChart):
             chart.set_glyph_mode(self._chart_glyph)
+        # The CPU/GPU power rows carry inline sparks (not BrailleChart widgets),
+        # so re-render them here the same way the core grids are re-rendered.
+        self._render_power_rows()
         if getattr(self._config, "show_cores", False):
             self._update_core_two_col(
                 "#pcores-grid", self._last_p_cores, "P", append_sample=False
@@ -532,8 +547,6 @@ class HardwareDashboard(Widget):
             ("#ane-chart", self._ane_hist),
             ("#ram-chart", self._ram_hist),
             ("#bw-chart", self._bw_hist),
-            ("#cpupwr-chart", self._cpupwr_hist),
-            ("#gpupwr-chart", self._gpupwr_hist),
             ("#pkgpwr-chart", self._pkgpwr_hist),
         )
         for widget_id, data in chart_data:
@@ -593,16 +606,7 @@ class HardwareDashboard(Widget):
         ram_label += self._pct_stats_suffix(self._ram_hist)
         self.query_one("#ram-label", Static).update(ram_label)
 
-        self.query_one("#cpupwr-label", Static).update(
-            "CPU Power {:.2f}W{}".format(
-                s.cpu_watts, self._watt_stats_suffix(self._cpu_w_hist)
-            )
-        )
-        self.query_one("#gpupwr-label", Static).update(
-            "GPU Power {:.2f}W{}".format(
-                s.gpu_watts, self._watt_stats_suffix(self._gpu_w_hist)
-            )
-        )
+        self._render_power_rows()
         self.query_one("#pkgpwr-label", Static).update(
             "Package Power {:.2f}W{}".format(
                 s.package_watts, self._watt_stats_suffix(self._pkg_w_hist)
@@ -725,6 +729,58 @@ class HardwareDashboard(Widget):
         )
         widget.update(line[:avail].ljust(avail))
 
+    # Inline power spark bounds: keep the spark legible (>= 8 chars) but never
+    # let a wide terminal turn a one-line row into a full chart (cap 24), the
+    # same width discipline _format_core_entry applies to core sparks.
+    _POWER_SPARK_MIN = 8
+    _POWER_SPARK_MAX = 24
+
+    def _render_power_rows(self) -> None:
+        """Re-render both compact CPU/GPU power rows from current histories.
+
+        Shared by update_metrics (fresh sample) and set_chart_glyph (glyph
+        toggle); the headline watt value is the newest sample in each watt
+        history deque (the value update_metrics just appended).
+        """
+        self._render_power_row(
+            "#cpupwr-row",
+            "CPU",
+            self._cpu_w_hist[-1],
+            self._cpupwr_hist,
+            self._cpu_w_hist,
+        )
+        self._render_power_row(
+            "#gpupwr-row",
+            "GPU",
+            self._gpu_w_hist[-1],
+            self._gpupwr_hist,
+            self._gpu_w_hist,
+        )
+
+    def _render_power_row(
+        self, widget_id: str, label: str, watts: float, pct_hist, watt_hist
+    ) -> None:
+        """`CPU 6.59W <spark>  avg N.NW · max N.NW` compact power row.
+
+        The spark fills the gap between the headline and the avg/max suffix,
+        clamped to [_POWER_SPARK_MIN, _POWER_SPARK_MAX]; below the minimum the
+        row drops the spark and keeps the numbers.
+        """
+        widget = self.query_one(widget_id, Static)
+        avail = max(widget.size.width, 1)
+        head = "{} {:.2f}W".format(label, watts)
+        suffix = self._watt_stats_suffix(watt_hist)
+        room = avail - len(head) - 1 - len(suffix)  # -1 for the space after head
+        spark_w = max(0, min(self._POWER_SPARK_MAX, room))
+        if spark_w >= self._POWER_SPARK_MIN:
+            spark = _inline_spark(
+                history=pct_hist, width_chars=spark_w, glyph_mode=self._chart_glyph
+            )
+            line = "{} {}{}".format(head, spark, suffix)
+        else:
+            line = "{}{}".format(head, suffix)
+        widget.update(line[:avail].ljust(avail))
+
     def _format_core_entry(
         self, prefix: str, core, col_width: int, append_sample: bool = True
     ) -> str:
@@ -819,7 +875,8 @@ class HardwareDashboard(Widget):
         )
         if meta:
             status = "{}  ·  {}".format("  ·  ".join(meta), status)
-        self.query_one("#status-line", Static).update(status)
+        # Status line lives in app chrome now; hand the string up to ActopApp.
+        self.post_message(AlertsComputed(status))
 
     def _format_session_energy(self, joules: float) -> str:
         """Cumulative session energy as `N.NWh` (or `N mWh` while still small)."""

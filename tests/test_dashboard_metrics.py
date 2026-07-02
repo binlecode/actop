@@ -19,7 +19,12 @@ from textual.widgets import Static
 
 from actop.config import DashboardConfig
 from actop.models import FanReading, SystemSnapshot
-from actop.tui.widgets import BrailleChart, HardwareDashboard, MetricsUpdated
+from actop.tui.widgets import (
+    AlertsComputed,
+    BrailleChart,
+    HardwareDashboard,
+    MetricsUpdated,
+)
 
 
 def _config(show_residency: bool = True) -> DashboardConfig:
@@ -109,14 +114,24 @@ def _snapshot(
 
 
 class _Host(App):
-    """Minimal mount point so the real dashboard widget can be laid out."""
+    """Minimal mount point so the real dashboard widget can be laid out.
+
+    Also captures the dashboard's AlertsComputed message: the status string now
+    lives in app chrome (not the dashboard subtree), so tests read it off the
+    host the way the real ActopApp does, rather than querying a #status-line
+    inside the dashboard.
+    """
 
     def __init__(self, dashboard: HardwareDashboard) -> None:
         super().__init__()
         self._dashboard = dashboard
+        self.last_status = ""
 
     def compose(self) -> ComposeResult:
         yield self._dashboard
+
+    def on_alerts_computed(self, message: AlertsComputed) -> None:
+        self.last_status = message.status
 
 
 async def _drive(snapshots, config=None):
@@ -129,13 +144,15 @@ async def _drive(snapshots, config=None):
             await pilot.pause()
         state = {
             "pkg_label": str(dash.query_one("#pkgpwr-label", Static).render()),
+            "cpupwr_row": str(dash.query_one("#cpupwr-row", Static).render()),
+            "gpupwr_row": str(dash.query_one("#gpupwr-row", Static).render()),
             "ram_label": str(dash.query_one("#ram-label", Static).render()),
             "bw_label": str(dash.query_one("#bw-label", Static).render()),
             "bw_label_display": dash.query_one("#bw-label", Static).display,
             "bw_chart_display": dash.query_one("#bw-chart", BrailleChart).display,
             "fan_label": str(dash.query_one("#fan-label", Static).render()),
             "fan_label_display": dash.query_one("#fan-label", Static).display,
-            "status": str(dash.query_one("#status-line", Static).render()),
+            "status": app.last_status,
         }
         residency_ids = (
             "pcpu-residency-row",
@@ -157,6 +174,21 @@ def test_package_power_headline_renders_total_soc_watts():
     # The total-SoC figure (package_watts) must reach the headline label.
     assert "Package Power" in state["pkg_label"]
     assert "21.5" in state["pkg_label"]
+
+
+def test_power_rows_render_cpu_gpu_watts_with_inline_spark():
+    # PR1 compaction: CPU/GPU power collapse from label+chart pairs into single
+    # inline-spark rows. Each row must still carry its live wattage headline
+    # (cpu_watts=8.0, gpu_watts=12.0 from _snapshot) and its watt-unit avg/max
+    # context through the real update path, plus an inline braille spark.
+    state = asyncio.run(_drive([_snapshot(120.0, True)]))
+    assert "CPU 8.00W" in state["cpupwr_row"]
+    assert "avg 8.0W · max 8.0W" in state["cpupwr_row"]
+    assert "GPU 12.00W" in state["gpupwr_row"]
+    assert "avg 12.0W · max 12.0W" in state["gpupwr_row"]
+    # A dots-mode inline spark rendered between headline and suffix (blank
+    # braille cell U+2800 is present when the spark region is drawn).
+    assert "⠀" in state["cpupwr_row"]
 
 
 def test_ram_row_renders_from_snapshot_fields():
