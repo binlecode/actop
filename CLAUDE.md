@@ -32,7 +32,7 @@ This file is the single source of truth for repository guidelines, used by Claud
 | `actop/smc.py` | SMC temperature reader: IOKit ctypes bindings to `AppleSMC`, key discovery, CPU/GPU die temperature reads |
 | `actop/gpu_registry.py` | Per-process GPU time via IOKit ctypes bindings: `get_gpu_time_by_pid()` sums `accumulatedGPUTime` off each `AGXDeviceUserClient` |
 | `actop/utils.py` | L1 acquisition + platform discovery: native `ctypes` RAM/swap metrics and per-process CPU/GPU time collection (via `native_sys.py`), `sysctl`/`system_profiler` SoC info. Holds no derived domain math |
-| `actop/analytics.py` | L2 domain analytics over acquired data points (imports only `models`/`power_scaling`, never `tui/*`): per-process power attribution (`attribute_power`). Slated to also home alerts/throttling/session energy |
+| `actop/analytics.py` | L2 domain analytics over acquired data points (imports only `models`/`power_scaling`, never `tui/*`): per-process power attribution (`attribute_power`), throttle detection (`domain_throttling`), bandwidth/package-power normalization, and the stateful `AlertEngine` (sustain-counted alerts + session-energy integral → `AlertFrame`) |
 | `actop/soc_profiles.py` | 16 built-in M1–M4 SoC profiles with power/bandwidth reference values; tier fallbacks for unknown chips |
 | `actop/power_scaling.py` | Power chart scaling: `auto` mode (rolling peak x1.25) vs `profile` mode (SoC reference wattage) |
 | `actop/config.py` | `DashboardConfig` frozen dataclass; `create_dashboard_config()` merges CLI args with SoC info |

@@ -287,11 +287,13 @@ The **Fan** row (shipped v1.2.2; current/max in v1.2.3) is a plain label with no
 A `ModalScreen` bound to `?` (toggle), `esc`, and `q` documents the keybindings, every metric label, and \u2014 critically \u2014 the otherwise-undocumented status-line tokens (`span`, `energy`, `THERMAL`, `THROTTLING:CPU/GPU`, `MEM-BOUND>`, `PKG>`, `SWAP+`) and the color-degradation / `NO_COLOR` behavior. The `THROTTLING` token fires when a silicon domain is busy yet held below its DVFS max frequency while hot (see §5.3 alert path). The `energy` token is the cumulative session energy (\u222b package power dt since launch, displayed in mWh/Wh), the live-TUI counterpart to `Profiler.total_package_joules`.
 
 ### 5.5 Alert Counters & Threshold Validation
-To alert users of resource bottlenecks, the `HardwareDashboard` monitors and tracks resource usage:
-- **Bandwidth Saturation**: Triggers when Memory bandwidth exceeds a configured percentage of the SoC's reference limit (defaults to `85%`).
-- **Power Peak Alert**: Triggers when Package Watts exceeds a configured percentage of the SoC's reference limit (defaults to `85%`).
-- **Swap Rise**: Triggers when Swap space usage increases by a configured limit (defaults to `0.3 GB`).
-- **Alert Sliding Window**: To prevent intermittent spikes from causing noisy notifications, alerts are validated using a sliding window. The metric must exceed the threshold for a sustained count of sequential intervals (defaults to `3` samples) before updating the status line.
+Alert/throttle/session-energy analytics live in **L2** (`analytics.AlertEngine`) as of LC-3 (v1.3.1), not the view: the engine is constructed from threshold *values* (never a `DashboardConfig`, so `analytics` stays TUI-agnostic), and `feed(snapshot)` returns an immutable `AlertFrame` (thermal/cpu-throttle/gpu-throttle/bw/pkg/swap verdicts + `swap_rise_gb` + `session_energy_j`). `HardwareDashboard._compute_alerts` is now a thin formatter that turns the frame into status-line tokens — no alert math remains in `tui/`. The engine tracks:
+- **Bandwidth Saturation**: Triggers when Memory bandwidth exceeds a configured percentage of the SoC's reference limit (defaults to `85%`). Normalised via `analytics.bandwidth_percent(snapshot, max_total_bw)`.
+- **Power Peak Alert**: Triggers when Package Watts exceeds a configured percentage of the SoC's reference limit (defaults to `85%`). Normalised via `analytics.package_power_percent(snapshot, package_ref_w)`.
+- **Throttle**: `analytics.domain_throttling(...)` flags a silicon domain busy + held below its DVFS ceiling + hot; sustained like the others.
+- **Swap Rise**: Triggers when Swap space usage increases by a configured limit (defaults to `0.3 GB`) across the sustain window.
+- **Alert Sliding Window**: To prevent intermittent spikes from causing noisy notifications, alerts are validated using a sliding window. The metric must exceed the threshold for a sustained count of sequential intervals (defaults to `3` samples) before the frame reports the alert.
+- **Session energy**: integrated as `Σ package_watts × dt` where `dt` is the real inter-frame delta from `snapshot.timestamp` (the first `feed()` has no prior timestamp, so it contributes 0 J) — the live-TUI counterpart to `Profiler.total_package_joules`.
 
 ### 5.6 Headless Export Modes (`export.py`)
 The same `Monitor` sampling layer feeds two non-TUI output modes, routed from `main()` ahead of the TUI, turning actop from a viewer into an observability source:

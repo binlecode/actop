@@ -199,13 +199,13 @@ CHANGELOG, `ruff check --fix . && ruff format .`, `pytest -q`, on-device run.
 |---|---|---|
 | **LC-1** ✅ shipped v1.2.4 (#21) | F1 (snapshot RAM completion, kill duplicate sampling, config chip fields) + F5 (`ane_max_w` slot) + `ane_util_pct` field | patch |
 | **LC-2** ✅ shipped v1.3.0 | F2 (`ProcessSample`, opt-in collection, L2 attribution) + F4 (`attribute_power` move → `analytics.py`); `MetricsUpdated` → snapshot-only | **minor** (public API addition: `ProcessSample`, `Monitor(include_processes=...)`) |
-| **LC-3** | F3 (extend `analytics.py`: `AlertEngine`, throttling, session energy; widget analytics deleted). Note `analytics.py` now **exists** (created in LC-2 with `attribute_power`); LC-3 adds the alert/throttle/energy analytics to it | patch |
+| **LC-3** ✅ shipped v1.3.1 | F3 (extended `analytics.py`: `AlertEngine` + `AlertFrame`, `domain_throttling`, `bandwidth_percent`, `package_power_percent`, session energy; widget analytics deleted). Session energy now integrates over `snapshot.timestamp` dt (first frame contributes 0 J) | patch |
 | **LC-4** *(optional)* | F6 (`RollingStats`) | patch |
 
 **Revised master queue across all open plans:**
 
-1. `TODO-convergence-quick-wins` **Feature B** (fan `F{n}Mx`) — orthogonal, already first.
-2. **LC-1 → LC-2 → LC-3** (this plan).
+1. `TODO-convergence-quick-wins` **Feature B** (fan `F{n}Mx`) — ✅ shipped v1.2.3.
+2. **LC-1 → LC-2 → LC-3** (this plan) — ✅ all shipped (v1.2.4 / v1.3.0 / v1.3.1).
 3. `TODO-tui-layout-redesign` **PR1 → PR2** — lands on a cleaner base:
    `MetricsUpdated(snapshot)` only, and PR1's `AlertsComputed` message
    carries formatting of an `AlertFrame` instead of re-homed widget math.

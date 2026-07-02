@@ -255,7 +255,7 @@ No sudo required. Degrades to `Unknown` if the ObjC runtime call fails.
 | `actop/sampler.py` | `IOReportSampler`: two-snapshot delta logic, `SampleResult` conversion, DVFS table discovery from `ioreg pmgr`, SMC temperature integration |
 | `actop/smc.py` | SMC temperature reader: IOKit ctypes bindings to `AppleSMC`, key discovery, CPU/GPU die temperature reads |
 | `actop/utils.py` | L1 acquisition + platform discovery: native `ctypes` RAM/swap and per-process CPU/GPU time enumeration (via `native_sys.py`), `sysctl`/`system_profiler` SoC info |
-| `actop/analytics.py` | L2 domain analytics over acquired data points: per-process power attribution (`attribute_power`) |
+| `actop/analytics.py` | L2 domain analytics over acquired data points: per-process power attribution (`attribute_power`), throttle detection, and the `AlertEngine` (sustain-counted alerts + session-energy integral) |
 | `actop/soc_profiles.py` | 16 `SocProfile` dataclasses (M1–M4) with reference wattage/bandwidth; tier fallbacks for unknown chips |
 | `actop/power_scaling.py` | `power_to_percent()`: profile mode (SoC reference) vs auto mode (rolling peak x1.25) |
 | `actop/config.py` | `DashboardConfig` frozen dataclass; `create_dashboard_config()` merges CLI args with SoC info |

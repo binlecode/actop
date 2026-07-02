@@ -10,6 +10,7 @@ from textual.message import Message
 from textual.widget import Widget
 from textual.widgets import Static
 
+from actop.analytics import AlertEngine, bandwidth_percent, package_power_percent
 from actop.models import SystemSnapshot
 from actop.power_scaling import (
     DEFAULT_CPU_FLOOR_W,
@@ -269,50 +270,6 @@ class MetricsUpdated(Message):
         super().__init__()
 
 
-# Throttle detection gates (heuristics). A cluster is only "throttling" when it is
-# working hard yet held below its DVFS ceiling while hot — an idle or power-capped
-# cluster at low freq is not throttling. The thermal-pressure signal is the primary
-# "hot" test; the die-temp gate is a fallback for machines whose SMC temps read 0.
-_THROTTLE_UTIL_GATE = 80.0  # percent: cluster must be at least this busy
-_THROTTLE_TEMP_C = 90.0  # °C: die-temp fallback when thermal_state stays Nominal
-
-
-def _domain_throttling(util, freq, max_freq, temp, thermal_state, cfg) -> bool:
-    """True when a silicon domain is busy + slow + hot (see gates above).
-
-    slow = current freq below `alert_throttle_freq_percent`% of the DVFS ceiling.
-    Returns False when the ceiling is unknown (max_freq <= 0) — the ratio is
-    uncomputable, so we cannot claim throttling.
-    """
-    if max_freq <= 0:
-        return False
-    busy = util >= _THROTTLE_UTIL_GATE
-    slow = freq < (cfg.alert_throttle_freq_percent / 100.0) * max_freq
-    hot = thermal_state not in ("Nominal", "Unknown") or temp >= _THROTTLE_TEMP_C
-    return busy and slow and hot
-
-
-def _bandwidth_percent(snapshot, cfg) -> float:
-    """Memory bandwidth as a percent of summed CPU+GPU channel capacity.
-
-    Returns 0 when bandwidth is unavailable. Shared by the chart and the
-    saturation alert so both normalise against the same reference.
-    """
-    total_bw_ref = max(cfg.max_cpu_bw + cfg.max_gpu_bw, 1.0)
-    if not snapshot.bandwidth_available:
-        return 0
-    return clamp_percent(snapshot.bandwidth_gbps / total_bw_ref * 100)
-
-
-def _package_power_percent(snapshot, cfg) -> float:
-    """Package power as a percent of the SoC reference rail.
-
-    Shared by the chart and the PKG alert so both normalise against the
-    same reference.
-    """
-    return clamp_percent(snapshot.package_watts / max(cfg.package_ref_w, 1.0) * 100)
-
-
 _RESIDENCY_ORDER = ("idle", "low", "mid", "high")
 _RESIDENCY_GLYPHS = {"idle": "░", "low": "▒", "mid": "▓", "high": "█"}
 
@@ -362,7 +319,6 @@ class HardwareDashboard(Widget):
         self._chart_glyph = getattr(cfg, "chart_glyph", "dots")
 
         maxlen = self._CHART_HIST_MAXLEN
-        swap_maxlen = max(2, cfg.alert_sustain_samples + 1)
 
         self._ecpu_hist: deque = deque([0] * maxlen, maxlen=maxlen)
         self._pcpu_hist: deque = deque([0] * maxlen, maxlen=maxlen)
@@ -387,20 +343,22 @@ class HardwareDashboard(Widget):
         # right-alignment, so avg/max must ignore the leading padding.
         self._sample_count: int = 0
 
-        self._swap_hist: deque = deque([], maxlen=swap_maxlen)
-
         self._cpu_peak_w: float = 0.0
         self._gpu_peak_w: float = 0.0
 
-        self._high_bw_counter: int = 0
-        self._high_pkg_counter: int = 0
-        self._throttle_cpu_counter: int = 0
-        self._throttle_gpu_counter: int = 0
-
-        # Cumulative session energy (joules), integrated as package_watts ×
-        # interval each frame — the "what did this run cost" readout, mirroring
-        # Profiler.total_package_joules for the live TUI.
-        self._session_joules: float = 0.0
+        # L2 alert / throttle / session-energy analytics. Owns the sustain
+        # counters, swap-rise window, and cumulative energy integral formerly
+        # kept in this widget; constructed from threshold values so analytics
+        # stays TUI-config-agnostic.
+        self._alert_engine = AlertEngine(
+            bw_sat_percent=cfg.alert_bw_sat_percent,
+            pkg_power_percent=cfg.alert_package_power_percent,
+            throttle_freq_percent=cfg.alert_throttle_freq_percent,
+            swap_rise_gb=cfg.alert_swap_rise_gb,
+            sustain_samples=cfg.alert_sustain_samples,
+            max_total_bw=cfg.max_cpu_bw + cfg.max_gpu_bw,
+            package_ref_w=cfg.package_ref_w,
+        )
 
         # Per-core history (dict: index -> deque)
         self._core_hist: dict = {}
@@ -550,26 +508,21 @@ class HardwareDashboard(Widget):
         self._cpupwr_hist.append(cpu_pwr_pct)
         self._gpupwr_hist.append(gpu_pwr_pct)
 
-        # Package power chart percent (vs SoC reference rail), mirroring the
-        # PKG alert normalisation in _compute_alerts.
-        pkg_pwr_pct = _package_power_percent(s, cfg)
+        # Package power chart percent (vs SoC reference rail); the same L2
+        # normalisation the AlertEngine's PKG alert uses.
+        pkg_pwr_pct = package_power_percent(s, cfg.package_ref_w)
         if s.package_watts > 0 and pkg_pwr_pct == 0:
             pkg_pwr_pct = 1
         self._pkgpwr_hist.append(pkg_pwr_pct)
         self._pkg_w_hist.append(s.package_watts)
-        self._session_joules += max(0.0, s.package_watts) * max(
-            1, int(getattr(cfg, "sample_interval", 1))
-        )
 
-        # Memory bandwidth chart percent (vs summed CPU+GPU channel capacity),
-        # mirroring the BW alert normalisation in _compute_alerts.
-        bw_pct = _bandwidth_percent(s, cfg)
+        # Memory bandwidth chart percent (vs summed CPU+GPU channel capacity);
+        # the same L2 normalisation the AlertEngine's BW alert uses.
+        bw_pct = bandwidth_percent(s, cfg.max_cpu_bw + cfg.max_gpu_bw)
         if s.bandwidth_available and s.bandwidth_gbps > 0 and bw_pct == 0:
             bw_pct = 1  # nudge a tiny-but-nonzero draw off the floor for the chart
         self._bw_hist.append(bw_pct)
         self._bw_gbps_hist.append(s.bandwidth_gbps if s.bandwidth_available else 0.0)
-
-        self._swap_hist.append(max(0.0, float(s.swap_used_gb or 0.0)))
 
         # Update charts
         chart_data = (
@@ -827,90 +780,33 @@ class HardwareDashboard(Widget):
         widget.update("\n".join(rows))
 
     def _compute_alerts(self, s: SystemSnapshot) -> None:
-        """Compute alert flags and update the status line."""
+        """Format the L2 alert frame into the status line (presentation only).
+
+        All alert/throttle/energy math lives in analytics.AlertEngine; this
+        method turns its AlertFrame into user-facing tokens.
+        """
         cfg = self._config
-
-        # Bandwidth saturation: compare total BW to total capacity (cpu + gpu refs).
-        # The old dashing TUI fired on the hottest individual channel; since
-        # SystemSnapshot only exposes the aggregate total, we normalise against
-        # the sum of cpu and gpu channel references — the closest equivalent.
-        bw_pct = _bandwidth_percent(s, cfg)
-        if s.bandwidth_available and bw_pct >= cfg.alert_bw_sat_percent:
-            self._high_bw_counter += 1
-        else:
-            self._high_bw_counter = 0
-        bw_alert = self._high_bw_counter >= cfg.alert_sustain_samples
-
-        # Package power
-        pkg_pct = _package_power_percent(s, cfg)
-        if pkg_pct >= cfg.alert_package_power_percent:
-            self._high_pkg_counter += 1
-        else:
-            self._high_pkg_counter = 0
-        pkg_alert = self._high_pkg_counter >= cfg.alert_sustain_samples
-
-        # Thermal throttle, per silicon domain (P-cluster CPU, GPU): busy + held
-        # below the DVFS ceiling + hot. Sustained like the other alerts.
-        if _domain_throttling(
-            s.pcpu_util_pct,
-            s.pcpu_freq_mhz,
-            s.pcpu_max_freq_mhz,
-            s.cpu_temp_c,
-            s.thermal_state,
-            cfg,
-        ):
-            self._throttle_cpu_counter += 1
-        else:
-            self._throttle_cpu_counter = 0
-        cpu_throttle = self._throttle_cpu_counter >= cfg.alert_sustain_samples
-
-        if _domain_throttling(
-            s.gpu_util_pct,
-            s.gpu_freq_mhz,
-            s.gpu_max_freq_mhz,
-            s.gpu_temp_c,
-            s.thermal_state,
-            cfg,
-        ):
-            self._throttle_gpu_counter += 1
-        else:
-            self._throttle_gpu_counter = 0
-        gpu_throttle = self._throttle_gpu_counter >= cfg.alert_sustain_samples
-
-        # Swap rise
-        swap_history_points = cfg.alert_sustain_samples + 1
-        swap_rise = (
-            max(0.0, self._swap_hist[-1] - self._swap_hist[0])
-            if len(self._swap_hist) > 1
-            else 0.0
-        )
-        swap_total = float(s.swap_total_gb or 0.0)
-        swap_alert = (
-            swap_total >= 0.1
-            and len(self._swap_hist) >= swap_history_points
-            and swap_rise >= cfg.alert_swap_rise_gb
-        )
+        frame = self._alert_engine.feed(s)
 
         # Chart time window: charts plot one sample per character, so the
         # visible span scales silently with terminal width. Surface it.
         span_label = self._chart_window_label()
 
-        # Thermal
-        thermal_alert = s.thermal_state not in ("Nominal", "Unknown")
-
         active_alerts = []
-        if thermal_alert:
+        if frame.thermal_alert:
             active_alerts.append("THERMAL")
         throttled = [
-            name for name, on in (("CPU", cpu_throttle), ("GPU", gpu_throttle)) if on
+            name
+            for name, on in (("CPU", frame.cpu_throttle), ("GPU", frame.gpu_throttle))
+            if on
         ]
         if throttled:
             active_alerts.append("THROTTLING:{}".format(",".join(throttled)))
-        if bw_alert:
+        if frame.bw_alert:
             active_alerts.append("MEM-BOUND>{}%".format(cfg.alert_bw_sat_percent))
-        if swap_alert:
-            active_alerts.append("SWAP+{:.1f}G".format(swap_rise))
-        if pkg_alert:
+        if frame.swap_alert:
+            active_alerts.append("SWAP+{:.1f}G".format(frame.swap_rise_gb))
+        if frame.pkg_alert:
             active_alerts.append("PKG>{}%".format(cfg.alert_package_power_percent))
         alerts_str = ", ".join(active_alerts) if active_alerts else "none"
 
@@ -918,14 +814,16 @@ class HardwareDashboard(Widget):
         meta = []
         if span_label:
             meta.append("span {}".format(span_label))
-        meta.append("energy {}".format(self._format_session_energy()))
+        meta.append(
+            "energy {}".format(self._format_session_energy(frame.session_energy_j))
+        )
         if meta:
             status = "{}  ·  {}".format("  ·  ".join(meta), status)
         self.query_one("#status-line", Static).update(status)
 
-    def _format_session_energy(self) -> str:
+    def _format_session_energy(self, joules: float) -> str:
         """Cumulative session energy as `N.NWh` (or `N mWh` while still small)."""
-        wh = self._session_joules / 3600.0
+        wh = joules / 3600.0
         if wh < 0.1:
             return "{:.0f}mWh".format(wh * 1000)
         return "{:.2f}Wh".format(wh)

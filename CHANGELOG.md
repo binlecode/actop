@@ -6,6 +6,24 @@ This project follows a Keep a Changelog-style format and uses version tags for r
 
 ## [Unreleased]
 
+## [1.3.1] - 2026-07-02
+
+### Changed
+- Layering cleanup LC-3 — alert, throttle, and session-energy analytics moved
+  out of the TUI widget into L2 (`actop.analytics`). New `AlertEngine` owns the
+  per-alert sustain counters, swap-rise window, and cumulative energy integral;
+  `AlertEngine.feed(snapshot)` returns an `AlertFrame` (thermal/throttle/bw/pkg/
+  swap verdicts + `swap_rise_gb` + `session_energy_j`). `domain_throttling`,
+  `bandwidth_percent`, and `package_power_percent` are now module-level L2
+  functions taking explicit reference values. The dashboard widget's
+  `_compute_alerts` shrank to formatting the frame into status-line tokens; no
+  alert/throttle/energy math remains in `tui/`. No visual change.
+- Session energy is now integrated over the real inter-frame dt derived from
+  `SystemSnapshot.timestamp` instead of the fixed sample interval. This is a
+  correctness improvement (honest elapsed time), with one behavior note: the
+  **first frame contributes 0 J** (no prior timestamp to diff against), whereas
+  the old fixed-interval integral counted the first frame.
+
 ## [1.3.0] - 2026-07-02
 
 ### Added
