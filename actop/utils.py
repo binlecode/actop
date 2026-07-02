@@ -1,3 +1,12 @@
+"""L1 acquisition + platform discovery.
+
+System queries only: native RAM/swap/process enumeration (via `native_sys`),
+per-process CPU/GPU time deltas, and `sysctl`/SoC-profile platform discovery.
+Domain math over these data points (e.g. per-process power attribution) lives
+in `analytics.py`; this module deliberately holds no derived judgments so it
+has a single, assignable layer.
+"""
+
 import re
 import time
 from .gpu_registry import get_gpu_time_by_pid
@@ -129,20 +138,6 @@ def _delta_ns(cache, key, raw_value_ns, current_time):
     return delta_ns, time_delta
 
 
-def attribute_power(share_cpu, share_gpu, cpu_watts, gpu_watts):
-    """Watts attributed to a process from its CPU/GPU time shares.
-
-    A None share (first sample, no delta yet) contributes 0 rather than
-    blocking the other domain's contribution.
-    """
-    watts = 0.0
-    if share_cpu is not None:
-        watts += share_cpu * cpu_watts
-    if share_gpu is not None:
-        watts += share_gpu * gpu_watts
-    return watts
-
-
 def get_top_processes(limit=3, proc_filter=None):
     pattern = None
     if proc_filter:
@@ -215,8 +210,8 @@ def get_top_processes(limit=3, proc_filter=None):
 
     # Pass 2: build entries (applying the filter) and turn each PID's delta
     # into a time share in [0, 1]. Shares are deliberately kept decoupled
-    # from watts — the TUI owns cpu_watts/gpu_watts and multiplies
-    # (utils.attribute_power).
+    # from watts — L2 (api._sample_to_snapshot) owns cpu_watts/gpu_watts and
+    # multiplies (analytics.attribute_power) when building ProcessSamples.
     entries = []
     for proc in native_procs:
         pid = proc["pid"]

@@ -124,7 +124,7 @@ async def _drive(snapshots, config=None):
     app = _Host(dash)
     async with app.run_test() as pilot:
         for snap in snapshots:
-            dash.update_metrics(MetricsUpdated(snap, {"cpu": [], "memory": []}))
+            dash.update_metrics(MetricsUpdated(snap))
             await pilot.pause()
         state = {
             "pkg_label": str(dash.query_one("#pkgpwr-label", Static).render()),
