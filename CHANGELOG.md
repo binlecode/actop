@@ -6,6 +6,13 @@ This project follows a Keep a Changelog-style format and uses version tags for r
 
 ## [Unreleased]
 
+## [1.4.4] - 2026-07-02
+
+### Chore
+- Untrack `.DS_Store` files (repo root and `images/`) that predated the
+  `.gitignore` rule, so macOS Finder cruft no longer ships in the repo. The
+  existing `.gitignore` entry keeps them out going forward.
+
 ## [1.4.3] - 2026-07-02
 
 ### Docs
