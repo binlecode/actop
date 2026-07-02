@@ -14,7 +14,7 @@ from textual.widgets import DataTable, Footer, Header, Input, Static
 from actop import __version__
 from actop.api import Monitor
 from actop.config import create_dashboard_config
-from actop.tui.widgets import HardwareDashboard, MetricsUpdated
+from actop.tui.widgets import AlertsComputed, HardwareDashboard, MetricsUpdated
 from actop.utils import get_soc_info
 
 _SPINNER_FRAMES = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"]
@@ -98,7 +98,7 @@ HELP_TEXT = """\
   ANE             Apple Neural Engine util% (estimated) and power
   RAM             Used / total memory (and swap when active)
   Mem BW          Unified-memory bandwidth in GB/s (hidden if unavailable)
-  CPU/GPU Power   Live package-rail power draw in watts
+  CPU / GPU       Live CPU/GPU rail power (W) with an inline sparkline
   Package Power   Total SoC power draw in watts (CPU + GPU + ANE + other rails)
   idle/low/mid/high  DVFS residency: % of time since the last sample spent
              idle vs. below 40% / 40-74% / ≥75% of the cluster's max
@@ -171,8 +171,12 @@ class ActopApp(App):
         height: 1fr;
         overflow-y: auto;
         layout: vertical;
+        padding: 0;
+    }
+    .dash-section {
         border: round $accent;
         padding: 0 1;
+        height: auto;
     }
     .metric-label {
         height: 1;
@@ -188,10 +192,11 @@ class ActopApp(App):
         height: 4;
     }
     #ram-chart {
-        height: 4;
+        height: 2;
     }
-    .status-line {
+    #status-line {
         height: 1;
+        width: 100%;
         color: $text-muted;
     }
     .cpu-summary-row {
@@ -203,9 +208,6 @@ class ActopApp(App):
         color: $text-muted;
     }
     .core-grid {
-        height: auto;
-    }
-    #cpu-section {
         height: auto;
     }
     .cpu-half {
@@ -291,6 +293,9 @@ class ActopApp(App):
         with Horizontal(id="main-section"):
             yield HardwareDashboard(config=self._config, id="hardware-dash")
             yield DataTable(id="process-table", zebra_stripes=True, cursor_type="row")
+        # App-level status bar: fixed chrome below the dashboard so alerts stay
+        # visible even while a stacked dashboard scrolls. Fed by AlertsComputed.
+        yield Static("", id="status-line")
         filter_input = Input(placeholder="Regex filter...", id="filter-input")
         filter_input.display = False
         yield filter_input
@@ -298,6 +303,7 @@ class ActopApp(App):
 
     def on_mount(self) -> None:
         self.query_one("#main-section").display = False
+        self.query_one("#status-line").display = False  # hidden behind the splash
         self.query_one("#process-table", DataTable).display = self._show_processes
         self._refresh_process_table()  # initialises columns without advancing sort
         self._splash_timer = self.set_interval(0.1, self._tick_splash)
@@ -336,11 +342,26 @@ class ActopApp(App):
             self._splash_timer.stop()
             self.query_one("#loading-splash").display = False
             self.query_one("#main-section").display = True
+            self.query_one("#status-line").display = True
+            # The dashboard was just un-hidden, so its descendant rows have no
+            # width yet. Defer the first paint until after layout, otherwise the
+            # width-adaptive rows (cluster summary, core grid, power rows) read
+            # size.width == 0 and render as a single truncated character that
+            # sticks until the next sample re-renders them.
+            self.call_after_refresh(self._paint_metrics, message)
+            return
+        self._paint_metrics(message)
+
+    def _paint_metrics(self, message: MetricsUpdated) -> None:
         self.query_one("#hardware-dash", HardwareDashboard).update_metrics(message)
         self._last_processes = message.snapshot.processes
         self._last_cpu_watts = message.snapshot.cpu_watts
         self._last_gpu_watts = message.snapshot.gpu_watts
         self._refresh_process_table()
+
+    def on_alerts_computed(self, message: AlertsComputed) -> None:
+        """Render the dashboard's composed status string into the app status bar."""
+        self.query_one("#status-line", Static).update(message.status)
 
     def action_toggle_pause(self) -> None:
         if self._stop_polling.is_set():
