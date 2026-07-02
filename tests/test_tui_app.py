@@ -30,15 +30,45 @@ def test_opening_banner_and_header_show_version():
 def test_status_bar_exposes_only_supported_actions():
     keys = {(b[0] if isinstance(b, tuple) else b.key) for b in ActopApp.BINDINGS}
 
-    # Kept utilities, including the help overlay.
-    assert {"q", "p", "s", "g", "t", "/", "question_mark"} <= keys
+    # Kept utilities, including the help overlay and the layout-preset cycle.
+    assert {"q", "p", "s", "g", "l", "t", "/", "question_mark"} <= keys
 
-    # Removed utilities: layout toggle and dashboard-collapse no longer exist.
+    # Removed utilities: the old `v` view-toggle and `space` dashboard-collapse
+    # no longer exist (the layout cycle now lives on `l`, asserted above).
     assert "v" not in keys
     assert "space" not in keys
 
     # The framework command palette is disabled (no ^p in the status bar).
     assert ActopApp.ENABLE_COMMAND_PALETTE is False
+
+
+def test_pressing_l_cycles_the_dashboard_layout_preset():
+    # The `l` binding must flip the dashboard's requested preset grid<->stack.
+    # Drive it through the real key press on a mounted app (wide terminal so a
+    # grid request is not auto-degraded, keeping requested==effective).
+    async def _run():
+        app = ActopApp(build_parser().parse_args([]))
+        async with app.run_test(size=(160, 50)) as pilot:
+            await pilot.pause()
+            from actop.tui.widgets import HardwareDashboard
+
+            dash = app.query_one("#hardware-dash", HardwareDashboard)
+            # The headless harness auto-focuses the (hidden) filter Input, which
+            # would swallow the single-letter key; clear focus so `l` routes to
+            # the app binding the way it does when the filter is inactive.
+            app.set_focus(None)
+            before = dash.layout_preset
+            await pilot.press("l")
+            await pilot.pause()
+            after_one = dash.layout_preset
+            await pilot.press("l")
+            await pilot.pause()
+            after_two = dash.layout_preset
+            return before, after_one, after_two
+
+    before, after_one, after_two = asyncio.run(_run())
+    assert {before, after_one} == {"grid", "stack"}  # one press flips it
+    assert after_two == before  # a second press flips back
 
 
 def test_help_overlay_documents_keys_metrics_and_alert_tokens():

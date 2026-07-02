@@ -14,6 +14,7 @@ no mocks. Validates the two Tier-1 surfacing contracts:
 import asyncio
 import re
 
+import pytest
 from textual.app import App, ComposeResult
 from textual.widgets import Static
 
@@ -43,6 +44,7 @@ def _config(show_residency: bool = True) -> DashboardConfig:
         gpu_core_count=10,
         power_scale="profile",
         chart_glyph="dots",
+        layout="grid",
         show_cores=False,
         show_residency=show_residency,
         alert_bw_sat_percent=85,
@@ -408,3 +410,84 @@ def test_status_line_surfaces_chart_time_window_span():
     # window the charts cover is ambiguous to the user.
     state = asyncio.run(_drive([_snapshot(120.0, True)]))
     assert re.search(r"span \d+(?:s|m(?:\d{2}s)?|h(?:\d{2}m)?)", state["status"])
+
+
+# --- Layout presets (PR2) --------------------------------------------------
+
+
+def test_layout_switch_preserves_history_and_keeps_updating():
+    # Switching preset mid-session must not reset the history deques: the
+    # session peak carried in the avg/max suffix has to survive the swap, and
+    # labels must keep updating in the new preset. Drive in grid (wide enough
+    # that it does not auto-degrade), switch to stack, then feed a lower reading.
+    async def _run():
+        dash = HardwareDashboard(config=_config())
+        app = _Host(dash)
+        async with app.run_test(size=(160, 50)) as pilot:
+            for _ in range(2):
+                dash.update_metrics(
+                    MetricsUpdated(_snapshot(120.0, True, package_watts=50.0))
+                )
+                await pilot.pause()
+            assert dash.effective_layout_preset == "grid"
+            dash.set_layout_preset("stack")
+            await pilot.pause()
+            assert dash.effective_layout_preset == "stack"
+            # A lower reading after the switch: headline follows it (still
+            # updating), but the session peak from before the switch persists.
+            dash.update_metrics(
+                MetricsUpdated(_snapshot(120.0, True, package_watts=20.0))
+            )
+            await pilot.pause()
+            return str(dash.query_one("#pkgpwr-label", Static).render())
+
+    label = asyncio.run(_run())
+    assert "20.0" in label  # newest value rendered post-switch
+    assert "max 50.0W" in label  # pre-switch session peak survived the swap
+
+
+def test_power_row_renders_spark_in_true_grid_preset():
+    # In a genuinely wide terminal the grid preset holds (no auto-degrade), so
+    # the power section sits in the ~half-width right column. The inline spark
+    # must still render there — proving the width-adaptive rows re-render for
+    # the grid column width, not only the full-width stack.
+    async def _run():
+        dash = HardwareDashboard(config=_config())
+        app = _Host(dash)
+        async with app.run_test(size=(200, 55)) as pilot:
+            dash.update_metrics(MetricsUpdated(_snapshot(120.0, True)))
+            await pilot.pause()
+            assert dash.effective_layout_preset == "grid"
+            return str(dash.query_one("#cpupwr-row", Static).render())
+
+    row = asyncio.run(_run())
+    assert "CPU 8.00W" in row
+    assert "⠀" in row  # braille spark region drawn in the grid column
+
+
+def test_grid_auto_degrades_below_min_width_and_recovers():
+    # A requested grid narrower than _GRID_MIN_WIDTH must render as stack (the
+    # two columns would fall below readability), and recover to grid once the
+    # terminal widens again — without changing what was *requested*.
+    async def _run():
+        dash = HardwareDashboard(config=_config())  # requests grid by default
+        app = _Host(dash)
+        async with app.run_test(size=(80, 40)) as pilot:
+            await pilot.pause()
+            narrow = dash.effective_layout_preset
+            requested_when_narrow = dash.layout_preset
+            await pilot.resize_terminal(160, 40)
+            await pilot.pause()
+            wide = dash.effective_layout_preset
+            return narrow, requested_when_narrow, wide
+
+    narrow, requested_when_narrow, wide = asyncio.run(_run())
+    assert narrow == "stack"  # auto-degraded under 96 cols
+    assert requested_when_narrow == "grid"  # request is unchanged by degrade
+    assert wide == "grid"  # recovers when width returns
+
+
+def test_set_layout_preset_rejects_unknown_name():
+    dash = HardwareDashboard(config=_config())
+    with pytest.raises(ValueError):
+        dash.set_layout_preset("bogus")

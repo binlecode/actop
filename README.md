@@ -32,7 +32,7 @@ The original `asitop` shells out to Apple's `powermetrics` CLI, a high-level too
 
 ## Key Features
 
-- **Textual TUI dashboard**: custom `BrailleChart` sparklines for E-CPU, P-CPU, GPU, ANE, RAM, and power — rendered on the [Textual](https://textual.textualize.io/) framework. Supports `dots` (braille) and `block` glyph styles. Resizes cleanly; no raw ANSI escape sequences.
+- **Textual TUI dashboard**: custom `BrailleChart` sparklines for E-CPU, P-CPU, GPU, ANE, RAM, and power — rendered on the [Textual](https://textual.textualize.io/) framework. Four titled sections (CPU, GPU·ANE, Memory, Power) in two switchable layout presets — `grid` (two columns, fits short terminals) and `stack` (single full-width column), cycled live with `l`. Supports `dots` (braille) and `block` glyph styles. Resizes cleanly; no raw ANSI escape sequences.
 - **In-process IOReport sampling**: reads Apple Silicon power, frequency, and residency metrics via Python ctypes bindings to `libIOReport.dylib` and CoreFoundation. No subprocesses, no temp files.
 - **Per-core visibility**: per-core panels on by default; toggle with `--no-show_cores` for a cluster-level view.
 - **Diagnosis-oriented alerts**: configurable sustained-sample thresholds for thermal pressure, bandwidth saturation, swap growth, and package power. Active alerts are shown inline in the status line.
@@ -115,11 +115,12 @@ actop --show-processes                              # include top process panel 
 actop --proc-filter "python|ollama|vllm|docker|mlx"  # filter process panel at launch
 actop --no-show_cores                               # cluster-level view without per-core panels
 actop --chart-glyph block                           # square block chart glyphs
+actop --layout stack                                # single full-width scrolling column (default is grid)
 actop --json                                        # stream NDJSON metrics to stdout (no TUI)
 actop --serve 9095                                  # serve Prometheus metrics at :9095/metrics (no TUI)
 ```
 
-Interactive keys: `p` pause · `s` cycle sort (CPU%→RSS→PID) · `g` toggle chart glyph (`dots`/`block`) · `t` toggle process panel · `/` filter processes · `?` help overlay · `q` quit
+Interactive keys: `p` pause · `s` cycle sort (CPU%→RSS→PID) · `g` toggle chart glyph (`dots`/`block`) · `l` cycle layout (`grid`⇄`stack`) · `t` toggle process panel · `/` filter processes · `?` help overlay · `q` quit
 
 ## Python API
 
@@ -158,6 +159,7 @@ with Monitor(include_processes=True) as m:
 | `--show-processes` | Show top process panel at startup | `off` |
 | `--power-scale profile\|auto` | Power chart scaling | `profile` |
 | `--chart-glyph dots\|block` | Chart glyph style | `dots` |
+| `--layout grid\|stack` | Dashboard layout preset (`grid` auto-degrades to `stack` under ~96 cols; cycle live with `l`) | `grid` |
 | `--proc-filter REGEX` | Filter process panel by command name | all (applies when panel is enabled) |
 | `--alert-bw-sat-percent` | Bandwidth saturation alert threshold | `85` |
 | `--alert-package-power-percent` | Package power alert threshold (profile-relative) | `85` |
@@ -261,8 +263,8 @@ No sudo required. Degrades to `Unknown` if the ObjC runtime call fails.
 | `actop/config.py` | `DashboardConfig` frozen dataclass; `create_dashboard_config()` merges CLI args with SoC info |
 | `actop/models.py` | `SystemSnapshot`, `CoreSample`, `ProcessSample` dataclasses (public API types) |
 | `actop/api.py` | `Monitor`, `Profiler`, `AsyncMonitor` — public Python API; `Monitor(include_processes=True)` opts into watt-attributed `ProcessSample`s |
-| `actop/tui/app.py` | `ActopApp`: Textual `App` with polling worker, process table, interactive sort/filter/pause |
-| `actop/tui/widgets.py` | `HardwareDashboard` widget plus the custom `BrailleChart` sparkline widget, core rows, and alert computation. TUI CSS is embedded inline as each component's `DEFAULT_CSS` (no separate `.tcss` file). |
+| `actop/tui/app.py` | `ActopApp`: Textual `App` with polling worker, process table, app-level status bar, interactive sort/filter/pause/layout |
+| `actop/tui/widgets.py` | `HardwareDashboard` widget (four titled sections, `grid`/`stack` layout presets with width auto-degrade) plus the custom `BrailleChart` sparkline widget, core rows, and alert computation. TUI CSS is embedded inline as each component's `DEFAULT_CSS` (no separate `.tcss` file). |
 
 ```mermaid
 graph TD

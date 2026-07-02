@@ -80,6 +80,7 @@ tmux kill-session -t actop_verify 2>/dev/null || true
 | `p` | Pause / resume sampling |
 | `s` | Cycle sort mode (CPU% / PWR / Memory / PID) |
 | `g` | Cycle chart glyph style (dots / block) |
+| `l` | Cycle layout preset (grid ⇄ stack) |
 | `t` | Toggle process table panel |
 | `/` | Filter processes by regex |
 | `?` | Help overlay |
@@ -93,10 +94,16 @@ tmux kill-session -t actop_verify 2>/dev/null || true
 | `--interval N` | Display/sampling interval in seconds |
 | `--power-scale {auto,profile}` | Power chart scaling mode |
 | `--chart-glyph {dots,block}` | Chart glyph style |
+| `--layout {grid,stack}` | Dashboard layout preset (default `grid`; cycle live with `l`) |
 
 ## What "working" looks like
 
 - No crash/traceback; the splash screen is replaced by live gauges within ~3s.
+- Four titled sections render: `CPU`, `GPU · ANE`, `Memory`, `Power` (titles sit in
+  the section borders). In `grid` (default) they form two columns — CPU spanning the
+  left, the other three stacked on the right; in `stack` (`l` or `--layout stack`)
+  they are one full-width scrolling column. The thermal/alerts status bar stays fixed
+  at the bottom in both.
 - CPU/GPU/ANE utilization, per-core panels, RAM, Mem BW, and CPU/GPU/Package power
   sparklines are populated with non-placeholder values.
 - DVFS residency bars render for P-CPU/E-CPU/GPU, e.g.:
@@ -108,7 +115,10 @@ tmux kill-session -t actop_verify 2>/dev/null || true
 
 ## Notes
 
-- Terminal size: use at least `-x 160 -y 40` — the two-column layout wraps badly
-  narrower than that.
+- Terminal size: for the `grid` preset alone use at least `-x 100`; with the process
+  table also shown (`t` / `--show-processes`) use `-x 172` or wider (the table is a
+  fixed 74-col panel, so the dashboard's two columns need the rest). Below ~96 cols a
+  requested `grid` auto-degrades to `stack` — expect a single full-width column there,
+  not a bug. `-y 40` comfortably fits either preset; `grid` fits ~30 rows.
 - No special environment setup, packages, or patches are needed on macOS
   (Apple Silicon) — actop is unprivileged, no sudo, no subprocess dependency.

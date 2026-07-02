@@ -23,6 +23,7 @@ def test_cli_help_runs_and_exposes_show_cores_as_flag():
     assert "--alert-sustain-samples ALERT_SUSTAIN_SAMPLES" in result.stdout
     assert "--subsamples SUBSAMPLES" in result.stdout
     assert "--chart-glyph {dots,block}" in result.stdout
+    assert "--layout {grid,stack}" in result.stdout
 
 
 def test_cli_rejects_legacy_show_cores_value_form():
@@ -66,6 +67,28 @@ def test_cli_chart_glyph_default_is_dots():
 def test_cli_chart_glyph_accepts_block():
     args = build_parser().parse_args(["--chart-glyph", "block"])
     assert args.chart_glyph == "block"
+
+
+def test_cli_layout_default_is_grid():
+    args = build_parser().parse_args([])
+    assert args.layout == "grid"
+
+
+def test_cli_layout_accepts_stack():
+    args = build_parser().parse_args(["--layout", "stack"])
+    assert args.layout == "stack"
+
+
+def test_cli_rejects_unknown_layout():
+    result = subprocess.run(
+        [sys.executable, "-m", "actop.actop", "--layout", "foo"],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+
+    assert result.returncode == 2
+    assert "invalid choice: 'foo'" in result.stderr
 
 
 def test_cli_help_exposes_export_flags():

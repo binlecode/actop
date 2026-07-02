@@ -86,10 +86,19 @@ HELP_TEXT = """\
   p          Pause / resume sampling
   s          Cycle process sort (CPU% → PWR → RSS → PID)
   g          Toggle chart glyph (braille dots / blocks)
+  l          Cycle layout preset (grid ⇄ stack)
   t          Toggle the process table
   /          Filter processes by regex (when table shown)
   ?          Show / hide this help
   esc        Cancel filter / close help
+
+[b]Layout presets[/b]
+
+  grid       Two columns (default): CPU section spans the left, GPU·ANE /
+             Memory / Power stack on the right. Fits short terminals without
+             scrolling. Falls back to stack automatically under ~96 cols.
+  stack      Single full-width column — longest chart history span; scrolls
+             on tall dashboards while the status line stays fixed.
 
 [b]Metric labels[/b]
 
@@ -166,55 +175,19 @@ class ActopApp(App):
     #main-section {
         height: 1fr;
     }
-    HardwareDashboard {
-        width: 1fr;
-        height: 1fr;
-        overflow-y: auto;
-        layout: vertical;
-        padding: 0;
-    }
-    .dash-section {
-        border: round $accent;
-        padding: 0 1;
-        height: auto;
-    }
-    .metric-label {
-        height: 1;
-        color: $text-muted;
-    }
-    .metric-chart {
-        height: 2;
-    }
-    #pcpu-chart {
-        height: 4;
-    }
-    #ecpu-chart {
-        height: 4;
-    }
-    #ram-chart {
-        height: 2;
-    }
+    /* Dashboard + section CSS lives in HardwareDashboard.DEFAULT_CSS (scoped to
+       that widget) — the grid/stack presets are just a class swap there. Only
+       app chrome (status bar, process table) is styled here. */
     #status-line {
         height: 1;
         width: 100%;
         color: $text-muted;
     }
-    .cpu-summary-row {
-        height: 1;
-        color: $text-muted;
-    }
-    .residency-row {
-        height: 1;
-        color: $text-muted;
-    }
-    .core-grid {
-        height: auto;
-    }
-    .cpu-half {
-        height: auto;
-    }
     #process-table {
-        width: 1fr;
+        /* Fixed width: the 6 columns total ~70 cols (commands truncate at 28
+           via _process_display_name); the dashboard absorbs the leftover width
+           with its own `width: 1fr`. */
+        width: 74;
         height: 1fr;
         border: round $accent;
     }
@@ -247,6 +220,7 @@ class ActopApp(App):
         ("p", "toggle_pause", "Pause"),
         ("s", "cycle_sort", "Sort"),
         ("g", "toggle_chart_glyph", "Glyph"),
+        ("l", "cycle_layout", "Layout"),
         ("t", "toggle_processes", "Processes"),
         ("/", "toggle_filter", "Filter"),
         ("question_mark", "show_help", "Help"),
@@ -385,6 +359,11 @@ class ActopApp(App):
         dash = self.query_one("#hardware-dash", HardwareDashboard)
         next_mode = "block" if dash.chart_glyph == "dots" else "dots"
         dash.set_chart_glyph(next_mode)
+
+    def action_cycle_layout(self) -> None:
+        dash = self.query_one("#hardware-dash", HardwareDashboard)
+        next_preset = "stack" if dash.layout_preset == "grid" else "grid"
+        dash.set_layout_preset(next_preset)
 
     def check_action(self, action: str, parameters: tuple[object, ...]) -> bool | None:
         if action == "toggle_filter":

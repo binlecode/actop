@@ -6,6 +6,34 @@ This project follows a Keep a Changelog-style format and uses version tags for r
 
 ## [Unreleased]
 
+## [1.4.0] - 2026-07-02
+
+### Added
+- TUI layout PR2 (layout presets) — the dashboard now ships two arrangements of
+  the same four sections, switchable live:
+  - **`grid`** (new default): two columns — the CPU section spans the full left
+    column, GPU·ANE / Memory / Power stack in the right column. Fits short
+    terminals without scrolling (~28 rows incl. chrome).
+  - **`stack`**: the previous single full-width scrolling column — longest chart
+    history span.
+- `--layout {grid,stack}` CLI flag (default `grid`) and a matching
+  `DashboardConfig.layout` field.
+- `l` key cycles the layout preset (grid ⇄ stack) live, with zero data loss
+  (history deques are untouched by a switch); documented in the help overlay
+  and footer.
+- Auto-degrade: a requested `grid` narrower than ~96 columns renders as `stack`
+  automatically and recovers when the terminal widens, so the two columns never
+  squeeze below readability. `HardwareDashboard.effective_layout_preset` exposes
+  the applied preset vs. the requested `layout_preset`.
+
+### Changed
+- The process table is now a fixed 74-column panel (was `1fr`); the dashboard
+  absorbs the remaining width. Dashboard/section CSS moved into
+  `HardwareDashboard.DEFAULT_CSS` (scoped to the widget) — the presets are a CSS
+  class swap there, not app-level layout.
+- Width-adaptive rows (inline power sparks, core grids) now re-render on a
+  terminal resize or preset swap instead of waiting for the next sample.
+
 ## [1.3.3] - 2026-07-02
 
 ### Changed
