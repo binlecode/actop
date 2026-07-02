@@ -6,6 +6,28 @@ This project follows a Keep a Changelog-style format and uses version tags for r
 
 ## [Unreleased]
 
+## [1.4.6] - 2026-07-02
+
+### Docs
+- README hero is now an animated GIF (`images/actop-demo.gif`) — actop live under an
+  Ollama workload: stack layout, braille→block chart glyphs, then the watt-attributed
+  process panel. The `grid` still (`images/actop.png`) is kept below as the fallback;
+  the redundant `stack`/process stills (`actop_stacked.png`, `actop_procs.png`) were
+  removed (the GIF demonstrates them in motion).
+- Add `CONTRIBUTING.md` and a README `## Contributing` section ("PRs and issues
+  welcome") pointing to it; `CLAUDE.md` remains the full source of truth.
+- Sync the design docs with the current repo/security posture:
+  `DESIGN-sdlc-cicd-release.md` now documents Actions **pinned to commit SHAs**,
+  branch-protection **required status checks**, and the enabled Dependabot
+  **alerts + security updates** / **private vulnerability reporting**;
+  `DESIGN-system.md` gains §5.8 documenting the TUI→docs capture skills
+  (`capture-tui-diagram`, `record-tui-gif`).
+
+### Chore
+- Add the `record-tui-gif` Claude Code skill (`.claude/skills/record-tui-gif/`):
+  reproducible hero-GIF recording via `vhs` driven by a live GPU workload, so the
+  capture can be refreshed after any TUI/layout change.
+
 ## [1.4.5] - 2026-07-02
 
 ### Security
