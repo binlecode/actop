@@ -9,11 +9,12 @@ This project follows a Keep a Changelog-style format and uses version tags for r
 ## [1.4.3] - 2026-07-02
 
 ### Docs
-- README: add a `stack`-layout screenshot (`images/actop_stacked.png`) alongside
-  the default `grid` hero, so both layout presets are shown; refresh the grid hero
-  to v1.4.2 (shows the aligned column bottoms). Add a process-panel screenshot
-  (`images/actop_procs.png`) in Quick Start, illustrating `--show-processes` / `t`
-  and the watt-attributed per-process `PWR` column.
+- README: refresh the `grid` hero to v1.4.2 (shows the aligned column bottoms) and
+  add two screenshots side by side below it in a two-column table — the single-column
+  `stack` preset (`images/actop_stacked.png`) and the process panel
+  (`images/actop_procs.png`, `--show-processes` / `t`, with the watt-attributed
+  per-process `PWR` column). A markdown table is used so the side-by-side layout
+  renders on both GitHub and the PyPI project page.
 
 ## [1.4.2] - 2026-07-02
 

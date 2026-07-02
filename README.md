@@ -12,9 +12,11 @@ SoC-accurate power and energy context.
      the dashboard live during an MLX/Ollama inference run — motion is what gets shared. -->
 ![actop dashboard: live E-CPU/P-CPU/GPU/ANE utilization, per-core frequency, memory bandwidth, and power charts on Apple Silicon](images/actop.png)
 
-*Default two-column `grid` layout (above). The same four sections also render as a single full-width `stack` — wider charts, longer history — toggled live with `l`:*
+*Above: the default two-column `grid` layout. Below: the single-column `stack` preset and the optional process panel — the same telemetry, rearranged live (`l` cycles layout, `t` toggles the process table).*
 
-![actop in the stack layout: a single full-width column of CPU, GPU·ANE, Memory, and Power sections with wide braille-sparkline history on Apple Silicon](images/actop_stacked.png)
+| Single-column `stack` layout | Process panel (`--show-processes` / `t`) |
+| :--: | :--: |
+| ![actop in the stack layout: a single full-width column of CPU, GPU·ANE, Memory, and Power sections with wide braille-sparkline history on Apple Silicon](images/actop_stacked.png) | ![actop with the process panel enabled: the dashboard on the left and a sortable PID / Command / CPU% / PWR / MEM / Threads process table on the right, including the watt-attributed PWR column, on Apple Silicon](images/actop_procs.png) |
 
 **Who it's for**
 
@@ -125,10 +127,6 @@ actop --serve 9095                                  # serve Prometheus metrics a
 ```
 
 Interactive keys: `p` pause · `s` cycle sort (CPU%→RSS→PID) · `g` toggle chart glyph (`dots`/`block`) · `l` cycle layout (`grid`⇄`stack`) · `t` toggle process panel · `/` filter processes · `?` help overlay · `q` quit
-
-With the process panel enabled (`--show-processes`, or `t` at runtime), the dashboard narrows and a sortable top-process table appears — including the watt-attributed per-process `PWR` column (CPU+GPU time-share of package power) that's unique to actop:
-
-![actop with the process panel enabled: the dashboard on the left and a sortable PID / Command / CPU% / PWR / MEM / Threads process table on the right on Apple Silicon](images/actop_procs.png)
 
 ## Python API
 
