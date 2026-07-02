@@ -6,6 +6,16 @@ This project follows a Keep a Changelog-style format and uses version tags for r
 
 ## [Unreleased]
 
+## [1.4.5] - 2026-07-02
+
+### Security
+- Pin all GitHub Actions to full commit SHAs (with version comments) in the CI,
+  PyPI-publish, and formula-release workflows — `actions/checkout` (v4.3.1),
+  `actions/setup-python` (v5.6.0), and `pypa/gh-action-pypi-publish` (v1.14.0,
+  previously the mutable `release/v1` branch in the OIDC-privileged publish job).
+  Eliminates the mutable-ref supply-chain risk; Dependabot's `github-actions`
+  ecosystem keeps the pins current via the version comments.
+
 ## [1.4.4] - 2026-07-02
 
 ### Chore
