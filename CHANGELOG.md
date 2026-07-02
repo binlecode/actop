@@ -6,6 +6,15 @@ This project follows a Keep a Changelog-style format and uses version tags for r
 
 ## [Unreleased]
 
+## [1.4.2] - 2026-07-02
+
+### Fixed
+- Grid layout preset: the CPU section (left column, `row-span: 3`) now fills its
+  spanned height so its bottom border aligns with the lowest right-column box
+  (Power), instead of closing early and leaving dead space beneath it. Scoped to
+  the grid preset only (`height: 100%` on `HardwareDashboard.layout-grid
+  #section-cpu`); the vertical `stack` preset is unaffected.
+
 ## [1.4.1] - 2026-07-02
 
 ### Added
