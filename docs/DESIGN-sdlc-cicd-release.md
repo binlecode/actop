@@ -42,18 +42,24 @@ short-form rules file for AI/human contributors and this section as the rational
 | Guardrail | Mechanism | Scope |
 | --- | --- | --- |
 | No direct push to `main` | branch protection + `.githooks/pre-push` | push time |
+| CI must pass before merge | branch protection **required status checks** — the four `validate (3.11–3.14)` contexts, strict (branch up-to-date); admins included (`enforce_admins`). A red or missing check blocks merge | merge time |
 | No committed secrets | `.githooks/pre-commit` redaction (length-anchored patterns) **and** GitHub **secret scanning + push protection** (free on public repos; the backstop for clones that never ran `core.hooksPath`) | commit + push time |
 | Hooks activation | `git config core.hooksPath .githooks` — **run once per clone** (fresh clones have no hooks until set) | first clone |
 | Lint / format / tests | `main-ci.yml` on every PR: `ruff check` + `ruff format --check` + `pytest -m "not local"` across Python 3.11–3.14 (+ 3.15 canary) | PR |
 | Functional tests only | `CLAUDE.md` "Testing Guidelines" (no structural/mock-the-data/coverage-only tests); reviewed at PR and swept whole-tree by `/audit-conformance` | PR + periodic |
-| Dependency freshness / CVEs | `.github/dependabot.yml` (weekly `pip` + `github-actions`, grouped minor/patch) | scheduled |
+| Supply chain: pinned Actions | every workflow `uses:` pinned to a **full commit SHA** (with a `# vX.Y.Z` comment) — no mutable tag/branch refs; Dependabot's `github-actions` ecosystem keeps the pins current via the comment | build time |
+| Dependency freshness / CVEs | `.github/dependabot.yml` (weekly `pip` + `github-actions`, grouped minor/patch) **plus** GitHub **Dependabot alerts + security updates** (auto-PRs for vulnerable deps) | scheduled + on-advisory |
 | PR completeness | `.github/PULL_REQUEST_TEMPLATE.md` (validation commands, Apple-Silicon run, functional-tests attestation) | PR |
-| Vulnerability disclosure | `SECURITY.md` (private reporting; sudoless-posture scope) | ongoing |
+| Vulnerability disclosure | `SECURITY.md` + GitHub **private vulnerability reporting** (enabled; the "Report a vulnerability" button under the Security tab) | ongoing |
 
-> **One-time GitHub setup (maintainer, public-repo, free):** enable **Secret scanning**,
-> **Push protection**, and **Private vulnerability reporting** under
-> *Settings → Code security*. These are platform features — they consume **no** Actions
-> minutes.
+> **GitHub security posture (maintainer, public-repo, free — all enabled as of
+> 2026-07-02):** Secret scanning + push protection, Dependabot **alerts** and
+> **security updates**, Private vulnerability reporting, and branch-protection
+> **required status checks** on `main`. These are platform features and consume **no**
+> Actions minutes. Two deeper secret-scanning toggles (validity checks, non-provider
+> patterns) are UI-only (not settable via API) and remain optional. Verify current
+> state with `gh api repos/binlecode/actop --jq .security_and_analysis` and
+> `gh api repos/binlecode/actop/branches/main/protection`.
 
 ### Conformance auditing
 
@@ -81,7 +87,15 @@ mandate); fixes flow through the normal branch → PR → `/code-review` → mer
 | **`scripts/tag_release.sh`** | Verifies clean tree, validates version vs `pyproject.toml`, confirms local `main` matches `origin/main`, creates and pushes `vX.Y.Z` tag. Does **not** modify any formula |
 | **`main-ci.yml`** | Runs on `main` push **and on `pull_request` to `main`**. `validate` job runs a Python **matrix (3.11, 3.12, 3.13, 3.14)**: installs `-e .` + `ruff`/`pytest`, runs `ruff check` + `ruff format --check`, runs `pytest -m "not local"` (CI-safe tests only), then the `--help` CLI smoke test. A non-blocking `canary-next-python` job (`continue-on-error`) repeats the checks on pre-release **3.15** for early warning. (Required for PR validation.) |
 | **`release-formula.yml`** | Runs on `v*` tag push (or manual `workflow_dispatch`). Runs on `macos-latest` under a `formula-sync-tap` concurrency group. Validates tag/version match **from the tag commit**, computes the source tarball SHA256, updates `url` + `sha256` (and regenerates `resource` blocks via `brew update-python-resources` unless `refresh_resources=false`) in **`binlecode/homebrew-actop`**, and pushes there using the `HOMEBREW_TAP_TOKEN` secret (**token-driven**). Never touches `main` of this repo |
-| **`publish-pypi.yml`** | Runs on `v*` tag push (or manual). Builds on Python 3.12 in the `pypi` environment with `id-token: write`. Validates tag/version, builds sdist+wheel, publishes to PyPI via **OIDC Trusted Publishing** (`skip-existing`). See both PyPI flows below |
+| **`publish-pypi.yml`** | Runs on `v*` tag push (or manual). Builds on Python 3.12 in the `pypi` environment with `id-token: write`. Validates tag/version, builds sdist+wheel, publishes to PyPI via **OIDC Trusted Publishing** (`skip-existing`). The `pypa/gh-action-pypi-publish` action is **pinned to a commit SHA** (was the mutable `@release/v1` branch) — critical since this job holds PyPI publish rights. See both PyPI flows below |
+
+> **Action pinning (since v1.4.5):** every `uses:` across `main-ci.yml`,
+> `publish-pypi.yml`, and `release-formula.yml` is pinned to a full commit SHA with a
+> `# vX.Y.Z` comment (`actions/checkout`, `actions/setup-python`,
+> `pypa/gh-action-pypi-publish`). This removes the mutable-ref supply-chain risk — a
+> compromised upstream tag/branch can no longer inject code into CI or the
+> OIDC-privileged publish job. Bumps arrive as Dependabot `github-actions` PRs; keep the
+> version comment in sync with the SHA when merging them.
 
 ### One-time setup (prerequisites)
 

@@ -8,15 +8,11 @@ and thermals — plus a **Python API** (`Monitor` / `Profiler`, `to_pandas()`) s
 can instrument your *own* local LLM / MLX / CoreML inference and training runs with
 SoC-accurate power and energy context.
 
-<!-- TODO: replace the static screenshot below with an animated capture (GIF/SVG) of
-     the dashboard live during an MLX/Ollama inference run — motion is what gets shared. -->
-![actop dashboard: live E-CPU/P-CPU/GPU/ANE utilization, per-core frequency, memory bandwidth, and power charts on Apple Silicon](images/actop.png)
+![actop live during an Ollama inference run: the single-column stack layout switching chart glyphs and revealing the process panel, with live E-CPU/P-CPU/GPU/ANE utilization, per-core frequency, memory bandwidth, power charts, and a watt-attributed PWR column on Apple Silicon](images/actop-demo.gif)
 
-*Above: the default two-column `grid` layout. Below: the single-column `stack` preset and the optional process panel — the same telemetry, rearranged live (`l` cycles layout, `t` toggles the process table).*
+*Above: actop live under a local LLM run — the `stack` layout with braille then block sparklines, then the process panel (`t`) with its watt-attributed `PWR` column. Below: the default two-column `grid` layout (`l` cycles between them).*
 
-| Single-column `stack` layout | Process panel (`--show-processes` / `t`) |
-| :--: | :--: |
-| ![actop in the stack layout: a single full-width column of CPU, GPU·ANE, Memory, and Power sections with wide braille-sparkline history on Apple Silicon](images/actop_stacked.png) | ![actop with the process panel enabled: the dashboard on the left and a sortable PID / Command / CPU% / PWR / MEM / Threads process table on the right, including the watt-attributed PWR column, on Apple Silicon](images/actop_procs.png) |
+![actop dashboard in the default two-column grid layout: E-CPU/P-CPU/GPU/ANE utilization, per-core frequency, memory bandwidth, and power charts on Apple Silicon](images/actop.png)
 
 **Who it's for**
 
@@ -352,6 +348,13 @@ in a separate `ane` extra — deliberately kept out of `dev` so Linux CI stays l
 .venv/bin/python -m pip install -e ".[ane]"     # one-time, macOS only
 .venv/bin/python scripts/ane_load.py --duration 60   # then watch actop's ANE gauge
 ```
+
+## Contributing
+
+**PRs and issues welcome.** Bug reports, new SoC profiles, metric fixes, and docs
+improvements are all appreciated — for anything larger than a small fix, open an
+issue first. See [CONTRIBUTING.md](CONTRIBUTING.md) for setup, the branch/PR flow,
+and the functional-tests-only policy (`CLAUDE.md` is the full source of truth).
 
 ## Release
 

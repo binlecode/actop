@@ -10,12 +10,18 @@ of you. Do the steps in order; the launch posts at the end are ready to paste.
 > Note: this file is intentionally not part of the shipped product. Keep it private,
 > or delete it before it ends up in a release if you'd rather not publish growth notes.
 
-> **Launch readiness (2026-07-02): no *engineering* work blocks launch.** The product
-> story is fully shipped as of v1.2.2 — sudoless in-process telemetry, per-process GPU
-> attribution (v1.2.0), fan RPM (v1.2.2), the `Monitor`/`AsyncMonitor`/`Profiler` Python
-> API with `to_pandas()` and cumulative session energy, and 16 M1–M4 SoC reference
-> profiles — and the README now carries the runnable `Profiler` snippet (Step 3, shipped
-> v1.2.1). The **only** remaining blockers are human-only: the hero GIF (Steps 1–2) and a
+> **Launch readiness (2026-07-02): no *engineering* work blocks launch, and the hero
+> GIF is now done.** The product story is fully shipped as of v1.2.2 — sudoless
+> in-process telemetry, per-process GPU attribution (v1.2.0), fan RPM (v1.2.2), the
+> `Monitor`/`AsyncMonitor`/`Profiler` Python API with `to_pandas()` and cumulative
+> session energy, and 16 M1–M4 SoC reference profiles — and the README carries the
+> runnable `Profiler` snippet (shipped v1.2.1). **Steps 1–2 are now done:** the
+> animated hero (`images/actop-demo.gif` — stack layout, braille→block glyphs, then the
+> watt-attributed process panel, recorded under a live Ollama workload) is wired in as
+> the README hero, with the `grid` still (`images/actop.png`) kept below as the fallback
+> (the redundant `stack`/process stills were removed). The GIF is reproducible via the
+> **`record-tui-gif`** skill (`.claude/skills/record-tui-gif/`), so re-record it after
+> any TUI/layout change. The **only** remaining pre-launch blocker is human-only: a
 > clean-machine install test (Step 3). What remains on the architecture roadmap
 > (`docs/TODO-architecture-roadmap.md`) is now just net/disk I/O — the convergence quick
 > wins have since shipped (fan RPM current+max v1.2.3, accessibility color palettes
@@ -24,7 +30,13 @@ of you. Do the steps in order; the launch posts at the end are ready to paste.
 
 ---
 
-## Step 1 — Record the hero capture (the single highest-leverage task)
+## Step 1 — Record the hero capture (the single highest-leverage task) — ✅ DONE
+
+**Done (2026-07-02):** `images/actop-demo.gif` is recorded and reproducible via the
+`record-tui-gif` skill (`.claude/skills/record-tui-gif/` — `bash …/record.sh` drives a
+live Ollama workload so the gauges move, records with `vhs`, and always stops the
+workload). Re-record after any TUI/layout change. The original how-to is kept below for
+reference / re-recording.
 
 A static screenshot doesn't get shared; **motion does.** Goal: a 6–12s loop of the
 dashboard live, ideally with a real workload pushing GPU/ANE/bandwidth.
@@ -63,7 +75,14 @@ loop should be seamless, and the file should be < ~5 MB.
 
 ---
 
-## Step 2 — Wire the GIF into the README
+## Step 2 — Wire the GIF into the README — ✅ DONE
+
+**Done (2026-07-02):** `images/actop-demo.gif` is the README hero (the `<!-- TODO -->`
+placeholder is gone), with descriptive alt text for screen readers / search. The `grid`
+still (`images/actop.png`) sits directly below as the fallback (a GIF can't serve as a
+social/`og:image` preview). The redundant `stack`/process stills the GIF now demonstrates
+in motion (`images/actop_stacked.png`, `images/actop_procs.png`) were removed. Original
+steps kept below for reference.
 
 The README hero already has a `TODO` placeholder comment marking the spot.
 
@@ -81,11 +100,22 @@ The README hero already has a `TODO` placeholder comment marking the spot.
 
 These are the things a first-time visitor judges in 10 seconds:
 
-- [ ] **GIF is the hero** (Step 2 done).
-- [ ] **One-line install works from a clean machine** — actually test the Homebrew and
-      `uv` one-liners on a fresh shell / another Mac. Broken install = lost star.
-- [ ] **Repo description + topics** — already set (apple-silicon, mlx, llm, ollama, …);
-      confirm they still read well.
+- [x] **GIF is the hero** — **done** (Step 2): `images/actop-demo.gif` is the hero,
+      `images/actop.png` kept below as the still fallback.
+- [x] **One-line install works** — **verified 2026-07-02** on this machine:
+      - `pip install git+…` and `uv tool install git+…` → both built from `pyproject.toml`
+        in **fully isolated** throwaway envs (fresh venv / isolated `UV_TOOL_DIR`, invoked
+        by full path), installed **v1.4.4** (current `main`), `actop --help` resolves.
+      - `brew` one-liner → tap formula (`binlecode/homebrew-actop`, currently **1.4.3** —
+        v1.4.4 isn't tagged yet) passes `brew audit --strict --online` (exit 0) and a
+        forced `brew reinstall` builds + runs (`actop 1.4.3`).
+      - **Still recommended before launch:** a pass on a *truly* fresh Mac (this machine
+        is primed — Xcode CLT, Python, tap already added). Broken install = lost star.
+- [x] **Repo description + topics** — **confirmed 2026-07-02**: description reads well
+      ("Apple Silicon (M1–M4) power, GPU, ANE & memory-bandwidth monitor — sudoless TUI +
+      Python API for profiling local LLM / MLX / CoreML inference"); topics set
+      (`ane, apple-silicon, gpu-monitoring, llm, macos, mlx, ollama, performance-monitoring,
+      python, tui`).
 - [x] **A short "Quick Start"** near the top — **done**: the README has a `## Quick Start`
       block (common invocations) plus an interactive-keys line (`p s g t / ? q`). Sanity-check
       it still reads well before launch.
@@ -95,9 +125,13 @@ These are the things a first-time visitor judges in 10 seconds:
       verified against `actop/api.py`, so the differentiating API is demonstrated rather than
       only named in prose. Before launch, re-confirm the snippet still matches the public API
       (`Profiler` / `to_pandas()` are present in `actop/api.py`).
-- [ ] **License + Background credit to asitop** — already present; keep it (good faith
-      with the upstream community matters when they see your launch).
-- [ ] **Issues enabled, a CONTRIBUTING note or at least a "PRs welcome" line.**
+- [x] **License + Background credit to asitop** — **confirmed 2026-07-02**: `LICENSE`
+      (MIT) present; the README `## Background` section credits `tlkh/asitop` as the
+      inspiration. Keep it (good faith with the upstream community matters at launch).
+- [x] **Issues enabled + a CONTRIBUTING note** — **done**: Issues are enabled, a
+      `CONTRIBUTING.md` was added (setup, branch/PR flow, functional-tests-only policy,
+      pointing to `CLAUDE.md`), and the README has a `## Contributing` section with a
+      "PRs and issues welcome" line linking to it.
 
 ---
 
