@@ -265,11 +265,20 @@ The user interface is powered by Textual. It is structured into a dynamic multi-
 - `p`: Pause / resume the sampling thread.
 - `s`: Cycle process sorting column (`CPU%` \u2192 `PWR` \u2192 `RSS` \u2192 `PID`).
 - `g`: Toggle charts between Braille dots and block glyphs.
+- `l`: Cycle the dashboard layout preset (`grid` ⇄ `stack`).
 - `t`: Show/hide the top processes table.
 - `/`: Open the process regex filter bar.
 - `?`: Show/hide the help overlay (`esc` / `q` also close it).
 
 The application initiates a background thread via textual `@work(thread=True, exclusive=True)` to run the polling loop, delivering parsed snapshots to the main thread via a custom event, `MetricsUpdated`. A spinner splash covers the first sampler warm-up; the dashboard swaps in once the first snapshot arrives. The framework command palette is disabled (`ENABLE_COMMAND_PALETTE = False`).
+
+The dashboard body is four titled section containers — `CPU`, `GPU · ANE`, `Memory`, `Power` (section titles live in the border, costing no content row). The thermal/alert status line is fixed **app chrome** below the dashboard (not inside its scrollable subtree), fed by an `AlertsComputed` message the dashboard posts each frame — so it stays visible even while a tall `stack` dashboard scrolls. CPU/GPU rail power collapse to single inline-sparkline rows (`CPU 6.59W <spark>  avg … · max …`); only Package Power keeps a full chart.
+
+### 5.1.1 Layout presets (`grid` / `stack`)
+The same four sections render under two presets, selected by `--layout` (default `grid`) and cycled live with `l` (`HardwareDashboard.set_layout_preset`, which never touches the history deques — switching mid-session loses no data). Presets are a pure CSS class swap in `HardwareDashboard.DEFAULT_CSS` (scoped to the widget); nothing about the data flow or metric computation differs between them.
+- **`grid`**: a two-column CSS grid — the CPU section spans all three right-column rows (`row-span: 3`) while `GPU · ANE` / `Memory` / `Power` stack on the right. ~25 content rows; fits a 30-row terminal without scrolling.
+- **`stack`**: all four sections full-width in a single scrollable column — the longest chart-history span (~47 rows, scrolls by design; the fixed status bar does not scroll with it).
+- **Width auto-degrade**: below `_GRID_MIN_WIDTH` (96 cols) each grid column would fall under ~48 cols and stop being readable, so a requested `grid` silently renders as `stack` until the terminal widens again (`on_resize` → `_reconcile_layout`). `layout_preset` reports what was requested; `effective_layout_preset` reports what is applied. Width-adaptive Static rows (inline power sparks, core grids) re-render on the resize/preset swap so their spark widths track the new column width immediately rather than waiting for the next sample.
 
 ### 5.2 Custom Sparklines (`BrailleChart`)
 The `BrailleChart` widget is designed to render charts efficiently inside Terminal constraints.

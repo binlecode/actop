@@ -52,6 +52,16 @@ def build_parser():
         help="Chart glyph style: dots (braille) or block (square)",
     )
     parser.add_argument(
+        "--layout",
+        choices=["grid", "stack"],
+        default="grid",
+        help=(
+            "Dashboard layout preset: grid (two columns, fits short terminals, "
+            "auto-falls-back to stack under ~96 cols) or stack (single column, "
+            "longest chart history). Cycle live with the 'l' key."
+        ),
+    )
+    parser.add_argument(
         "--proc-filter",
         type=_validate_proc_filter,
         default="",

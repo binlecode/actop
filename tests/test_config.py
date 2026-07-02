@@ -32,6 +32,7 @@ def test_defaults_produce_consistent_config():
     assert cfg.avg_window >= 1
     assert cfg.power_scale == "profile"
     assert cfg.chart_glyph == "dots"
+    assert cfg.layout == "grid"
     assert cfg.show_processes is False
     assert cfg.process_filter_pattern is None
     assert cfg.subsamples >= 1
@@ -74,6 +75,8 @@ def test_flags_propagate_into_config():
             "auto",
             "--chart-glyph",
             "block",
+            "--layout",
+            "stack",
             "--show-processes",
             "--subsamples",
             "4",
@@ -86,6 +89,7 @@ def test_flags_propagate_into_config():
     assert cfg.avg_window == 30  # avg / interval
     assert cfg.power_scale == "auto"
     assert cfg.chart_glyph == "block"
+    assert cfg.layout == "stack"
     assert cfg.show_processes is True
     assert cfg.subsamples == 4
     assert cfg.alert_sustain_samples == 5

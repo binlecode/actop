@@ -326,11 +326,92 @@ def _format_residency_row(label: str, percentages: dict, bar_width: int = 16) ->
 class HardwareDashboard(Widget):
     """Hardware metrics panel: CPU/GPU/ANE/RAM/Power charts + status line."""
 
+    # Dashboard CSS lives here (scoped to this widget), not in ActopApp: the two
+    # layout presets are just a class swap on this widget. `grid` is a two-column
+    # grid with the tall CPU section spanning all three right-column rows; `stack`
+    # is the single scrollable column (only the stack preset scrolls — grid is
+    # sized to fit). Below `_GRID_MIN_WIDTH` cols grid auto-degrades to stack
+    # (`on_resize`), so a grid never squeezes its columns below readability.
+    DEFAULT_CSS = """
+    HardwareDashboard {
+        width: 1fr;
+        height: 1fr;
+        padding: 0;
+    }
+    HardwareDashboard.layout-stack {
+        layout: vertical;
+        overflow-y: auto;
+    }
+    HardwareDashboard.layout-grid {
+        layout: grid;
+        grid-size: 2;
+        grid-columns: 1fr 1fr;
+        grid-rows: auto auto auto;
+    }
+    HardwareDashboard.layout-grid #section-cpu {
+        row-span: 3;
+    }
+    .dash-section {
+        border: round $accent;
+        padding: 0 1;
+        height: auto;
+    }
+    .metric-label {
+        height: 1;
+        color: $text-muted;
+    }
+    .metric-chart {
+        height: 2;
+    }
+    #pcpu-chart {
+        height: 4;
+    }
+    #ecpu-chart {
+        height: 4;
+    }
+    #ram-chart {
+        height: 2;
+    }
+    .cpu-summary-row {
+        height: 1;
+        color: $text-muted;
+    }
+    .residency-row {
+        height: 1;
+        color: $text-muted;
+    }
+    .core-grid {
+        height: auto;
+    }
+    .cpu-half {
+        height: auto;
+    }
+    """
+
+    _VALID_PRESETS = ("grid", "stack")
+    # Below this width the grid's two columns fall under ~48 cols each and stop
+    # being readable, so grid silently renders as stack until width recovers.
+    _GRID_MIN_WIDTH = 96
+
     def __init__(self, config, **kwargs) -> None:
         super().__init__(**kwargs)
         self._config = config
         cfg = config
         self._chart_glyph = getattr(cfg, "chart_glyph", "dots")
+
+        requested = getattr(cfg, "layout", "grid")
+        if requested not in self._VALID_PRESETS:
+            raise ValueError(
+                "layout preset must be one of {}, got {!r}".format(
+                    self._VALID_PRESETS, requested
+                )
+            )
+        # Requested preset is what the user/CLI asked for; effective is what is
+        # actually applied after the width auto-degrade. They differ only when a
+        # grid is squeezed below _GRID_MIN_WIDTH.
+        self._requested_preset = requested
+        self._effective_preset = requested
+        self.add_class("layout-{}".format(requested))
 
         maxlen = self._CHART_HIST_MAXLEN
 
@@ -459,6 +540,71 @@ class HardwareDashboard(Widget):
             # tachometer reading doesn't warrant a sparkline like the power/BW
             # rows), gated per-snapshot via SystemSnapshot.fan_available.
             yield Static("Fan 0 RPM", id="fan-label", classes="metric-label")
+
+    @property
+    def layout_preset(self) -> str:
+        """The requested preset (`grid` or `stack`), independent of width."""
+        return self._requested_preset
+
+    @property
+    def effective_layout_preset(self) -> str:
+        """The preset actually applied — `stack` when a requested grid is
+        auto-degraded below `_GRID_MIN_WIDTH`, else same as `layout_preset`."""
+        return self._effective_preset
+
+    def set_layout_preset(self, name: str) -> None:
+        """Switch the requested layout preset. Raises ValueError on unknown
+        names. Never touches history deques, so switching mid-session loses no
+        data. The effective preset is re-derived (width auto-degrade still
+        applies)."""
+        if name not in self._VALID_PRESETS:
+            raise ValueError(
+                "layout preset must be one of {}, got {!r}".format(
+                    self._VALID_PRESETS, name
+                )
+            )
+        self._requested_preset = name
+        self._reconcile_layout()
+        # A grid<->stack swap changes column widths; re-render the width-adaptive
+        # rows once the new layout settles (see _refresh_width_adaptive_rows).
+        self.call_after_refresh(self._refresh_width_adaptive_rows)
+
+    def _reconcile_layout(self) -> None:
+        """Apply the layout class for the requested preset, degrading a grid to
+        stack when the widget is narrower than `_GRID_MIN_WIDTH`. Width is 0
+        before the first layout pass; treat unknown width as wide (keep grid)."""
+        preset = self._requested_preset
+        width = self.size.width
+        if preset == "grid" and 0 < width < self._GRID_MIN_WIDTH:
+            preset = "stack"
+        if preset != self._effective_preset:
+            self.remove_class("layout-grid", "layout-stack")
+            self.add_class("layout-{}".format(preset))
+            self._effective_preset = preset
+
+    def on_resize(self, event) -> None:
+        self._reconcile_layout()
+        # Adapt spark widths to the new terminal/column width immediately (incl.
+        # a grid<->stack auto-degrade) rather than waiting for the next sample.
+        self.call_after_refresh(self._refresh_width_adaptive_rows)
+
+    def _refresh_width_adaptive_rows(self) -> None:
+        """Re-render the Static rows whose spark width tracks the row width.
+
+        BrailleChart re-renders itself on resize; the power sparks and core
+        grids are imperatively-updated Static rows, so a width change (terminal
+        resize or preset swap) leaves them at a stale width until this re-renders
+        them. Safe before any sample: histories are zero-padded."""
+        if not self.is_mounted:
+            return
+        self._render_power_rows()
+        if getattr(self._config, "show_cores", False):
+            self._update_core_two_col(
+                "#pcores-grid", self._last_p_cores, "P", append_sample=False
+            )
+            self._update_core_two_col(
+                "#ecores-grid", self._last_e_cores, "E", append_sample=False
+            )
 
     @property
     def chart_glyph(self) -> str:
