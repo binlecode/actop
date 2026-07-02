@@ -6,6 +6,13 @@ This project follows a Keep a Changelog-style format and uses version tags for r
 
 ## [Unreleased]
 
+## [1.4.3] - 2026-07-02
+
+### Docs
+- README: add a `stack`-layout screenshot (`images/actop_stacked.png`) alongside
+  the default `grid` hero, so both layout presets are shown; refresh the grid hero
+  to v1.4.2 (shows the aligned column bottoms).
+
 ## [1.4.2] - 2026-07-02
 
 ### Fixed
