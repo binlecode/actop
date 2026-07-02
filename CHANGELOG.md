@@ -6,6 +6,18 @@ This project follows a Keep a Changelog-style format and uses version tags for r
 
 ## [Unreleased]
 
+## [1.2.2] - 2026-07-01
+
+### Added
+- Fan RPM via SMC (`docs/TODO-architecture-roadmap.md` Tier-1 item): `smc.py`
+  discovers per-fan actual-RPM keys (`F{n}Ac`, `flt` type, count from `FNum`)
+  alongside the existing temperature-key discovery, and `SMCReader` gains
+  `read_fan_rpms()` / `fan_available`. Threaded through `SampleResult` →
+  `SystemSnapshot.fan_rpms` / `fan_available` (public API and NDJSON/Prometheus
+  export), and a new TUI "Fan" row that hides entirely on fanless Macs
+  (mirrors the `bandwidth_available` hide-row pattern) instead of showing a
+  phantom 0 RPM.
+
 ## [1.2.1] - 2026-07-01
 
 ### Added

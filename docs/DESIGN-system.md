@@ -211,7 +211,7 @@ Chart scaling (`--power-scale profile`) and alert thresholds (§5.5) need a refe
 
 ## 4. System Management Controller Interface (`smc.py`)
 
-To read on-die temperature values, `actop` queries the macOS kernel SMC.
+To read on-die temperature values and fan tachometers, `actop` queries the macOS kernel SMC.
 
 ### 4.1 IOKit Key Management
 1. The tool searches IORegistry matching the `"AppleSMC"` service using IOKit.
@@ -226,6 +226,11 @@ SMC uses 4-character tags to track system components. `actop` executes a fast ke
   - **CPU Temperature**: Keys starting with `"Tp"` (such as `Tpac`, `Tpg1`) or `"Te"`.
   - **GPU Temperature**: Keys starting with `"Tg"`.
 - During active polling, the max temperature from the discovered CPU/GPU sensor sets is displayed to prevent performance-inhibiting single-sensor hotspots.
+
+### 4.3 Fan RPM (shipped v1.2.2)
+Fan tachometers use a separate, simpler discovery path than temperature: the `"FNum"` key (`ui8`) gives the fan count directly, so `_discover_fan_keys` builds the per-fan key names (`F0Ac`, `F1Ac`, ...) instead of sweeping the full key space. Verified on-device (Apple M4 Max) that actual-RPM keys are SMC type `"flt "` — the same 4-byte float type as temperature — not the `"fpe2"` fixed-point type originally guessed in the roadmap doc; `_read_float_cached` is reused unchanged.
+
+`SMCReader.read_fan_rpms()` returns one RPM value per fan in index order, and does **not** filter out `0.0` (unlike temperature's invalid-sentinel handling) — 0 RPM is a legitimate idle reading on modern Macs that spin fans down at rest. `SMCReader.fan_available` reports whether any fan keys were discovered at all, independent of the current reading; this is the signal the TUI uses to hide the Fan row on fanless Macs (MacBook Air) rather than showing a phantom `0 RPM` — the same `bandwidth_available` hide-row pattern from §3.5, threaded through `SampleResult.fan_available` → `SystemSnapshot.fan_available`.
 
 ---
 
@@ -274,6 +279,8 @@ Each live reading carries rolling context, matching frontier monitors (btop / bo
 
 The dashboard also surfaces two SoC-level headline metrics whose data already flowed through `SystemSnapshot` but was previously only consumed by alerts: **Mem BW** (unified-memory bandwidth in GB/s, the headline bottleneck for LLM inference) and **Package Power** (total SoC draw = CPU + GPU + ANE + other rails). Their chart percents reuse the same normalisation as the `MEM-BOUND>` / `PKG>` alerts (bandwidth vs summed CPU+GPU channel capacity; package vs `package_ref_w`). The Mem BW row is hidden when `SystemSnapshot.bandwidth_available` is false (no DCS channel on the platform).
 
+The **Fan** row (shipped v1.2.2) is a plain label with no sparkline or avg/max context — a tachometer reading doesn't warrant the chart-history machinery the power/BW rows use — showing each fan's RPM (`Fan 1200/980 RPM` for multi-fan Macs). It is hidden entirely when `SystemSnapshot.fan_available` is false, the same hide-on-unavailable treatment as Mem BW.
+
 ### 5.4 Help Overlay (`HelpScreen`)
 A `ModalScreen` bound to `?` (toggle), `esc`, and `q` documents the keybindings, every metric label, and \u2014 critically \u2014 the otherwise-undocumented status-line tokens (`span`, `energy`, `THERMAL`, `THROTTLING:CPU/GPU`, `MEM-BOUND>`, `PKG>`, `SWAP+`) and the color-degradation / `NO_COLOR` behavior. The `THROTTLING` token fires when a silicon domain is busy yet held below its DVFS max frequency while hot (see §5.3 alert path). The `energy` token is the cumulative session energy (\u222b package power dt since launch, displayed in mWh/Wh), the live-TUI counterpart to `Profiler.total_package_joules`.
 
@@ -309,5 +316,5 @@ Performance validation is maintained under `tests/` using three distinct verific
    - Utilizations: $0\% \le \text{util} \le 100\%$.
    - Wattage: $\ge 0.0\text{ W}$.
    - Frequencies: $> 0\text{ MHz}$.
-2. **SMC Class Verification (`test_smc.py`)**: Asserts that temperature lists are not empty and that all active keys parse into valid float numbers.
+2. **SMC Class Verification (`test_smc.py`)**: Asserts that temperature lists are not empty and that all active keys parse into valid float numbers; fan RPM readings, when `fan_available` is true, are asserted non-empty and within a physical RPM range.
 3. **Runtime Consistency (`test_runtime_contracts.py`)**: Exercises the dynamic DVFS classification model to guarantee no division-by-zero occurrences and verifies correct hardware profile mappings across Apple's M1 through M4 series of processors.

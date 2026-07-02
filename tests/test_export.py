@@ -22,7 +22,10 @@ from actop.export import (
 from actop.models import CoreSample, SystemSnapshot
 
 
-def _sample_snapshot() -> SystemSnapshot:
+def _sample_snapshot(
+    fan_rpms: list = None, fan_available: bool = False
+) -> SystemSnapshot:
+    fan_rpms = [] if fan_rpms is None else fan_rpms
     return SystemSnapshot(
         timestamp=1700000000.0,
         cpu_watts=12.5,
@@ -42,6 +45,8 @@ def _sample_snapshot() -> SystemSnapshot:
         thermal_state="Nominal",
         bandwidth_gbps=42.0,
         bandwidth_available=True,
+        fan_rpms=fan_rpms,
+        fan_available=fan_available,
         e_cores=[CoreSample(index=0, active_pct=10, freq_mhz=1100)],
         p_cores=[CoreSample(index=4, active_pct=80, freq_mhz=3200)],
     )
@@ -85,6 +90,24 @@ def test_prometheus_exposition_is_well_formed():
         parts = line.rsplit(" ", 1)
         assert len(parts) == 2, f"malformed metric line: {line!r}"
         float(parts[1])  # value parses as a number
+
+
+def test_prometheus_fan_gauge_labelled_per_fan_when_available():
+    body = snapshot_to_prometheus(
+        _sample_snapshot(fan_rpms=[1200.0, 980.0], fan_available=True)
+    )
+    lines = body.strip().splitlines()
+
+    assert "# TYPE actop_fan_speed_rpm gauge" in lines
+    assert 'actop_fan_speed_rpm{fan="0"} 1200' in lines
+    assert 'actop_fan_speed_rpm{fan="1"} 980' in lines
+
+
+def test_prometheus_fan_gauge_omitted_when_unavailable():
+    # Fanless Mac: no SMC fan keys, so no phantom 0 RPM gauge is emitted.
+    body = snapshot_to_prometheus(_sample_snapshot(fan_rpms=(), fan_available=False))
+
+    assert "actop_fan_speed_rpm" not in body
 
 
 @pytest.mark.local

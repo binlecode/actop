@@ -1,10 +1,11 @@
 """SMC (System Management Controller) reader via IOKit ctypes.
 
-Reads temperature sensors from Apple Silicon's AppleSMC service without
-requiring sudo. Uses dynamic key discovery to find CPU (Tp*/Te*), GPU (Tg*)
-temperature keys and classify them by prefix.
+Reads temperature sensors and fan tachometers from Apple Silicon's AppleSMC
+service without requiring sudo. Uses dynamic key discovery to find CPU
+(Tp*/Te*), GPU (Tg*) temperature keys and per-fan actual-RPM keys (F{n}Ac,
+one per fan reported by the `FNum` key) and classify them.
 
-Temperature keys have SMC type "flt " (4-byte IEEE 754 float).
+Temperature and fan-RPM keys both use SMC type "flt " (4-byte IEEE 754 float).
 """
 
 import ctypes
@@ -290,6 +291,36 @@ def _discover_temperature_keys(conn):
     return {"cpu": cpu_keys, "gpu": gpu_keys}
 
 
+def _discover_fan_keys(conn):
+    """Discover per-fan actual-RPM keys (F{n}Ac, flt type).
+
+    The `FNum` key (ui8) gives the fan count; fanless Macs (e.g. MacBook Air)
+    report zero. Returns a list of (key_uint32, data_size, data_type) tuples,
+    one per fan, in index order.
+    """
+    fan_count_info = _read_key_info(conn, _key_to_uint32("FNum"))
+    if fan_count_info is None:
+        return []
+    data_size, data_type = fan_count_info
+    raw = _read_key_bytes(conn, _key_to_uint32("FNum"), data_size, data_type)
+    if raw is None or len(raw) < 1:
+        return []
+    fan_count = raw[0]
+
+    fan_keys = []
+    for i in range(fan_count):
+        key_uint32 = _key_to_uint32("F{}Ac".format(i))
+        info = _read_key_info(conn, key_uint32)
+        if info is None:
+            continue
+        fan_size, fan_type = info
+        if fan_type != _TYPE_FLT or fan_size != 4:
+            continue
+        fan_keys.append((key_uint32, fan_size, fan_type))
+
+    return fan_keys
+
+
 def _read_float_cached(conn, key_uint32, data_size, data_type):
     """Read a float SMC key using pre-cached key info. Returns float or None."""
     raw = _read_key_bytes(conn, key_uint32, data_size, data_type)
@@ -309,6 +340,7 @@ class SMCReader:
         self._conn = None
         self._cpu_keys = None
         self._gpu_keys = None
+        self._fan_keys = None
         self._available = None
 
     def _ensure_open(self):
@@ -325,7 +357,8 @@ class SMCReader:
         keys = _discover_temperature_keys(self._conn)
         self._cpu_keys = keys["cpu"]
         self._gpu_keys = keys["gpu"]
-        self._available = bool(self._cpu_keys or self._gpu_keys)
+        self._fan_keys = _discover_fan_keys(self._conn)
+        self._available = bool(self._cpu_keys or self._gpu_keys or self._fan_keys)
         return self._available
 
     def read_temperatures(self):
@@ -352,10 +385,34 @@ class SMCReader:
 
         return TemperatureReading(cpu_temps_c=cpu_temps, gpu_temps_c=gpu_temps)
 
+    def read_fan_rpms(self):
+        """Read current actual RPM for each discovered fan.
+
+        Returns a list of floats, one per fan, in index order. Returns []
+        when SMC is unavailable or the machine has no fan keys (e.g. a
+        fanless MacBook Air) — 0 RPM is a legitimate idle reading and is not
+        filtered out here (unlike temperature's invalid-sentinel handling).
+        """
+        if not self._ensure_open():
+            return []
+
+        rpms = []
+        for key_uint32, data_size, data_type in self._fan_keys:
+            val = _read_float_cached(self._conn, key_uint32, data_size, data_type)
+            if val is not None and 0.0 <= val < 20000.0:
+                rpms.append(val)
+        return rpms
+
     @property
     def available(self):
         """Whether the SMC connection and temperature keys are available."""
         return self._ensure_open()
+
+    @property
+    def fan_available(self):
+        """Whether SMC fan keys were discovered (False on fanless Macs)."""
+        self._ensure_open()
+        return bool(self._fan_keys)
 
     def close(self):
         """Close the SMC connection."""
@@ -365,3 +422,4 @@ class SMCReader:
         self._available = None
         self._cpu_keys = None
         self._gpu_keys = None
+        self._fan_keys = None

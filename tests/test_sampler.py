@@ -104,6 +104,17 @@ def test_sampler_sample_returns_valid_metrics():
         assert ts > 0
         assert result.cpu_temp_c >= 0.0
         assert result.gpu_temp_c >= 0.0
+
+        # Fan RPM contract: empty + unavailable on fanless Macs, otherwise a
+        # tuple of physical RPM readings (0 is a legitimate idle fan speed).
+        assert isinstance(result.fan_rpms, tuple)
+        assert isinstance(result.fan_available, bool)
+        if result.fan_available:
+            assert len(result.fan_rpms) > 0
+            for rpm in result.fan_rpms:
+                assert 0.0 <= rpm < 20000.0
+        else:
+            assert result.fan_rpms == ()
     finally:
         sampler.close()
 

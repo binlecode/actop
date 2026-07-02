@@ -42,6 +42,10 @@ class SystemSnapshot:
     ecpu_max_freq_mhz: int = 0
     pcpu_max_freq_mhz: int = 0
     gpu_max_freq_mhz: int = 0
+    # Fan tachometer, one entry per fan; empty tuple + fan_available=False on
+    # fanless Macs (mirrors the bandwidth_available hide-row pattern above).
+    fan_rpms: list = field(default_factory=list)  # list[float]
+    fan_available: bool = False
     e_cores: list = field(default_factory=list)  # list[CoreSample]
     p_cores: list = field(default_factory=list)  # list[CoreSample]
     # P-state residency distribution: percent of time (ints summing to ~100)

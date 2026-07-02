@@ -61,6 +61,8 @@ def _sample_to_snapshot(
         thermal_state=sample.thermal_pressure,
         bandwidth_gbps=total_bw,
         bandwidth_available=bw_avail,
+        fan_rpms=list(sample.fan_rpms),
+        fan_available=sample.fan_available,
         e_cores=e_cores,
         p_cores=p_cores,
     )
