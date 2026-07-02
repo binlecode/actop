@@ -4,7 +4,7 @@ This file is the single source of truth for repository guidelines, used by Claud
 
 ## Project Overview
 
-**actop** — Python-based performance monitoring CLI for Apple Silicon Macs (M1/M2/M3/M4 chips). An independent, original project inspired by `tlkh/asitop` (built to fill its whole-chip/sudoless/programmable gaps; not a code fork). Uses IOReport (in-process) for Apple Silicon power/frequency/residency metrics. Combines these with `psutil`, `sysctl`, and `system_profiler` into a real-time terminal dashboard showing CPU/GPU/ANE utilization, per-core frequency, memory/bandwidth, thermal state, and process info.
+**actop** — Python-based performance monitoring CLI for Apple Silicon Macs (M1/M2/M3/M4 chips). An independent, original project inspired by `tlkh/asitop` (built to fill its whole-chip/sudoless/programmable gaps; not a code fork). Uses IOReport (in-process) for Apple Silicon power/frequency/residency metrics. Combines these with native `ctypes` syscalls (`native_sys.py`, replacing `psutil`), `sysctl`, and `system_profiler` into a real-time terminal dashboard showing CPU/GPU/ANE utilization, per-core frequency, memory/bandwidth, thermal state, and process info.
 
 ## Python Environment (Required)
 - Always use the repository virtual environment at `.venv`.
@@ -31,7 +31,7 @@ This file is the single source of truth for repository guidelines, used by Claud
 | `actop/ioreport.py` | ctypes bindings to `libIOReport.dylib` and CoreFoundation (`IOReportSubscription`, `cfstr`, `cf_release`) |
 | `actop/smc.py` | SMC temperature reader: IOKit ctypes bindings to `AppleSMC`, key discovery, CPU/GPU die temperature reads |
 | `actop/gpu_registry.py` | Per-process GPU time via IOKit ctypes bindings: `get_gpu_time_by_pid()` sums `accumulatedGPUTime` off each `AGXDeviceUserClient` |
-| `actop/utils.py` | System queries: `psutil` RAM/swap metrics, `sysctl`/`system_profiler` SoC info, `psutil` process collection |
+| `actop/utils.py` | System queries: native `ctypes` RAM/swap metrics and process collection (via `native_sys.py`), `sysctl`/`system_profiler` SoC info |
 | `actop/soc_profiles.py` | 16 built-in M1–M4 SoC profiles with power/bandwidth reference values; tier fallbacks for unknown chips |
 | `actop/power_scaling.py` | Power chart scaling: `auto` mode (rolling peak x1.25) vs `profile` mode (SoC reference wattage) |
 | `actop/config.py` | `DashboardConfig` frozen dataclass; `create_dashboard_config()` merges CLI args with SoC info |
@@ -51,11 +51,13 @@ This file is the single source of truth for repository guidelines, used by Claud
 
 ## SDLC & Architectural Documentation
 
-The `docs/` directory contains essential system reviews, research, operations guides, and task lists:
+The `docs/` directory contains essential system reviews, research, and operations guides:
+- `docs/DESIGN-system.md`: Detailed system design reference — native bindings, sampling layer, SoC profile fallback, TUI rendering, testing contract. Kept in sync with the code on every PR that touches architecture.
 - `docs/REVIEW-architecture-comparison.md`: Performance and architectural comparison between `actop` (Python) and `mactop` (Go).
 - `docs/REVIEW-tui-frameworks.md`: Analysis of modern Python TUI frameworks and selection of Textual.
-- `docs/TODO-native-polling.md`: Detailed implementation plan for migrating to native macOS APIs (replacing `psutil`).
 - `docs/DESIGN-sdlc-cicd-release.md`: CI/CD bottling and tap release operational runbook.
+- `docs/RUNBOOK-launch-and-growth.md`: Launch/growth operational runbook.
+- `docs/TODO-architecture-roadmap.md`: Open hardware/metric-coverage gaps and their priority.
 
 **Conformance auditing:** the `/audit-conformance` skill (`.claude/skills/audit-conformance/`) periodically judgment-scans the whole tree against 12 coding rules (layering, dead code, DRY, naming, swallowed errors) — the whole-codebase counterpart to diff-scoped `/code-review`. It writes an actionable `docs/TODO-conformance-YYYY-MM-DD.md` and never proposes structural/guard tests (they would violate the functional-tests-only mandate).
 

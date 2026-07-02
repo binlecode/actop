@@ -6,6 +6,41 @@ This project follows a Keep a Changelog-style format and uses version tags for r
 
 ## [Unreleased]
 
+## [1.2.1] - 2026-07-01
+
+### Added
+- `docs/DESIGN-system.md` §3.7: documents `soc_profiles.py`'s SoC-profile
+  resolution and fallback design (exact match → generation-agnostic tier
+  fallback via `APPLE_M_SERIES_PATTERN` → generic catch-all), including why a
+  dynamic voltage-state-derived power estimator was considered and rejected.
+- `docs/DESIGN-system.md` §1.1: records the stand-alone-binary
+  (Nuitka/PyInstaller) rejection rationale — PyPI + Homebrew already cover the
+  "no Python hassle" audience.
+- README: a `## Python API` section with a verified `Profiler`/`to_pandas()`
+  snippet — previously only mentioned in prose, no runnable example existed.
+- `docs/TODO-architecture-roadmap.md`: fresh roadmap. Prior round (kernel-offset
+  pinning, memory-stability guard, memory-bandwidth sampling, cross-platform
+  ctypes guards, headless export) shipped in full and is retired from tracking.
+  New must-have items (fan RPM via SMC, net/disk I/O via native ctypes) and a
+  deferred low-priority item (menu bar mode, explicitly after first
+  market-promo push per `docs/RUNBOOK-launch-and-growth.md`).
+- `.claude/skills/run-actop`: documents driving the TUI via tmux send-keys/
+  capture-pane for manual verification (Homebrew binary and local `.venv` dev
+  build), including the sampler-init ready marker and how to confirm live
+  updates vs. a static frame.
+- `docs/DESIGN-system.md` §3.5: folds the DCS-bandwidth spike findings in
+  directly (PMP/DCS BW group, residency-histogram semantics, channel-to-agent
+  mapping, the per-agent 32 GB/s cap finding, the state-extraction cost-control
+  filter); the standalone spike doc is retired.
+
+### Fixed
+- `CLAUDE.md`, `README.md`, `SECURITY.md`: removed stale `psutil` references.
+  The native-polling migration (RAM/swap/process enumeration via `native_sys.py`
+  ctypes) was already complete in code; the docs never caught up. Also dropped
+  `CLAUDE.md`'s dead pointer to the already-deleted `TODO-native-polling.md`.
+- `docs/DESIGN-system.md`: fixed two dead cross-references to already-deleted
+  or about-to-be-deleted TODO files (inlined the relevant facts instead).
+
 ## [1.2.0] - 2026-07-01
 
 ### Added

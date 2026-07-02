@@ -51,6 +51,7 @@ This document provides a highly detailed system design and implementation refere
   - **PyPI** (`pip install actop` / `pipx install actop`) published via **OIDC Trusted Publishing** — no stored token in CI.
   - **Homebrew** via a **dedicated tap repo `binlecode/homebrew-actop`** (`brew tap binlecode/actop && brew install actop`). The formula does **not** live in this repo; CI syncs it to the tap on each `v*` tag. The keg is self-contained on Homebrew's `python@3.13` (isolated `libexec` venv; the macOS system Python is never used).
   - **`main` is strictly PR-only** (branch protection + `enforce_admins` + a local `.githooks/pre-push` guard); CI never pushes to `main`. Release mechanics and secret handling are documented in [`DESIGN-sdlc-cicd-release.md`](DESIGN-sdlc-cicd-release.md).
+  - **Rejected alternative: a stand-alone binary** (Nuitka/PyInstaller, bundling Textual, published from the release pipeline). PyPI (`uv tool install` / `pip install`) already gives a Python-free path and Homebrew already gives a package-manager-free path, so a bundled binary's only unique value is a locked-down environment with no package-manager access at all — too narrow an audience to justify the recurring codesigning/notarization + per-arch CI tax on a single-maintainer project. Revisit only if that niche produces a concrete request; if revived, prefer Nuitka and budget for codesigning/notarization from day one.
 
 ---
 
@@ -182,7 +183,7 @@ Total DRAM bandwidth is read in-process and unprivileged, the same way DVFS resi
   already in GB/s — no division by the sample interval (`sampler._compute_bandwidth_gbps`).
 - **Channel → agent mapping**: `AMCC RD/WR/RD+WR` = total DRAM controller (the authoritative total); `EACC0` = E-cores; `PACC0`/`PACC1` = P-clusters; `AGX` = GPU; `ANE0 L0/L1` = Neural Engine; `AVE*`/`AVD*`/`PRORES*`/`SCODEC*`/`JPEG*` = media; plus `ISP*`, `DISP*`, `ATC*` (Thunderbolt), `ANS` (storage) — none of the latter are surfaced today.
 - **Per-agent breakdown was investigated and deliberately dropped, not deferred.** The per-agent channels (`EACC`/`PACC`/`AGX`/`AVE`/…) step in 1 GB/s buckets and **hard-cap at 32 GB/s**, while `AMCC` spans ~1 TB/s in 32 GB/s steps. Under an 8-worker `memcpy` load, `AMCC RD+WR` correctly read 350 GB/s while both P-cluster channels pegged at their 32 GB/s ceiling — per-agent attribution is unreliable at exactly the bandwidths that matter, so **only the `AMCC` total ships**; `SystemSnapshot.bandwidth_gbps` is a single aggregate by design, not a stopgap.
-- **Cost control**: subscribing to the ~90-channel `PMP` group is the irreducible kernel cost, but extracting per-state residency for all of them is not. `sampler._keep_states()` filters `IOReportSubscription.delta()`'s per-state extraction to `AMCC*` channels only. Measured marginal idle-CPU cost @1s interval: **+0.39%** filtered vs. **+0.70%** unfiltered, against a 3-group baseline of ~0.54% — the filter is what keeps the whole sampler under the `<0.5%` idle-CPU budget (`TODO-architecture-roadmap.md` Tier 1).
+- **Cost control**: subscribing to the ~90-channel `PMP` group is the irreducible kernel cost, but extracting per-state residency for all of them is not. `sampler._keep_states()` filters `IOReportSubscription.delta()`'s per-state extraction to `AMCC*` channels only. Measured marginal idle-CPU cost @1s interval: **+0.39%** filtered vs. **+0.70%** unfiltered, against a 3-group baseline of ~0.54% — the filter is what keeps the whole sampler under actop's standing `<0.5%` idle-CPU budget.
 - **Availability**: `SystemSnapshot.bandwidth_available` is `False` when the platform exposes no `DCS BW` channel, hiding the Mem BW row rather than showing a fabricated `0.0` (§5.3, §6).
 
 ### 3.6 Metric Coverage: Aggregation Limits and Deliberate Non-Goals
@@ -193,6 +194,18 @@ These boundaries are intentional and recorded here so they are not mistaken for 
 - **Network / disk I/O is a non-goal.** Present in `psutil`-based tools (mactop / btop) but orthogonal to the IOReport-first SoC-power focus; adding it would reintroduce the `psutil` dependency surface actop is moving away from.
 - **Per-process CPU power *is* attributed (since v1.0.2); GPU / ANE / true-energy per process are not.** actop partitions `SystemSnapshot.cpu_watts` across processes by each PID's CPU-time share (the `PWR` column, see §5.7) — an estimate, since a P-core-second draws more than an E-core-second, but one that reconciles to package CPU power by construction. This is white space no direct peer (asitop / mactop / macmon) fills. What remains unavailable sudoless: per-process **GPU / ANE** power, and a true hardware per-process **energy** counter (`proc_pid_rusage`'s `ri_*_energy` fields stay flat at 0 for ordinary compute — a Phase-0 spike disproved that path). Per-process CPU/RSS/threads come from the native process enumeration in §2.3.
 - **GPU per-core metrics** are a hardware limitation, not a scope choice — see §3.4.
+
+### 3.7 SoC Profile Resolution & Fallback (`soc_profiles.py`)
+
+Chart scaling (`--power-scale profile`) and alert thresholds (§5.5) need a reference wattage/bandwidth ceiling per chip. `get_soc_profile(raw_name)` resolves the `sysctl`-reported chip brand string to one of three tiers of specificity, and is a **total function** — every path returns a valid `SocProfile`; none raise:
+
+1. **Exact match** — 16 hand-calibrated `KNOWN_SOC_PROFILES` entries spanning M1–M4 (base/Pro/Max/Ultra), each with real reference `cpu_chart_ref_w` / `gpu_chart_ref_w` / `cpu_max_bw` / `gpu_max_bw`.
+2. **Generation-agnostic tier fallback** — `APPLE_M_SERIES_PATTERN = re.compile(r"^Apple M\d+")` matches *any* `Apple M<N>` string regardless of the generation number, so an unrecognized chip (M5, M6, M99, …) is still routed correctly by substring (`Ultra`/`Max`/`Pro`/else `base`) to `TIER_FALLBACKS`, without any code change. This routing is already future-proof; nothing here needs revisiting per chip launch.
+3. **Generic catch-all** — a name that doesn't even match the `Apple M\d+` pattern (or is empty/`None`, normalized by `normalize_soc_name`) falls to `GENERIC_APPLE_SILICON_PROFILE` rather than raising.
+
+**What tier fallback gets right vs. wrong.** The *routing* (never crashing, never missing a chart scale) is solved for all future generations by construction. What stays approximate is the *numbers*: `TIER_FALLBACKS` are pinned to the latest calibrated generation (currently M4-era reference wattages), so an M6 Ultra routed through the "Ultra" fallback is scaled against M4-Ultra-shaped ceilings, not M6-accurate ones. The exact fix is the same one used for all 16 shipped profiles — hand-add a `SocProfile` entry once real reference numbers exist for the new chip — not a bigger fallback engine.
+
+**Rejected alternative: a dynamic voltage-state-derived estimator.** `native_sys.py`'s PMGR `voltage-states` reader (§3.2) already unpacks each DVFS table entry's `(freq_hz, voltage)` pair, but only `freq_hz` is kept — `voltage` is discarded. Deriving a power estimate from that discarded voltage word for unrecognized chips was considered and rejected: it needs per-generation calibration against real hardware to trust, and an uncalibrated "smart" guess would be less reliable than the current honest tier-default approximation, not more. Revisit only if a maintainer gets hardware to calibrate against, or exact per-chip profile lag becomes an actual reported user problem.
 
 ---
 
@@ -276,7 +289,7 @@ The same `Monitor` sampling layer feeds two non-TUI output modes, routed from `m
 - `--json`: streams metrics as NDJSON to stdout (`dataclasses.asdict` over `SystemSnapshot`), one line per sample.
 - `--serve PORT`: runs a stdlib `ThreadingHTTPServer` exposing Prometheus `/metrics` (scalar plus per-core labelled gauges), backed by a warm background sampler.
 
-> The export modes are `SystemSnapshot`-only today; per-process rows (§5.7) are **not** exported. Adding them means bounding cardinality (top-N, `comm` label not `pid`) — tracked in `TODO-actop-feature-gap-roadmap.md`, not yet built.
+> The export modes are `SystemSnapshot`-only today; per-process rows (§5.7) are **not** exported. Adding them means bounding cardinality (top-N, `comm` label not `pid`) — a deliberate non-goal until a concrete consumer needs it, not yet built.
 
 ### 5.7 Per-Process Power Attribution (`PWR`) — CPU shipped v1.0.2, GPU shipped v1.2.0
 The process table's `PWR` column answers "which process is drawing the watts" sudoless — Activity Monitor's "Energy Impact" without `sudo`. The CPU half reuses the per-PID CPU-time deltas already computed for `CPU%` (§2.3); the GPU half adds one new native binding, `gpu_registry.py`.

@@ -121,6 +121,21 @@ actop --serve 9095                                  # serve Prometheus metrics a
 
 Interactive keys: `p` pause · `s` cycle sort (CPU%→RSS→PID) · `g` toggle chart glyph (`dots`/`block`) · `t` toggle process panel · `/` filter processes · `?` help overlay · `q` quit
 
+## Python API
+
+Wrap any workload to get a pandas frame of power/frequency/residency/energy — no TUI needed:
+
+```python
+from actop import Profiler
+
+with Profiler() as p:
+    run_my_inference()
+
+df = p.to_pandas()   # rows = samples; cols = power/freq/residency/energy
+```
+
+`to_pandas()` needs the `pandas` extra: `pip install "actop[pandas]"`. For a single point-in-time reading instead of a background collector, use `Monitor().get_snapshot()`.
+
 ## CLI Reference
 
 | Option | Purpose | Default |
@@ -203,7 +218,7 @@ No sudo required. Degrades to `Unknown` if the ObjC runtime call fails.
 
 - `sysctl`: SoC chip name, total/P/E core counts.
 - `system_profiler`: GPU core count.
-- `psutil`: RAM/swap usage (`virtual_memory()`, `swap_memory()`), and process enumeration.
+- Native `ctypes` (`native_sys.py`): RAM/swap usage (Mach VM stats, `XSWUsage`) and process enumeration (`proc_listpids`/`proc_pidinfo`) — no `psutil`.
 
 ### Signal Sources
 
@@ -214,9 +229,9 @@ No sudo required. Degrades to `Unknown` if the ObjC runtime call fails.
 | Per-core activity (%) | IOReport CPU Core Performance States | Via `CoreSample` (residency-weighted active%) |
 | GPU frequency and activity | IOReport GPU Performance States | Weighted average of GPUPH residencies |
 | CPU/GPU temperature (°C) | SMC via IOKit ctypes | Max die temp per cluster |
-| RAM / swap | `psutil.virtual_memory()` + `psutil.swap_memory()` | `total - available` for used |
+| RAM / swap | Native `ctypes` (`host_statistics64` + `XSWUsage`) | `total - available` for used |
 | SoC profile | `sysctl` brand → 16 M1–M4 profiles | Tier fallbacks for unknown chips |
-| Top processes | `psutil.process_iter` | Optional `--proc-filter` regex |
+| Top processes | Native `ctypes` (`proc_listpids`/`proc_pidinfo`) | Optional `--proc-filter` regex |
 | Bandwidth | IOReport (when available) | N/A if DCS counters not exposed |
 | Thermal pressure | `NSProcessInfo.thermalState` via ObjC runtime | Nominal / Fair / Serious / Critical |
 
@@ -228,7 +243,7 @@ No sudo required. Degrades to `Unknown` if the ObjC runtime call fails.
 | `actop/ioreport.py` | ctypes bindings to `libIOReport.dylib` and CoreFoundation — `IOReportSubscription` lifecycle, snapshot, delta, and CF helpers |
 | `actop/sampler.py` | `IOReportSampler`: two-snapshot delta logic, `SampleResult` conversion, DVFS table discovery from `ioreg pmgr`, SMC temperature integration |
 | `actop/smc.py` | SMC temperature reader: IOKit ctypes bindings to `AppleSMC`, key discovery, CPU/GPU die temperature reads |
-| `actop/utils.py` | System context: `psutil` RAM/swap, `sysctl`/`system_profiler` SoC info, process enumeration |
+| `actop/utils.py` | System context: native `ctypes` RAM/swap and process enumeration (via `native_sys.py`), `sysctl`/`system_profiler` SoC info |
 | `actop/soc_profiles.py` | 16 `SocProfile` dataclasses (M1–M4) with reference wattage/bandwidth; tier fallbacks for unknown chips |
 | `actop/power_scaling.py` | `power_to_percent()`: profile mode (SoC reference) vs auto mode (rolling peak x1.25) |
 | `actop/config.py` | `DashboardConfig` frozen dataclass; `create_dashboard_config()` merges CLI args with SoC info |
@@ -252,7 +267,6 @@ graph TD
     end
 
     subgraph "Python Libraries"
-        PSUTIL[psutil<br/>RAM, swap,<br/>process enumeration]
         TEXTUAL[textual<br/>terminal TUI framework]
     end
 
@@ -260,6 +274,7 @@ graph TD
         IORPY[ioreport.py<br/>ctypes bindings]
         SAMPLER[sampler.py<br/>IOReportSampler]
         SMC[smc.py<br/>SMC temperature reader]
+        NATIVESYS[native_sys.py<br/>ctypes: RAM, swap,<br/>process enumeration]
         UTILS[utils.py<br/>system context]
         PROFILES[soc_profiles.py<br/>M1-M4 profiles]
         POWER[power_scaling.py<br/>chart scaling]
@@ -278,7 +293,7 @@ graph TD
 
     SYSCTL --> UTILS
     SYSPROF --> UTILS
-    PSUTIL --> UTILS
+    NATIVESYS --> UTILS
     UTILS -->|SoC info, RAM, processes| TUI
 
     PROFILES --> CONFIG

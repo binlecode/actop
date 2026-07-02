@@ -19,7 +19,7 @@ within a few days.
 
 `actop` is a **sudoless, in-process** monitor by design: it runs unprivileged, spawns
 no persistent privileged processes, invokes no `sudo`, and reads Apple Silicon metrics
-via ctypes bindings to system frameworks (IOReport, IOKit/SMC) plus `psutil`, `sysctl`,
+via ctypes bindings to system frameworks (IOReport, IOKit/SMC, `libproc`) plus `sysctl`
 and `system_profiler`. Reports we especially want:
 
 - unexpected privileged behavior or subprocess/`sudo` execution,

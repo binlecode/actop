@@ -2,75 +2,31 @@
 
 Roadmap for hardening `actop`'s core. We stay scoped to one thesis — **a fast, unprivileged, resource-efficient Apple Silicon telemetry monitor** — and reject feature creep into ML/APM frameworks.
 
----
-
-## Tier 1 — Core Hardening & Metrics (Budget: <0.5% Idle CPU)
-
-Correctness, stability, and metric-coverage work on the sampling core. The
-`<0.5% idle CPU` figure is a **budget** every item must respect, not a single
-objective — new metrics earn their place only if they stay within it.
-
-*   [x] **Pin and guard kernel struct offsets** — done.
-    *   `get_native_processes` (`native_sys.py`) unpacks `proc_taskallinfo` at offsets verified on Sonoma/Sequoia arm64. A kernel struct change silently returns garbage if unguarded.
-    *   ✅ Offsets are pinned as named module constants (`_PTAI_SIZE`, `_OFF_COMM`, `_OFF_NAME`, `_OFF_PROC_METRICS`, `_OFF_THREADS`) with the struct layout documented in one place.
-    *   ✅ The `tests/test_native_sys.py` guard is hardened: asserts ≥5 processes report non-zero RSS, ≥5 report ≥1 thread, RSS stays under a 1 TB ceiling, and the current process decodes a printable name — offset drift fails loudly.
-    *   ✅ The guard surfaces the running macOS version (`platform.mac_ver()`) in its failure messages, so drift on a new macOS major reads as a version-coverage gap rather than a bare assertion failure.
-*   [x] **Memory-stability test** — done (`tests/test_sampler.py::test_sampler_resident_memory_stays_flat_over_many_cycles`).
-    *   CFRelease/IOObjectRelease handling is already correct on inspection; what was missing is a regression guard against a dropped `cf_release` leaking a CFDict per cycle.
-    *   ⚠️ Could not drive this through `Monitor`/`Profiler`: `Monitor.__init__` floors the interval at `max(1, int(interval_s))` and `get_snapshot()` sleeps it, so 10k cycles would take ~2.7 h. The test instead builds the sampler via the public `create_sampler(interval=1, subsamples=1)` factory and loops `sample()` directly (a real hardware-I/O entrypoint, no `time.sleep` on the `subsamples <= 1` path).
-    *   📐 Cycle count tuned to the empirical signal, not raw volume: each cycle is a real ~37 ms kernel round-trip (10k cycles = ~7 min), while a clean run grows only ~0.03 MB / 3000 cycles and a real leak is ~128 KB/cycle. So 2000 cycles against a 5 MB `getrusage(RUSAGE_SELF).ru_maxrss` bound separates leak from noise by >100x in ~80 s. Verified the guard fires: inducing the leak grew RSS 64 MB over 500 cycles. Marked `@pytest.mark.local`.
-*   [x] **Memory bandwidth sampling** — done. The Mem BW row is live: total DRAM bandwidth is read in-process/unprivileged from the **`PMP` / `DCS BW`** IOReport group. Full spike findings folded into [`DESIGN-system.md` §3.5](DESIGN-system.md).
-    *   [x] **(a) Spike — confirm the in-process source.** ✅ Source is `PMP`/`DCS BW`, unprivileged. The data is a **residency histogram** (32 bandwidth buckets per channel), *not* the byte counter the prior scoping assumed — GB/s = Σ(bucket·time)/Σ(time), no interval division.
-    *   [x] **(b) Implement.** ✅ `("PMP","DCS BW")` added to the subscription; `_convert` sums all `AMCC* RD+WR` residency histograms into `total_gbps` (`_compute_bandwidth_gbps`), multi-die safe; `api.py` maps it straight to `bandwidth_gbps`. The stub byte-counter keys are gone.
-    *   ⚠️ **Per-agent breakdown dropped (deliberately).** The per-agent DCS channels (`EACC/PACC/AGX/AVE/…`) **hard-cap at 32 GB/s** while `AMCC` spans ~1 TB/s — under a 350 GB/s load both P-clusters peg at 32, so per-agent attribution is unreliable at the bandwidths that matter. Only the AMCC total is trustworthy, so only the total ships.
-    *   📐 **Budget held via state-extraction filter.** Subscribing to the 94-channel group is the irreducible kernel cost; the dominant *parse* cost is per-state extraction. `IOReportSubscription.delta()` now takes an `extract_states` predicate so only `AMCC*` states are read (the other ~90 channels are skipped). Measured marginal cost: **+0.39% @1s with the filter** vs. +0.70% unfiltered — the filter is what keeps it under the `<0.5% idle CPU` budget.
-*   [x] **Cross-platform-safe native ctypes imports** — done. `gpu_registry.py` and `smc.py`/`ioreport.py` performed unguarded module-scope `ctypes.cdll.LoadLibrary` calls, crashing `import actop` on non-Darwin (breaking CI's `ubuntu-latest` matrix). All three now guard the load under `sys.platform == "darwin"`, matching `native_sys.py`'s pre-existing pattern; public entry points (`get_gpu_time_by_pid()`, `SMCReader`) degrade to empty/unavailable sentinels off-Darwin instead of raising at import time.
+The prior round of this roadmap (kernel-offset pinning, memory-stability guard, memory-bandwidth sampling, cross-platform ctypes guards, headless NDJSON/Prometheus export) shipped in full; see `docs/DESIGN-system.md` for the as-built design of each. Two items were evaluated and explicitly rejected (stand-alone binary, generic unknown-SoC voltage-estimator) — their rationale is preserved in `docs/DESIGN-system.md` §1.1 and §3.7, not repeated here.
 
 ---
 
-## Tier 2 — Distribution & Packaging
+## Must-Have — Hardware & Metric Coverage
 
-*   [x] **Recommend `uv tool install`** in docs/install instructions — sandboxed envs, no interpreter drift. (Option A below — done.)
-*   [ ] **Stand-alone binary** via `Nuitka`/`PyInstaller` (bundling Textual), published from the GitHub Release pipeline so users can run without Python installed. (Option B below — deferred, conditional.)
+Closes actop's two biggest feature gaps vs. `mactop` (per `docs/REVIEW-architecture-comparison.md`) that are cheap enough to justify before/around the next release.
 
-### Analysis: `uv tool install` (A) vs. stand-alone binary (B)
-
-Both items target the same gap — letting users run `actop` without managing a Python install — but sit at very different points on the effort/reward curve.
-
-**Option A — Recommend `uv tool install`**
-
-| | |
-|---|---|
-| Effort | ~Zero. A docs change. No build pipeline. |
-| Requires Python on host? | No — `uv` fetches and manages its own CPython. |
-| Solves interpreter drift? | Yes — each tool gets a sandboxed env (the point of `uv tool`). |
-| ctypes/dylib risk | None. Real CPython against system frameworks (`libIOReport.dylib`, CoreFoundation, IOKit) exactly as today. |
-| Textual risk | None. Normal wheel-style install; package data ships as usual. |
-| Update story | `uv tool upgrade`. Trivial. |
-| Maintenance burden | Negligible — it's documentation. |
-
-Catch: the user must have `uv` installed — but `uv` is the de-facto standard and a one-liner to get.
-
-**Option B — Stand-alone binary (Nuitka / PyInstaller)**
-
-| | |
-|---|---|
-| Effort | High. Per-arch CI build, codesigning/notarization (else Gatekeeper friction), smoke-test, release-asset upload. |
-| Requires Python on host? | No — fully self-contained. The only thing it does that A doesn't. |
-| ctypes/dylib risk | Low-but-real. System-dylib `CDLL` loads are fine (resolved at runtime); risk is our own dynamically-referenced modules / hidden imports. |
-| Textual risk | Moderate. Textual ships `.tcss`/data files and lazy imports; bundlers need hooks to pull them. Nuitka handles this better than PyInstaller. |
-| Codesigning | Required in practice — needs an Apple Developer cert in CI secrets. |
-| Update story | Manual re-download; no `upgrade`. |
-| Artifact size | Tens of MB. Ongoing breakage on Textual/Python/macOS-notarization changes. |
-
-**Decision: ship A now; treat B as conditional.** A delivers ~90% of the "no Python hassle" benefit for ~1% of the effort and zero new failure surface — pure upside. B only earns its keep if a user segment genuinely *cannot* install `uv`/Python (e.g. locked-down corporate Macs); for them a signed binary is the only path, but it brings a recurring notarization + CI tax and is the riskiest thing to bundle given our ctypes + Textual stack. We also already ship a **Homebrew** formula, which itself gives a Python-free install on macOS — so between `brew` (Homebrew users) and `uv` (everyone else), B's unique audience is narrow. If B is ever revived, prefer **Nuitka** and budget for codesigning/notarization from day one.
+*   [ ] **Fan RPM via SMC** — low overhead, reuses existing plumbing.
+    *   `smc.py`'s key-discovery sweep (`_discover_temperature_keys`, `smc.py:251-288`) already does the hard part: `IOServiceOpen` + `IOConnectCallStructMethod` key iteration over every SMC key, filtering by 4-char prefix and SMC type. It currently only keeps `flt ` (4-byte float) keys prefixed `Tp`/`Te`/`Tg`.
+    *   Fan keys (`F0Ac` actual RPM, `F0Mn`/`F0Mx` min/max, `FNum` fan count) live in the same key space, typically SMC type `fpe2` (fixed-point) rather than `flt ` — verify the exact type per chip generation during implementation, Apple Silicon SMC fan-key types haven't been confirmed here yet.
+    *   Scope: one more type/prefix branch in the existing discovery loop, a new `get_fan_rpms()`-style reader mirroring `get_temperatures()`, and a TUI row/label. No new native library, no new privilege, no new subprocess.
+    *   Graceful degradation: fanless Macs (MacBook Air) will simply discover zero fan keys — same "hide the row, don't fabricate a zero" pattern already used for `bandwidth_available` (`DESIGN-system.md` §3.5).
+*   [ ] **Net / disk I/O via native ctypes** — moderate effort; deliberately widens scope, tracked here instead of silently declining it.
+    *   `DESIGN-system.md` §3.6 currently lists this as a non-goal on the grounds that it's a `psutil`-shaped feature orthogonal to the IOReport-first SoC-power focus. This item overrides that stance as a **must-have**, on the condition it's built via native ctypes (matching `native_sys.py`'s existing pattern — `sysctlbyname`, direct struct unpacking), not by reintroducing `psutil`.
+    *   Network: candidate source is `sysctl net.link.generic.system.stats` (or `getifaddrs` + `if_data` struct) for aggregate rx/tx bytes — same MIB-based approach `native_sys.py` already uses for swap (`vm.swapusage`) and process args (`KERN_PROCARGS2`).
+    *   Disk: candidate source is IOKit `IOBlockStorageDriver`/`IOMedia` registry entries' `Statistics` property (bytes/ops read+write), read the same way `gpu_registry.py` walks `IOAccelerator` entries via `IORegistryEntryGetChildIterator`.
+    *   Needs a feasibility spike before implementation (same discipline as the bandwidth work: confirm the exact channel/registry path in-process and unprivileged before committing to a data model) — do not assume the candidates above are final without verifying on-device.
+    *   Update `DESIGN-system.md` §3.6 to remove the non-goal framing once this ships.
 
 ---
 
-## Tier 3 — Hardware & Metric Coverage
+## Deferred — Post-Launch, Low Priority
 
-*   [ ] **Unknown-SoC fallback engine** — estimate reference package power/bandwidth from PMGR voltage states when `soc_profiles.py` has no match for a new chip (M5/M6+). Today `get_soc_profile()` (`soc_profiles.py`) falls back to *static* per-tier defaults (base/Pro/Max/Ultra); this item is the dynamic, voltage-state-derived successor.
-*   [~] **Headless metrics export** — largely shipped in `actop/export.py`; two CLI-exposed backends let consumers read metrics without the full TUI:
-    *   [x] **NDJSON stream** (`--json` → `run_json_stream`): line-delimited `SystemSnapshot` JSON on stdout.
-    *   [x] **Prometheus endpoint** (`--serve PORT` → `serve_prometheus`): an unprivileged HTTP `/metrics` socket for scrapers and dashboards.
-    *   [ ] **Dedicated JSON push socket / named pipe** — the one transport not yet built. Only pursue if a concrete menu-bar/widget consumer needs a persistent local push channel that the Prometheus scrape endpoint and NDJSON stream don't already cover.
+*   [ ] **Menu bar mode** — explicitly deferred from the first market-promo push (`docs/RUNBOOK-launch-and-growth.md`); revisit only after the initial launch cycle, not before.
+    *   Not a feature add — a second application surface. Textual is a terminal-render framework; a menu bar presence needs `NSStatusBar` (PyObjC or ctypes/Objective-C-runtime bridging, similar in spirit to `native_sys.py`'s existing `NSProcessInfo` bridge but a much larger API surface), a persistent background process, a `launchd` install, and IPC between a backgrounded sampler and the TUI.
+    *   Real cost centers: application lifecycle management, icon/menu rendering, packaging (a `launchd` plist alongside the existing Homebrew/PyPI distribution), and a second UI to keep in sync with every future dashboard metric.
+    *   Priority: low. `mactop` already owns this niche (native menu-bar + overlay HUD, per `docs/REVIEW-architecture-comparison.md`); actop's differentiator is the programmable Python API, not UI surface count. Do not start this until Tier 1 (fan RPM, net/disk I/O) ships and the launch runbook's post-launch loop is underway.
