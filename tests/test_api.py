@@ -33,6 +33,16 @@ def test_monitor_get_snapshot_returns_valid_snapshot():
     assert snapshot.cpu_temp_c == 0.0 or 0 < snapshot.cpu_temp_c < 150
     assert snapshot.gpu_temp_c == 0.0 or 0 < snapshot.gpu_temp_c < 150
 
+    # Fan RPM — empty + unavailable on fanless Macs, otherwise physical RPMs
+    assert isinstance(snapshot.fan_rpms, list)
+    assert isinstance(snapshot.fan_available, bool)
+    if snapshot.fan_available:
+        assert len(snapshot.fan_rpms) > 0
+        for rpm in snapshot.fan_rpms:
+            assert 0.0 <= rpm < 20000.0
+    else:
+        assert snapshot.fan_rpms == []
+
     # Utilization percentages
     assert 0 <= snapshot.ecpu_util_pct <= 100
     assert 0 <= snapshot.pcpu_util_pct <= 100

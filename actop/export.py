@@ -55,6 +55,17 @@ def snapshot_to_prometheus(snapshot: SystemSnapshot) -> str:
         lines.append("# TYPE {} gauge".format(name))
         lines.append("{} {}".format(name, _fmt_number(value)))
 
+    # Per-fan tachometer as a labelled gauge; omitted entirely on fanless Macs
+    # (empty fan_rpms) rather than fabricating a phantom reading.
+    if snapshot.fan_rpms:
+        lines.append("# TYPE actop_fan_speed_rpm gauge")
+        for idx, rpm in enumerate(snapshot.fan_rpms):
+            lines.append(
+                'actop_fan_speed_rpm{{fan="{}"}} {}'.format(
+                    idx, _fmt_number(float(rpm))
+                )
+            )
+
     # Per-core utilization/frequency as labelled gauges.
     lines.append("# TYPE actop_core_utilization_percent gauge")
     lines.append("# TYPE actop_core_frequency_mhz gauge")

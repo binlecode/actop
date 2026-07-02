@@ -67,7 +67,10 @@ def _snapshot(
     ecpu_residency_pct: dict = None,
     pcpu_residency_pct: dict = None,
     gpu_residency_pct: dict = None,
+    fan_rpms: list = None,
+    fan_available: bool = False,
 ) -> SystemSnapshot:
+    fan_rpms = [] if fan_rpms is None else fan_rpms
     idle_residency = {"idle": 100, "low": 0, "mid": 0, "high": 0}
     return SystemSnapshot(
         timestamp=0.0,
@@ -88,6 +91,8 @@ def _snapshot(
         thermal_state=thermal_state,
         bandwidth_gbps=bandwidth_gbps,
         bandwidth_available=bandwidth_available,
+        fan_rpms=fan_rpms,
+        fan_available=fan_available,
         pcpu_max_freq_mhz=pcpu_max_freq_mhz,
         gpu_max_freq_mhz=gpu_max_freq_mhz,
         ecpu_residency_pct=dict(ecpu_residency_pct or idle_residency),
@@ -131,6 +136,8 @@ async def _drive(snapshots, config=None):
             "bw_label": str(dash.query_one("#bw-label", Static).render()),
             "bw_label_display": dash.query_one("#bw-label", Static).display,
             "bw_chart_display": dash.query_one("#bw-chart", BrailleChart).display,
+            "fan_label": str(dash.query_one("#fan-label", Static).render()),
+            "fan_label_display": dash.query_one("#fan-label", Static).display,
             "status": str(dash.query_one("#status-line", Static).render()),
         }
         residency_ids = (
@@ -167,6 +174,21 @@ def test_mem_bw_row_hidden_when_bandwidth_unavailable():
     state = asyncio.run(_drive([_snapshot(0.0, False)]))
     assert state["bw_label_display"] is False
     assert state["bw_chart_display"] is False
+
+
+def test_fan_row_shows_rpm_when_available():
+    state = asyncio.run(
+        _drive([_snapshot(0.0, False, fan_rpms=[1200.0, 980.0], fan_available=True)])
+    )
+    assert state["fan_label_display"] is True
+    assert "1200/980 RPM" in state["fan_label"]
+
+
+def test_fan_row_hidden_when_fan_unavailable():
+    # Fanless Mac (e.g. MacBook Air): no SMC fan keys, so the row is hidden
+    # entirely rather than showing a phantom 0 RPM.
+    state = asyncio.run(_drive([_snapshot(0.0, False, fan_available=False)]))
+    assert state["fan_label_display"] is False
 
 
 def test_label_avg_is_windowed_and_max_is_session_peak():

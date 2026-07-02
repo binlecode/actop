@@ -483,6 +483,11 @@ class HardwareDashboard(Widget):
             glyph_mode=self._chart_glyph, id="pkgpwr-chart", classes="metric-chart"
         )
 
+        # Fan RPM: hidden entirely on fanless Macs (no chart — a single
+        # tachometer reading doesn't warrant a sparkline like the power/BW
+        # rows), gated per-snapshot via SystemSnapshot.fan_available.
+        yield Static("Fan 0 RPM", id="fan-label", classes="metric-label")
+
         yield Static(
             "thermal: Nominal  alerts: none", id="status-line", classes="status-line"
         )
@@ -668,6 +673,19 @@ class HardwareDashboard(Widget):
                     s.bandwidth_gbps, self._gbps_stats_suffix(self._bw_gbps_hist)
                 )
             )
+
+        # Fan RPM: hide the row entirely on fanless Macs (no SMC fan keys),
+        # mirroring the Mem BW hide-on-unavailable pattern above.
+        fan_label = self.query_one("#fan-label", Static)
+        if fan_label.display != s.fan_available:
+            fan_label.display = s.fan_available
+        if s.fan_available:
+            rpm_text = (
+                "/".join("{:.0f}".format(rpm) for rpm in s.fan_rpms)
+                if s.fan_rpms
+                else "0"
+            )
+            fan_label.update("Fan {} RPM".format(rpm_text))
 
         # Update per-core rows
         if cfg.show_cores:

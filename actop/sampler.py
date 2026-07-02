@@ -16,6 +16,8 @@ class SampleResult(NamedTuple):
     timestamp: float
     cpu_temp_c: float = 0.0  # max CPU die temperature (Celsius), 0 if unavailable
     gpu_temp_c: float = 0.0  # max GPU die temperature (Celsius), 0 if unavailable
+    fan_rpms: tuple = ()  # per-fan actual RPM; empty if no fan keys (fanless Mac)
+    fan_available: bool = False  # whether SMC fan keys were discovered
 
 
 class IOReportSampler:
@@ -65,9 +67,11 @@ class IOReportSampler:
             return None
 
         cpu_temp, gpu_temp = self._read_temperatures()
+        fan_rpms = self._read_fan_rpms()
         return self._average_samples(parts)._replace(
             cpu_temp_c=cpu_temp,
             gpu_temp_c=gpu_temp,
+            fan_rpms=fan_rpms,
         )
 
     @property
@@ -97,11 +101,13 @@ class IOReportSampler:
 
         if include_temperatures:
             cpu_temp, gpu_temp = self._read_temperatures()
+            fan_rpms = self._read_fan_rpms()
         else:
             cpu_temp = 0.0
             gpu_temp = 0.0
+            fan_rpms = ()
 
-        return self._convert(items, elapsed_s, cpu_temp, gpu_temp)
+        return self._convert(items, elapsed_s, cpu_temp, gpu_temp, fan_rpms)
 
     def _read_temperatures(self):
         temps = self._smc.read_temperatures()
@@ -110,6 +116,9 @@ class IOReportSampler:
         cpu_temp = max(cpu_temps) if cpu_temps else 0.0
         gpu_temp = max(gpu_temps) if gpu_temps else 0.0
         return (cpu_temp, gpu_temp)
+
+    def _read_fan_rpms(self):
+        return tuple(self._smc.read_fan_rpms())
 
     def _average_samples(self, samples):
         count = len(samples)
@@ -165,9 +174,11 @@ class IOReportSampler:
             timestamp=base.timestamp,
             cpu_temp_c=base.cpu_temp_c,
             gpu_temp_c=base.gpu_temp_c,
+            fan_rpms=base.fan_rpms,
+            fan_available=base.fan_available,
         )
 
-    def _convert(self, items, elapsed_s, cpu_temp_c=0.0, gpu_temp_c=0.0):
+    def _convert(self, items, elapsed_s, cpu_temp_c=0.0, gpu_temp_c=0.0, fan_rpms=()):
         """Convert IOReport items to the same dict format as parsers.py output."""
         cpu_energy_j = 0.0
         gpu_energy_j = 0.0
@@ -329,6 +340,8 @@ class IOReportSampler:
             timestamp=time.time(),
             cpu_temp_c=cpu_temp_c,
             gpu_temp_c=gpu_temp_c,
+            fan_rpms=fan_rpms,
+            fan_available=self._smc.fan_available,
         )
 
     def close(self):
