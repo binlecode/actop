@@ -6,6 +6,28 @@ This project follows a Keep a Changelog-style format and uses version tags for r
 
 ## [Unreleased]
 
+## [1.2.3] - 2026-07-02
+
+### Added
+- Richer per-fan telemetry (max RPM): `smc.py` now probes `F{n}Mx` alongside
+  `F{n}Ac` (same `flt`/size-4 guard) and exposes a structured
+  `SMCReader.read_fan_info()` returning `FanReading(current, max)` per fan
+  (`max` is `None` when the key is absent or reports `<= 0`). This closes the
+  only remaining 2/2-converged peer gap (both `mactop` and `macmon` read the
+  max-RPM key). Stays strictly read-only — no fan-control writes (`F{n}Tg`/
+  `F{n}Md`), which would require root.
+- `SystemSnapshot.fans: list[FanReading]` (public API / `actop.FanReading`),
+  threaded through `SampleResult`. The TUI "Fan" row now renders
+  `current/max` per fan (e.g. `Fan 3200/6000 · 4100/6000 RPM`), joining fans
+  with `·` so the separator never collides with the within-fan `/`, and falls
+  back to bare current RPM when max is unknown.
+
+### Changed
+- `SMCReader.read_fan_rpms()` (bare `list[float]`) replaced by
+  `read_fan_info()`. `SystemSnapshot.fan_rpms` is retained as a derived
+  current-only convenience (`[f.current for f in fans]`), so the
+  NDJSON/Prometheus export contract is unchanged.
+
 ## [1.2.2] - 2026-07-01
 
 ### Added

@@ -680,11 +680,18 @@ class HardwareDashboard(Widget):
         if fan_label.display != s.fan_available:
             fan_label.display = s.fan_available
         if s.fan_available:
-            rpm_text = (
-                "/".join("{:.0f}".format(rpm) for rpm in s.fan_rpms)
-                if s.fan_rpms
-                else "0"
-            )
+            # Per fan: "current/max" when max is known, else bare "current".
+            # Fans are joined with " · " so the inter-fan separator never
+            # collides with the "/" inside a single fan's current/max.
+            if s.fans:
+                rpm_text = " · ".join(
+                    "{:.0f}/{:.0f}".format(f.current, f.max)
+                    if f.max
+                    else "{:.0f}".format(f.current)
+                    for f in s.fans
+                )
+            else:
+                rpm_text = "0"
             fan_label.update("Fan {} RPM".format(rpm_text))
 
         # Update per-core rows

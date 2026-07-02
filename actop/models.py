@@ -1,8 +1,18 @@
 """Public data model for actop hardware snapshots."""
 
 from dataclasses import dataclass, field
+from typing import NamedTuple, Optional
 
 _EMPTY_RESIDENCY = {"idle": 0, "low": 0, "mid": 0, "high": 0}
+
+
+class FanReading(NamedTuple):
+    """Per-fan tachometer reading. `max` is None when the SMC exposes no
+    max-RPM key for the fan (or reports max <= 0, which peers treat as
+    unknown). Immutable to match the SampleResult fan payload contract."""
+
+    current: float  # actual RPM (F{n}Ac); 0.0 is a legitimate idle reading
+    max: Optional[float] = None  # max RPM (F{n}Mx); None when unknown
 
 
 def _default_residency() -> dict:
@@ -42,9 +52,14 @@ class SystemSnapshot:
     ecpu_max_freq_mhz: int = 0
     pcpu_max_freq_mhz: int = 0
     gpu_max_freq_mhz: int = 0
-    # Fan tachometer, one entry per fan; empty tuple + fan_available=False on
+    # Fan tachometer, one entry per fan; empty + fan_available=False on
     # fanless Macs (mirrors the bandwidth_available hide-row pattern above).
-    fan_rpms: list = field(default_factory=list)  # list[float]
+    # `fans` carries structured current/max readings; `fan_rpms` is a derived
+    # current-only convenience kept for the export.py NDJSON/Prometheus contract.
+    fans: list = field(default_factory=list)  # list[FanReading]
+    fan_rpms: list = field(
+        default_factory=list
+    )  # list[float] (== [f.current for f in fans])
     fan_available: bool = False
     e_cores: list = field(default_factory=list)  # list[CoreSample]
     p_cores: list = field(default_factory=list)  # list[CoreSample]

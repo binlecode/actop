@@ -48,21 +48,23 @@ def test_smc_reader_close_is_idempotent():
     reader.close()  # should not raise
 
 
-def test_smc_reader_returns_fan_rpms():
+def test_smc_reader_returns_fan_info():
     reader = SMCReader()
     try:
-        rpms = reader.read_fan_rpms()
-        assert isinstance(rpms, list)
+        fans = reader.read_fan_info()
+        assert isinstance(fans, list)
         assert isinstance(reader.fan_available, bool)
 
         if reader.fan_available:
             # A fan-equipped Mac must report at least one tachometer, each a
-            # physically plausible RPM (0 is a legitimate idle reading).
-            assert len(rpms) > 0
-            for rpm in rpms:
-                assert 0.0 <= rpm < 20000.0
+            # physically plausible current RPM (0 is a legitimate idle
+            # reading). max is either None (key absent) or a plausible RPM.
+            assert len(fans) > 0
+            for fan in fans:
+                assert 0.0 <= fan.current < 20000.0
+                assert fan.max is None or 0.0 < fan.max < 20000.0
         else:
             # Fanless Macs (e.g. MacBook Air) discover zero fan keys.
-            assert rpms == []
+            assert fans == []
     finally:
         reader.close()
