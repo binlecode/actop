@@ -1,8 +1,8 @@
 # TODO — Net / disk I/O via native ctypes (impl-ready)
 
-**Date:** 2026-07-02 · **Priority:** second roadmap item, **post-launch**, and **after** the
-convergence quick wins (shipped — fan telemetry v1.2.3, `--palette` v1.4.1). See the
-Prioritization note in `docs/TODO-architecture-roadmap.md` for why: net/disk is
+**Date:** 2026-07-02 · **Priority:** the sole open must-have on the roadmap, **post-launch**
+(the convergence quick wins shipped — fan telemetry v1.2.3, `--palette` v1.4.1). See the
+net/disk item's rationale in `docs/TODO-architecture-roadmap.md` for why: net/disk is
 **single-peer breadth** (mactop-only; macmon deliberately omits it), a conscious bet on
 narrowing the gap to the breadth leader — not a converged peer expectation. Tracked openly
 here rather than silently declined.
