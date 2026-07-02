@@ -69,15 +69,6 @@ def _snapshot(cpu_watts: float, gpu_watts: float = 0.0) -> SystemSnapshot:
     )
 
 
-_RAM = {
-    "used_percent": 50.0,
-    "used_GB": 8.0,
-    "total_GB": 16.0,
-    "swap_used_GB": 0.0,
-    "swap_total_GB": 0.0,
-}
-
-
 @pytest.mark.local  # needs real processes (get_native_processes is Darwin-only)
 def test_get_top_processes_exposes_bounded_cpu_time_share():
     # Every non-first-sample share is a valid fraction, and the shares form a
@@ -233,9 +224,7 @@ async def _render_process_table(cpu_watts, processes, gpu_watts=0.0):
     app = ActopApp(args)
     async with app.run_test() as pilot:
         app.action_toggle_pause()  # stop the live poll worker; drive it ourselves
-        app.post_message(
-            MetricsUpdated(_snapshot(cpu_watts, gpu_watts), dict(_RAM), processes)
-        )
+        app.post_message(MetricsUpdated(_snapshot(cpu_watts, gpu_watts), processes))
         await pilot.pause()
         await pilot.pause()
 

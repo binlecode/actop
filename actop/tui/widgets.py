@@ -264,9 +264,8 @@ class BrailleChart(Widget):
 class MetricsUpdated(Message):
     """Posted by ActopApp when a new hardware snapshot is ready."""
 
-    def __init__(self, snapshot: SystemSnapshot, ram: dict, processes: dict) -> None:
-        self.snapshot = snapshot
-        self.ram = ram  # from get_ram_metrics_dict()
+    def __init__(self, snapshot: SystemSnapshot, processes: dict) -> None:
+        self.snapshot = snapshot  # sole frame contract (RAM/swap now on it)
         self.processes = processes  # {"cpu": [...], "memory": [...]}
         super().__init__()
 
@@ -511,14 +510,13 @@ class HardwareDashboard(Widget):
     def update_metrics(self, message: MetricsUpdated) -> None:
         """Update all dashboard widgets from new metrics. Called by ActopApp."""
         s = message.snapshot
-        ram = message.ram
         cfg = self._config
 
         ecpu = clamp_percent(s.ecpu_util_pct)
         pcpu = clamp_percent(s.pcpu_util_pct)
         gpu = clamp_percent(s.gpu_util_pct)
-        ane_pct = clamp_percent(s.ane_watts / cfg.ane_max_power * 100)
-        ram_pct = clamp_percent(ram.get("used_percent", 0))
+        ane_pct = clamp_percent(s.ane_util_pct)
+        ram_pct = clamp_percent(s.ram_used_percent)
 
         self._ecpu_hist.append(ecpu)
         self._pcpu_hist.append(pcpu)
@@ -572,7 +570,7 @@ class HardwareDashboard(Widget):
         self._bw_hist.append(bw_pct)
         self._bw_gbps_hist.append(s.bandwidth_gbps if s.bandwidth_available else 0.0)
 
-        self._swap_hist.append(max(0.0, float(ram.get("swap_used_GB", 0.0) or 0.0)))
+        self._swap_hist.append(max(0.0, float(s.swap_used_gb or 0.0)))
 
         # Update charts
         chart_data = (
@@ -630,10 +628,10 @@ class HardwareDashboard(Widget):
             )
         )
 
-        used_gb = ram.get("used_GB", 0.0)
-        total_gb = ram.get("total_GB", 0.0)
-        swap_used = ram.get("swap_used_GB", 0.0)
-        swap_total = ram.get("swap_total_GB", 0.0)
+        used_gb = s.ram_used_gb
+        total_gb = s.ram_total_gb
+        swap_used = s.swap_used_gb
+        swap_total = s.swap_total_gb
         if (swap_total or 0.0) >= 0.1:
             ram_label = "RAM {}/{}GB sw:{}/{}GB".format(
                 used_gb, total_gb, swap_used, swap_total
@@ -706,7 +704,7 @@ class HardwareDashboard(Widget):
             )
 
         # Compute and update status/alerts
-        self._compute_alerts(s, ram)
+        self._compute_alerts(s)
 
     _CORE_GRID_SEP = " │ "
     # History buffer depth (samples retained per metric/core). Must be >= the
@@ -829,7 +827,7 @@ class HardwareDashboard(Widget):
             rows.append("{}{}{}".format(left, self._CORE_GRID_SEP, right))
         widget.update("\n".join(rows))
 
-    def _compute_alerts(self, s: SystemSnapshot, ram: dict) -> None:
+    def _compute_alerts(self, s: SystemSnapshot) -> None:
         """Compute alert flags and update the status line."""
         cfg = self._config
 
@@ -887,7 +885,7 @@ class HardwareDashboard(Widget):
             if len(self._swap_hist) > 1
             else 0.0
         )
-        swap_total = float(ram.get("swap_total_GB", 0.0) or 0.0)
+        swap_total = float(s.swap_total_gb or 0.0)
         swap_alert = (
             swap_total >= 0.1
             and len(self._swap_hist) >= swap_history_points

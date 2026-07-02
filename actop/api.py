@@ -5,12 +5,13 @@ import threading
 import time
 
 from .models import _EMPTY_RESIDENCY, CoreSample, SystemSnapshot
+from .power_scaling import clamp_percent
 from .sampler import SampleResult, create_sampler
-from .utils import get_ram_metrics_dict
+from .utils import get_ram_metrics_dict, get_soc_info
 
 
 def _sample_to_snapshot(
-    sample: SampleResult, ram: dict, interval_s: float
+    sample: SampleResult, ram: dict, interval_s: float, ane_max_w: float = 8.0
 ) -> SystemSnapshot:
     """Map raw SampleResult + RAM dict to a clean SystemSnapshot."""
     cm = sample.cpu_metrics
@@ -20,6 +21,8 @@ def _sample_to_snapshot(
     # total_gbps is a residency-weighted average already in GB/s — not a
     # byte counter, so it is not divided by the sample interval.
     total_bw = float(bw.get("total_gbps", 0.0)) if bw_avail else 0.0
+    ane_watts = cm["ane_W"] / interval_s
+    ane_util_pct = clamp_percent(ane_watts / ane_max_w * 100) if ane_max_w > 0 else 0.0
     e_cores = [
         CoreSample(
             index=sys_idx,
@@ -40,7 +43,7 @@ def _sample_to_snapshot(
         timestamp=sample.timestamp,
         cpu_watts=cm["cpu_W"] / interval_s,
         gpu_watts=cm["gpu_W"] / interval_s,
-        ane_watts=cm["ane_W"] / interval_s,
+        ane_watts=ane_watts,
         package_watts=cm["package_W"] / interval_s,
         ecpu_util_pct=float(cm["E-Cluster_active"]),
         pcpu_util_pct=float(cm["P-Cluster_active"]),
@@ -58,6 +61,10 @@ def _sample_to_snapshot(
         gpu_residency_pct=dict(gm.get("residency_pct", _EMPTY_RESIDENCY)),
         ram_used_gb=float(ram.get("used_GB", 0.0)),
         swap_used_gb=float(ram.get("swap_used_GB", 0.0)),
+        ram_total_gb=float(ram.get("total_GB", 0.0)),
+        ram_used_percent=float(ram.get("used_percent", 0.0) or 0.0),
+        swap_total_gb=float(ram.get("swap_total_GB", 0.0)),
+        ane_util_pct=ane_util_pct,
         thermal_state=sample.thermal_pressure,
         bandwidth_gbps=total_bw,
         bandwidth_available=bw_avail,
@@ -75,6 +82,10 @@ class Monitor:
     def __init__(self, interval_s: float = 1.0, subsamples: int = 1):
         self._interval_s = max(1, int(interval_s))
         self._sampler, _ = create_sampler(self._interval_s, subsamples=subsamples)
+        # ANE reference power (denominator for SystemSnapshot.ane_util_pct),
+        # read once from the SoC profile so utilization is a data point rather
+        # than a render-time divide against a UI config constant.
+        self._ane_max_w = float(get_soc_info().get("ane_max_w", 8.0))
         # Prime delta: first sample() always returns None
         self._sampler.sample()
 
@@ -95,7 +106,7 @@ class Monitor:
             time.sleep(0.01)
             sample = self._sampler.sample()
         ram = get_ram_metrics_dict()
-        return _sample_to_snapshot(sample, ram, self._interval_s)
+        return _sample_to_snapshot(sample, ram, self._interval_s, self._ane_max_w)
 
     def close(self):
         self._sampler.close()

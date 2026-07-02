@@ -6,7 +6,23 @@ This project follows a Keep a Changelog-style format and uses version tags for r
 
 ## [Unreleased]
 
-## [1.2.3] - 2026-07-02
+## [1.2.4] - 2026-07-02
+
+### Changed
+- Layering cleanup LC-1 — `SystemSnapshot` is now the single per-frame data
+  contract for memory. Added `ram_total_gb`, `ram_used_percent`,
+  `swap_total_gb`, and `ane_util_pct` (all defaulted, so external
+  `SystemSnapshot(...)` callers are unaffected). `Monitor.get_snapshot()`
+  populates them in L2, so the TUI no longer makes a second
+  `get_ram_metrics_dict()` call per frame and no longer derives ANE% at render
+  time — it reads the fields off the snapshot. `MetricsUpdated` dropped its
+  `ram` dict argument (now `MetricsUpdated(snapshot, processes)`).
+- ANE reference power moved into the SoC-profile layer: `SocProfile.ane_max_w`
+  (defaulted `8.0` across M1–M4 for now — the slot for future per-generation
+  refinement) flows through `get_soc_info()` into `DashboardConfig`, replacing
+  the hardcoded `8.0` literal in `config.py`. `DashboardConfig` also now
+  carries `chip_name` and `gpu_core_count` so the TUI reads display identity
+  from the config instead of reaching into `soc_info` directly.
 
 ### Added
 - Richer per-fan telemetry (max RPM): `smc.py` now probes `F{n}Mx` alongside

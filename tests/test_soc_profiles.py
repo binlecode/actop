@@ -37,6 +37,10 @@ def test_unknown_future_chip_falls_back_to_matching_tier():
         assert profile.gpu_chart_ref_w == expected.gpu_chart_ref_w
         assert profile.cpu_max_bw == expected.cpu_max_bw
         assert profile.gpu_max_bw == expected.gpu_max_bw
+        # LC-1: ANE reference power is a profile field that must survive the
+        # tier-fallback copy (it is the denominator for ane_util_pct).
+        assert profile.ane_max_w == expected.ane_max_w
+        assert profile.ane_max_w > 0
 
 
 def test_unknown_base_chip_falls_back_to_base_tier():

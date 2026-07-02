@@ -9,6 +9,11 @@ class SocProfile:
     gpu_chart_ref_w: float
     cpu_max_bw: float
     gpu_max_bw: float
+    # ANE reference power (W) used as the denominator for ANE utilization %.
+    # Defaulted to 8.0 across M1–M4 for now (behavior-preserving; the field
+    # creates the per-SoC slot — per-generation refinements are a separate
+    # research task). Trailing + defaulted so all profile literals stay valid.
+    ane_max_w: float = 8.0
 
 
 KNOWN_SOC_PROFILES = {
@@ -181,6 +186,7 @@ def _copy_with_name(profile, new_name):
         gpu_chart_ref_w=profile.gpu_chart_ref_w,
         cpu_max_bw=profile.cpu_max_bw,
         gpu_max_bw=profile.gpu_max_bw,
+        ane_max_w=profile.ane_max_w,
     )
 
 

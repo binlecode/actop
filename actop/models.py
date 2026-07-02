@@ -52,6 +52,17 @@ class SystemSnapshot:
     ecpu_max_freq_mhz: int = 0
     pcpu_max_freq_mhz: int = 0
     gpu_max_freq_mhz: int = 0
+    # RAM/swap totals + used-percent, completing the frame contract so the TUI
+    # (and any API consumer) reads memory from the snapshot alone rather than a
+    # second get_ram_metrics_dict() call. Defaulted for construction-site
+    # compatibility, matching the *_max_freq_mhz precedent above.
+    ram_total_gb: float = 0.0
+    ram_used_percent: float = 0.0
+    swap_total_gb: float = 0.0
+    # ANE utilization as a percent of the SoC's ANE reference power
+    # (soc_profiles.ane_max_w), computed in L2 so it is a data point rather
+    # than a render-time derivation.
+    ane_util_pct: float = 0.0
     # Fan tachometer, one entry per fan; empty + fan_available=False on
     # fanless Macs (mirrors the bandwidth_available hide-row pattern above).
     # `fans` carries structured current/max readings; `fan_rpms` is a derived
