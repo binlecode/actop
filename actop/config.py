@@ -19,8 +19,10 @@ class DashboardConfig:
     max_cpu_bw: float
     max_gpu_bw: float
 
+    chip_name: str
     e_core_count: int
     p_core_count: int
+    gpu_core_count: int
 
     power_scale: str
     chart_glyph: str
@@ -47,13 +49,15 @@ def create_dashboard_config(args, soc_info_dict):
 
     cpu_chart_ref_w = soc_info_dict["cpu_chart_ref_w"]
     gpu_chart_ref_w = soc_info_dict["gpu_chart_ref_w"]
-    ane_max_power = 8.0
+    ane_max_power = float(soc_info_dict.get("ane_max_w", 8.0))
     package_ref_w = max(cpu_chart_ref_w + gpu_chart_ref_w + ane_max_power, 1.0)
     max_cpu_bw = max(float(soc_info_dict.get("cpu_max_bw", 0.0)), 1.0)
     max_gpu_bw = max(float(soc_info_dict.get("gpu_max_bw", 0.0)), 1.0)
 
+    chip_name = soc_info_dict.get("name", "Apple Silicon")
     e_core_count = max(0, int(soc_info_dict["e_core_count"]))
     p_core_count = max(0, int(soc_info_dict["p_core_count"]))
+    gpu_core_count = max(0, int(soc_info_dict.get("gpu_core_count", 0) or 0))
 
     process_filter_pattern = (
         re.compile(args.proc_filter, re.IGNORECASE)
@@ -70,8 +74,10 @@ def create_dashboard_config(args, soc_info_dict):
         package_ref_w=package_ref_w,
         max_cpu_bw=max_cpu_bw,
         max_gpu_bw=max_gpu_bw,
+        chip_name=chip_name,
         e_core_count=e_core_count,
         p_core_count=p_core_count,
+        gpu_core_count=gpu_core_count,
         power_scale=args.power_scale,
         chart_glyph=getattr(args, "chart_glyph", "dots"),
         show_cores=args.show_cores,

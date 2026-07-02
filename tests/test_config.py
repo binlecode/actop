@@ -38,6 +38,10 @@ def test_defaults_produce_consistent_config():
     assert cfg.alert_sustain_samples >= 1
     assert cfg.e_core_count >= 0
     assert cfg.p_core_count >= 0
+    # LC-1: display identity now flows through the config (the TUI no longer
+    # reaches into soc_info directly), so it must survive the real merge.
+    assert isinstance(cfg.chip_name, str) and cfg.chip_name
+    assert cfg.gpu_core_count >= 0
 
 
 def test_package_ref_combines_cpu_gpu_and_ane_headroom():

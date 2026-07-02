@@ -96,6 +96,7 @@ def get_soc_info():
         "gpu_max_power": profile.gpu_chart_ref_w,
         "cpu_max_bw": profile.cpu_max_bw,
         "gpu_max_bw": profile.gpu_max_bw,
+        "ane_max_w": profile.ane_max_w,
         "e_core_count": e_core_count,
         "p_core_count": p_core_count,
         "gpu_core_count": get_gpu_cores(),

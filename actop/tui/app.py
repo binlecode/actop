@@ -17,7 +17,6 @@ from actop.config import create_dashboard_config
 from actop.tui.widgets import HardwareDashboard, MetricsUpdated
 from actop.utils import (
     attribute_power,
-    get_ram_metrics_dict,
     get_soc_info,
     get_top_processes,
 )
@@ -272,11 +271,10 @@ class ActopApp(App):
 
     def __init__(self, args) -> None:
         super().__init__()
-        soc_info = get_soc_info()
-        self._config = create_dashboard_config(args, soc_info)
-        self._chip_name = soc_info.get("name", "Apple Silicon")
+        self._config = create_dashboard_config(args, get_soc_info())
+        self._chip_name = self._config.chip_name
         self.title = "actop"
-        g = int(soc_info.get("gpu_core_count", 0) or 0)
+        g = self._config.gpu_core_count
         topo = f"{self._config.e_core_count}E+{self._config.p_core_count}P"
         if g:
             topo += f"+{g}GPU"
@@ -329,7 +327,6 @@ class ActopApp(App):
         try:
             while not self._stop_polling.is_set():
                 snapshot = monitor.get_snapshot()
-                ram = get_ram_metrics_dict()
                 if self._show_processes:
                     processes = get_top_processes(
                         limit=self._config.process_display_count,
@@ -337,7 +334,7 @@ class ActopApp(App):
                     )
                 else:
                     processes = {"cpu": [], "memory": []}
-                self.post_message(MetricsUpdated(snapshot, ram, processes))
+                self.post_message(MetricsUpdated(snapshot, processes))
         finally:
             monitor.close()
 

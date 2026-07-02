@@ -57,8 +57,19 @@ def test_monitor_get_snapshot_returns_valid_snapshot():
     assert snapshot.pcpu_freq_mhz > 0
     assert snapshot.gpu_freq_mhz >= 0  # GPU may be idle (0)
 
-    # RAM
+    # RAM — LC-1 completes the frame contract: totals + used-percent now ride
+    # on the snapshot so the TUI needs no second get_ram_metrics_dict() call.
     assert snapshot.ram_used_gb > 0
+    assert snapshot.ram_total_gb > 0
+    assert snapshot.ram_used_gb <= snapshot.ram_total_gb + 0.5
+    assert 0 <= snapshot.ram_used_percent <= 100
+    assert snapshot.swap_total_gb >= 0
+
+    # ANE utilization is a data point (L2), computed from ane_watts against the
+    # SoC's ANE reference power — consistent with the raw watts it derives from.
+    assert 0 <= snapshot.ane_util_pct <= 100
+    if snapshot.ane_watts == 0:
+        assert snapshot.ane_util_pct == 0
 
     # Thermal state must be a non-empty string
     assert isinstance(snapshot.thermal_state, str)

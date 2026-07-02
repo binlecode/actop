@@ -32,8 +32,10 @@ def _config(show_residency: bool = True) -> DashboardConfig:
         package_ref_w=58.0,
         max_cpu_bw=100.0,
         max_gpu_bw=100.0,
+        chip_name="Apple M-test",
         e_core_count=4,
         p_core_count=4,
+        gpu_core_count=10,
         power_scale="profile",
         chart_glyph="dots",
         show_cores=False,
@@ -88,6 +90,9 @@ def _snapshot(
         gpu_freq_mhz=gpu_freq_mhz,
         ram_used_gb=18.0,
         swap_used_gb=0.0,
+        ram_total_gb=32.0,
+        ram_used_percent=56.0,
+        swap_total_gb=0.0,
         thermal_state=thermal_state,
         bandwidth_gbps=bandwidth_gbps,
         bandwidth_available=bandwidth_available,
@@ -100,15 +105,6 @@ def _snapshot(
         pcpu_residency_pct=dict(pcpu_residency_pct or idle_residency),
         gpu_residency_pct=dict(gpu_residency_pct or idle_residency),
     )
-
-
-_RAM = {
-    "used_percent": 56.0,
-    "used_GB": 18.0,
-    "total_GB": 32.0,
-    "swap_used_GB": 0.0,
-    "swap_total_GB": 0.0,
-}
 
 
 class _Host(App):
@@ -128,12 +124,11 @@ async def _drive(snapshots, config=None):
     app = _Host(dash)
     async with app.run_test() as pilot:
         for snap in snapshots:
-            dash.update_metrics(
-                MetricsUpdated(snap, dict(_RAM), {"cpu": [], "memory": []})
-            )
+            dash.update_metrics(MetricsUpdated(snap, {"cpu": [], "memory": []}))
             await pilot.pause()
         state = {
             "pkg_label": str(dash.query_one("#pkgpwr-label", Static).render()),
+            "ram_label": str(dash.query_one("#ram-label", Static).render()),
             "bw_label": str(dash.query_one("#bw-label", Static).render()),
             "bw_label_display": dash.query_one("#bw-label", Static).display,
             "bw_chart_display": dash.query_one("#bw-chart", BrailleChart).display,
@@ -161,6 +156,14 @@ def test_package_power_headline_renders_total_soc_watts():
     # The total-SoC figure (package_watts) must reach the headline label.
     assert "Package Power" in state["pkg_label"]
     assert "21.5" in state["pkg_label"]
+
+
+def test_ram_row_renders_from_snapshot_fields():
+    # LC-1: RAM/swap are carried on the SystemSnapshot (ram_used_gb /
+    # ram_total_gb), not a second get_ram_metrics_dict() call. The row must
+    # render the snapshot's used/total GB through the real update path.
+    state = asyncio.run(_drive([_snapshot(0.0, False)]))
+    assert "RAM 18.0/32.0GB" in state["ram_label"]
 
 
 def test_mem_bw_row_shows_gbps_when_available():
