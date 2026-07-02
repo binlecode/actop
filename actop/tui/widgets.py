@@ -264,9 +264,8 @@ class BrailleChart(Widget):
 class MetricsUpdated(Message):
     """Posted by ActopApp when a new hardware snapshot is ready."""
 
-    def __init__(self, snapshot: SystemSnapshot, processes: dict) -> None:
-        self.snapshot = snapshot  # sole frame contract (RAM/swap now on it)
-        self.processes = processes  # {"cpu": [...], "memory": [...]}
+    def __init__(self, snapshot: SystemSnapshot) -> None:
+        self.snapshot = snapshot  # sole frame contract (RAM/swap/processes on it)
         super().__init__()
 
 

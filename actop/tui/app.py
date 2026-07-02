@@ -15,11 +15,7 @@ from actop import __version__
 from actop.api import Monitor
 from actop.config import create_dashboard_config
 from actop.tui.widgets import HardwareDashboard, MetricsUpdated
-from actop.utils import (
-    attribute_power,
-    get_soc_info,
-    get_top_processes,
-)
+from actop.utils import get_soc_info
 
 _SPINNER_FRAMES = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"]
 
@@ -37,39 +33,25 @@ SORT_LABELS = {
 _SORT_CYCLE = [SORT_CPU, SORT_POWER, SORT_MEMORY, SORT_PID]
 
 
-def sort_processes(process_metrics, sort_mode, limit, cpu_watts=0.0, gpu_watts=0.0):
-    """Return a sorted process list based on the active sort mode.
+def sort_processes(processes, sort_mode, limit):
+    """Return the top `limit` ProcessSamples ordered for the active sort mode.
 
-    cpu_watts/gpu_watts are only used by SORT_POWER: ordering by attributed
-    watts isn't the same as ordering by cpu_time_share alone once GPU is
-    involved (a process can have a high GPU share and a low CPU share, and
-    cpu_watts/gpu_watts differ in magnitude), so the actual watts values are
-    needed, not just the CPU-time proxy.
+    `processes` is the snapshot's CPU-sorted list[ProcessSample]; each mode
+    below is pure presentation ordering over already-computed data points
+    (attributed_w is set in L2, so SORT_POWER just reads it — a process with no
+    delta yet sinks to the bottom via its None → 0.0 fallback).
     """
     if sort_mode == SORT_MEMORY:
-        return process_metrics.get("memory", [])[:limit]
+        return sorted(processes, key=lambda p: p.rss_mb, reverse=True)[:limit]
     elif sort_mode == SORT_PID:
-        cpu_list = list(process_metrics.get("cpu", []))
-        cpu_list.sort(key=lambda proc: proc.get("pid", 0))
-        return cpu_list[:limit]
+        return sorted(processes, key=lambda p: p.pid)[:limit]
     elif sort_mode == SORT_POWER:
-        # PWR is attributed CPU+GPU watts; sort explicitly so the label is
-        # honest (processes with no delta yet in either domain sink to the
-        # bottom).
-        cpu_list = list(process_metrics.get("cpu", []))
-        cpu_list.sort(
-            key=lambda proc: attribute_power(
-                proc.get("cpu_time_share"),
-                proc.get("gpu_time_share"),
-                cpu_watts,
-                gpu_watts,
-            ),
-            reverse=True,
-        )
-        return cpu_list[:limit]
+        return sorted(processes, key=lambda p: p.attributed_w or 0.0, reverse=True)[
+            :limit
+        ]
     else:
-        # Default: CPU sort (already sorted by get_top_processes)
-        return process_metrics.get("cpu", [])[:limit]
+        # Default: CPU sort (snapshot list already CPU-sorted from L2).
+        return list(processes)[:limit]
 
 
 def _shorten_process_command(command, max_len=30):
@@ -284,7 +266,7 @@ class ActopApp(App):
         self._filter_regex = self._config.process_filter_pattern
         self._filter_regex_before_edit = self._config.process_filter_pattern
         self._filter_text_before_edit = ""
-        self._last_processes = {"cpu": [], "memory": []}
+        self._last_processes = []  # list[ProcessSample] from the latest snapshot
         self._last_cpu_watts = 0.0
         self._last_gpu_watts = 0.0
         self._show_processes = bool(self._config.show_processes)
@@ -323,18 +305,21 @@ class ActopApp(App):
 
     @work(thread=True, exclusive=True)
     def poll_metrics(self) -> None:
-        monitor = Monitor(self._config.sample_interval, self._config.subsamples)
+        monitor = Monitor(
+            self._config.sample_interval,
+            self._config.subsamples,
+            process_limit=self._config.process_display_count,
+        )
         try:
             while not self._stop_polling.is_set():
-                snapshot = monitor.get_snapshot()
-                if self._show_processes:
-                    processes = get_top_processes(
-                        limit=self._config.process_display_count,
-                        proc_filter=self._filter_regex,
-                    )
-                else:
-                    processes = {"cpu": [], "memory": []}
-                self.post_message(MetricsUpdated(snapshot, processes))
+                # Processes ride on the snapshot now; collection is opt-in per
+                # tick so a hidden table costs no process walk, and the live
+                # filter regex is passed each iteration (no worker restart).
+                snapshot = monitor.get_snapshot(
+                    include_processes=self._show_processes,
+                    process_filter=self._filter_regex,
+                )
+                self.post_message(MetricsUpdated(snapshot))
         finally:
             monitor.close()
 
@@ -352,7 +337,7 @@ class ActopApp(App):
             self.query_one("#loading-splash").display = False
             self.query_one("#main-section").display = True
         self.query_one("#hardware-dash", HardwareDashboard).update_metrics(message)
-        self._last_processes = message.processes
+        self._last_processes = message.snapshot.processes
         self._last_cpu_watts = message.snapshot.cpu_watts
         self._last_gpu_watts = message.snapshot.gpu_watts
         self._refresh_process_table()
@@ -485,35 +470,28 @@ class ActopApp(App):
             limit = self._config.process_display_count
         cpu_watts = self._last_cpu_watts
         gpu_watts = self._last_gpu_watts
-        sorted_procs = sort_processes(
-            self._last_processes, self._sort_mode, limit, cpu_watts, gpu_watts
-        )
+        sorted_procs = sort_processes(self._last_processes, self._sort_mode, limit)
         shown_pwr = 0.0
         for proc in sorted_procs:
-            # PWR is a CPU+GPU time-share partition of package watts, computed
-            # here because the TUI owns cpu_watts/gpu_watts. CPU is the
-            # primary signal (every process eventually gets a cpu_time_share;
-            # gpu_time_share is 0.0, not None, for the common case of a
-            # process that never touches the GPU) -- "–" triggers on a
-            # pending first CPU sample alone. A pending GPU sample (share_gpu
-            # is None because a brand-new Metal client has no delta yet)
-            # just contributes 0 for this tick via attribute_power rather
-            # than blanking an otherwise-known CPU wattage.
-            share_cpu = proc.get("cpu_time_share")
-            share_gpu = proc.get("gpu_time_share")
-            if share_cpu is None:
+            # PWR is the L2-computed CPU+GPU time-share partition of package
+            # watts (attributed_w). It is None only when the first CPU sample
+            # is still pending (launch/resume) -- rendered "–" rather than a
+            # misleading 0.0; a pending GPU delta alone still yields a known
+            # CPU wattage (analytics.attribute_power treats a None GPU share
+            # as a 0 contribution).
+            attributed_w = proc.attributed_w
+            if attributed_w is None:
                 pwr_cell = "–"
             else:
-                pwr_w = attribute_power(share_cpu, share_gpu, cpu_watts, gpu_watts)
-                shown_pwr += pwr_w
-                pwr_cell = "{:.2f}W".format(pwr_w)
+                shown_pwr += attributed_w
+                pwr_cell = "{:.2f}W".format(attributed_w)
             table.add_row(
-                str(proc.get("pid", "")),
-                _process_display_name(proc.get("command", ""), max_len=28),
-                "{:.1f}".format(proc.get("cpu_percent", 0.0) or 0.0),
+                str(proc.pid),
+                _process_display_name(proc.command, max_len=28),
+                "{:.1f}".format(proc.cpu_percent or 0.0),
                 pwr_cell,
-                "{:.1f}".format(proc.get("rss_mb", 0.0) or 0.0),
-                str(proc.get("num_threads", "")),
+                "{:.1f}".format(proc.rss_mb or 0.0),
+                str(proc.num_threads),
             )
 
         # Reconciliation token: how much of package CPU+GPU power the visible

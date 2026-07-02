@@ -6,6 +6,34 @@ This project follows a Keep a Changelog-style format and uses version tags for r
 
 ## [Unreleased]
 
+## [1.3.0] - 2026-07-02
+
+### Added
+- Layering cleanup LC-2 — per-process data is now a public API type. New
+  `actop.models.ProcessSample` (pid, command, cpu_percent, cpu/gpu time shares,
+  rss_mb, num_threads, and watt-attributed `attributed_w`) rides on
+  `SystemSnapshot.processes`. `Monitor` gained opt-in collection:
+  `Monitor(include_processes=True, process_limit=50, process_filter=None)`, with
+  `get_snapshot(*, include_processes=None, process_filter=...)` per-call
+  overrides. Collection stays **off by default** so metrics-only API consumers
+  pay no process-enumeration cost. This closes the gap where the TUI showed
+  per-process power a public-API user could not obtain.
+- New `actop.analytics` module (L2 domain analytics). Per-process power
+  attribution (`attribute_power`) moved here from `utils.py`; watt attribution
+  now happens in L2 (`api._sample_to_snapshot`) instead of at render time.
+
+### Changed
+- `MetricsUpdated` shrank to `MetricsUpdated(snapshot)` — processes now travel
+  on the snapshot, completing the single-frame-contract goal begun in LC-1. The
+  TUI reads typed `ProcessSample`s off `snapshot.processes`; `sort_processes`
+  lost its `cpu_watts`/`gpu_watts` parameters and is pure ordering over the
+  precomputed `attributed_w`. The TUI no longer imports process acquisition or
+  attribution from `actop.utils`.
+- `utils.py` is now single-role L1 acquisition (its docstring states the layer
+  assignment); domain math lives in `actop.analytics`.
+- No behavior or visual change: the process table, PWR column, `–` first-sample
+  cell, and Σ-reconciliation token render exactly as before.
+
 ## [1.2.4] - 2026-07-02
 
 ### Changed
