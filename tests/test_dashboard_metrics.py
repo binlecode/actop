@@ -232,7 +232,12 @@ def test_fan_row_shows_current_and_max_when_available():
         )
     )
     assert state["fan_label_display"] is True
-    assert "1200/6000 · 980/6000 RPM" in state["fan_label"]
+    # Each fan's reading is prefixed with a braille-cascade spinner glyph,
+    # whichever frame the fan's own timer landed on.
+    assert re.search(
+        r"Fan [⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏] 1200/6000 · [⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏] 980/6000 RPM",
+        state["fan_label"],
+    )
 
 
 def test_fan_row_falls_back_to_bare_rpm_when_max_unknown():
@@ -250,7 +255,7 @@ def test_fan_row_falls_back_to_bare_rpm_when_max_unknown():
         )
     )
     assert state["fan_label_display"] is True
-    assert "Fan 1200 RPM" in state["fan_label"]
+    assert re.search(r"Fan [⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏] 1200 RPM", state["fan_label"])
 
 
 def test_fan_row_hidden_when_fan_unavailable():

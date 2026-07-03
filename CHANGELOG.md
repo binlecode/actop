@@ -6,6 +6,41 @@ This project follows a Keep a Changelog-style format and uses version tags for r
 
 ## [Unreleased]
 
+## [1.4.10] - 2026-07-03
+
+### Changed
+- TUI charts in `dots` glyph mode (the default) now pack **2 time samples per
+  character** by using both braille dot columns (left = earlier sample, right =
+  later), doubling horizontal density to a continuous btop-style line instead of
+  the previous sparse single-column poles. Applies to both the section charts
+  (`BrailleChart._render_dots`) and the inline per-core / power sparklines
+  (`_inline_spark`), which now share one `_braille_cell_bits` primitive. `block`
+  glyph mode is unchanged (1 sample/character). The chart time-span label accounts
+  for the 2×-denser `dots` sampling.
+
+### Added
+- TUI Fan row: each fan's RPM reading is prefixed with an ASCII-rotor spinner
+  (`|/-\`) whose spin rate is proportional to RPM, driven by its own timer
+  decoupled from the sampler poll cadence.
+
+### Docs
+- `docs/DESIGN-system.md`: document the dense 2-samples-per-character braille
+  rendering (§5.2), refresh the grid/stack/process TUI capture frames, and add
+  §4.2.1 explaining why temperature is reported per-cluster (not per-core) —
+  including the Apple Silicon sensor-count reality and how btop's per-core
+  temperature column actually spreads a few cluster sensors across rows.
+- Rename `docs/DESIGN-sdlc-cicd-release.md` → `docs/DESIGN-sdlc-cicd.md`
+  ("release" is already implied by CI/CD) and update all references.
+
+### Tests
+- `tests/test_runtime_contracts.py`: enforce the functional-tests-only mandate —
+  remove `test_soc_info_contract` and `test_top_processes_contract` (pure
+  shape/bounds assertions whose code paths are already covered behaviorally by
+  `test_config.py` and `test_per_process_power.py`), and rewrite the RAM test
+  into a native-parse sanity guard (the derived-field invariants it previously
+  asserted were tautological; the load-bearing check is that the raw reading is
+  physically sane).
+
 ## [1.4.9] - 2026-07-02
 
 ### Docs
@@ -49,7 +84,7 @@ This project follows a Keep a Changelog-style format and uses version tags for r
 - Add `CONTRIBUTING.md` and a README `## Contributing` section ("PRs and issues
   welcome") pointing to it; `CLAUDE.md` remains the full source of truth.
 - Sync the design docs with the current repo/security posture:
-  `DESIGN-sdlc-cicd-release.md` now documents Actions **pinned to commit SHAs**,
+  `DESIGN-sdlc-cicd.md` now documents Actions **pinned to commit SHAs**,
   branch-protection **required status checks**, and the enabled Dependabot
   **alerts + security updates** / **private vulnerability reporting**;
   `DESIGN-system.md` gains §5.8 documenting the TUI→docs capture skills
@@ -388,7 +423,7 @@ This project follows a Keep a Changelog-style format and uses version tags for r
 
 ### Changed
 - Documentation & SDLC governance only (no runtime code changes):
-  - Consolidated the release runbook into `docs/DESIGN-sdlc-cicd-release.md` (renamed
+  - Consolidated the release runbook into `docs/DESIGN-sdlc-cicd.md` (renamed
     from `GUIDE-cicd-release.md`) as the single SDLC + CI/CD + release design doc;
     documented both PyPI publish flows (OIDC default, token-driven fallback) and the CI
     validation matrix.
