@@ -13,6 +13,16 @@ Completed work is **not** tracked here — its as-built design is folded into `d
 
 ---
 
+## Nice-to-Have — Distribution & UX
+
+*   [ ] **Update-available notice** — detect when a newer stable `actop` has been published and surface it non-intrusively: a **startup-splash banner** (e.g. `update available: v1.5.0 — brew upgrade actop / pip install -U actop`) plus a compact token in the app **title/subtitle or status bar**. **Why:** the running version is shown (the subtitle already reads `v1.4.x · <chip> · <topo>`) but there is no signal that it is *stale*, so users on Homebrew/PyPI get no in-app nudge to upgrade. Low-risk, high-affordance.
+    *   **Approach:** query the canonical publish target — PyPI's JSON API (`https://pypi.org/pypi/actop/json` → `info.version`) — and compare against `__version__` (`importlib.metadata`); the latest GitHub release tag is an equivalent fallback. Isolate the network behind a new small module (e.g. `version_check.py`) exposing a pure "latest stable, or None" function so the TUI never imports networking inline.
+    *   **Constraints (non-negotiable — match actop's unprivileged, resource-light ethos):** the check must run **off the render path** (background thread/async with a short timeout) and **fail silent** — no network, DNS failure, or slow endpoint may ever delay startup, raise, or degrade the dashboard; when it can't resolve, show nothing. Make it **opt-out** (`--no-update-check` + honor an env var) and **cache** the last result with a TTL (~24h) in the user cache dir so every launch does not hit PyPI. A startup network call is a mild privacy/telemetry consideration — document it and keep the opt-out obvious.
+    *   **Where it plugs in:** `version_check.py` (new, network-isolated) → `tui/app.py` splash (`_build_splash`), subtitle (`sub_title`), and the app-level `#status-line`; no sampler/model/API changes (this is presentation + a distribution check, not a hardware metric, so it stays out of the L1/L2 layers).
+    *   **Priority:** nice-to-have; not a launch gate. Ships independently of net/disk I/O.
+
+---
+
 ## Deferred — Post-Launch, Low Priority
 
 *   [ ] **Menu bar mode** — explicitly deferred from the first market-promo push; revisit only after the initial launch cycle, not before.

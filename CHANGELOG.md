@@ -21,6 +21,14 @@ This project follows a Keep a Changelog-style format and uses version tags for r
 - TUI `c` key: toggle the per-core panels on/off at runtime (independent of the
   `--show_cores` startup default). Painted immediately on show, no sample wait.
 
+### Docs
+- `docs/DESIGN-system.md` §5: sync the layout prose to the five-box grid
+  (P-CPU / E-CPU / GPU·ANE / Memory / Power), the per-core toggle, and the
+  same-row boundary alignment; `CLAUDE.md` architecture table updated to match.
+- `docs/TODO-architecture-roadmap.md`: add a "Nice-to-Have — Distribution & UX"
+  item for an **update-available notice** (startup banner + title/status token,
+  PyPI-version check, off-render-path and fail-silent, opt-out + cached).
+
 ## [1.4.10] - 2026-07-03
 
 ### Changed
