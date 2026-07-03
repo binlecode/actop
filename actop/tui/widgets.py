@@ -66,10 +66,26 @@ _COLOR_SYSTEM_TO_MODE = {
 # dot only) to 3 (all 4 dots filled): dots 7 / 7+3 / 7+3+2 / 7+3+2+1.
 _BRAILLE_FILL_BITS = [0x40, 0x44, 0x46, 0x47]
 _BRAILLE_FULL = 0x47  # all 4 left-column dots
+# Same cumulative pole for the right column: dots 8 / 8+6 / 8+6+5 / 8+6+5+4. Used
+# so `dots` mode can pack a second time sample into each cell's right column,
+# doubling horizontal density (btop-style) instead of leaving it blank.
+_BRAILLE_FILL_BITS_R = [0x80, 0xA0, 0xB0, 0xB8]
+_BRAILLE_FULL_R = 0xB8  # all 4 right-column dots
 _BRAILLE_BLANK = "\u2800"
 _BLOCK_FILL_GLYPHS = ["\u2582", "\u2584", "\u2586", "\u2588"]
 _BLOCK_FULL_GLYPH = "\u2588"
 _BLOCK_BLANK = " "
+
+# Fan row spinner: one braille-cascade glyph per fan, prefixed to its RPM
+# reading (same 10-frame cascade as the splash screen's _SPINNER_FRAMES in
+# tui/app.py, so the two spinners in the app share one glyph family). Spin
+# rate is directly proportional to RPM (steps/sec = rpm / _FAN_SPINNER_RPM_PER_STEP)
+# via its own timer (HardwareDashboard._tick_fan_spinners), decoupled from the
+# sampler poll cadence so a fan spinning twice as fast visibly cycles twice as
+# fast instead of jumping once per multi-second sample.
+_FAN_SPINNER_FRAMES = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"]
+_FAN_SPINNER_RPM_PER_STEP = 1000.0
+_FAN_SPINNER_TICK_SECONDS = 0.2
 
 
 def _pct_to_rgb(pct: float, palette: str = _DEFAULT_PALETTE) -> tuple[int, int, int]:
@@ -182,6 +198,34 @@ def _clamped_value_and_level(value: float, total_levels: int) -> tuple[float, in
     return (v, level)
 
 
+def _braille_column_bits(level: int, row: int, height: int, fill, full: int) -> int:
+    """Braille bits for one vertical dot column of the cell at terminal `row`.
+
+    `level` is the sample's 0..height*4 fill height (bottom-up). `fill`/`full`
+    are the cumulative-partial list and all-4-dots value for the target column
+    (left = `_BRAILLE_FILL_BITS`/`_BRAILLE_FULL`, right = the `*_R` pair).
+    """
+    if level <= 0:
+        return 0
+    dot_row = height - 1 - (level - 1) // 4
+    if row > dot_row:
+        return full
+    if row == dot_row:
+        return fill[(level - 1) % 4]
+    return 0
+
+
+def _braille_cell_bits(llevel: int, rlevel: int, row: int, height: int) -> int:
+    """Braille bits for one dense cell: left column = earlier sample `llevel`,
+    right column = later sample `rlevel`. Single source of truth for the 2-sample
+    packing shared by BrailleChart._render_dots (height rows) and _inline_spark
+    (height 1). `llevel`/`rlevel` are 0..height*4 fill heights.
+    """
+    return _braille_column_bits(
+        llevel, row, height, _BRAILLE_FILL_BITS, _BRAILLE_FULL
+    ) | _braille_column_bits(rlevel, row, height, _BRAILLE_FILL_BITS_R, _BRAILLE_FULL_R)
+
+
 def _value_to_cell_glyph(value: float, glyph_mode: str) -> str:
     blank_glyph, _, partial_glyphs = _glyph_set_for_mode(glyph_mode)
     _, level = _clamped_value_and_level(value, total_levels=4)
@@ -191,13 +235,30 @@ def _value_to_cell_glyph(value: float, glyph_mode: str) -> str:
 
 
 def _inline_spark(history, width_chars: int = 8, glyph_mode: str = "dots") -> str:
-    """Inline sparkline with shared glyph logic used by BrailleChart."""
+    """Inline single-row sparkline sharing BrailleChart's glyph logic.
+
+    `block` keeps 1 sample per character (block glyphs can't split horizontally).
+    `dots` packs 2 samples per character — left/right braille dot column — for
+    the same btop-style density as BrailleChart._render_dots, so `width_chars`
+    characters show `width_chars * 2` samples.
+    """
     if width_chars <= 0:
         return ""
-    n = width_chars
+    if _normalize_chart_glyph_mode(glyph_mode) == "block":
+        n = width_chars
+        vals = list(history)[-n:]
+        vals = [0.0] * (n - len(vals)) + vals
+        return "".join(_value_to_cell_glyph(v, glyph_mode) for v in vals)
+    n = width_chars * 2
     vals = list(history)[-n:]
     vals = [0.0] * (n - len(vals)) + vals
-    return "".join(_value_to_cell_glyph(v, glyph_mode) for v in vals)
+    out = []
+    for i in range(0, len(vals), 2):
+        _, llevel = _clamped_value_and_level(vals[i], total_levels=4)
+        _, rlevel = _clamped_value_and_level(vals[i + 1], total_levels=4)
+        bits = _braille_cell_bits(llevel, rlevel, 0, 1)
+        out.append(chr(0x2800 | bits) if bits else _BRAILLE_BLANK)
+    return "".join(out)
 
 
 class BrailleChart(Widget):
@@ -275,11 +336,49 @@ class BrailleChart(Widget):
         if width <= 0 or height <= 0:
             return ""
         color_mode = self._active_color_mode()
+        if self._glyph_mode == "block":
+            return self._render_block(width, height, color_mode)
+        return self._render_dots(width, height, color_mode)
+
+    def _render_dots(self, width: int, height: int, color_mode: str):
+        """Braille render packing 2 time samples per character (btop density).
+
+        Each cell's left dot column carries the earlier sample and its right
+        column the later one, so `width` characters show `width * 2` samples with
+        no blank gap between them. The cell takes the color of its hotter sample.
+        """
+        n = width * 2  # 2 samples per character
+        dlen = len(self._data)
+        offset = dlen - n
+        total = height * 4  # 4 dot positions per terminal row
+        out = Text()
+        for row in range(height):
+            for col in range(width):
+                li = offset + 2 * col
+                ri = li + 1
+                lv, llevel = _clamped_value_and_level(
+                    float(self._data[li]) if li >= 0 else 0.0, total_levels=total
+                )
+                rv, rlevel = _clamped_value_and_level(
+                    float(self._data[ri]) if ri >= 0 else 0.0, total_levels=total
+                )
+                bits = _braille_cell_bits(llevel, rlevel, row, height)
+                if bits:
+                    line_color = _pct_to_color(max(lv, rv), color_mode, self._palette)
+                    out.append(chr(0x2800 | bits), style=line_color)
+                else:
+                    out.append(_BRAILLE_BLANK)
+            if row < height - 1:
+                out.append("\n")
+        return out
+
+    def _render_block(self, width: int, height: int, color_mode: str):
+        """Block-glyph render: 1 time sample per character (no column packing)."""
         blank_glyph, full_glyph, partial_glyphs = _glyph_set_for_mode(self._glyph_mode)
         n = width  # 1 sample per character
         dlen = len(self._data)
         offset = dlen - n
-        total = height * 4  # 4 dot positions per terminal row
+        total = height * 4  # 4 sub-rows per terminal row
         out = Text()
         for row in range(height):
             for col in range(width):
@@ -509,6 +608,50 @@ class HardwareDashboard(Widget):
         self._core_hist: dict = {}
         self._last_p_cores: list = []
         self._last_e_cores: list = []
+
+        # Fan spinner state: one entry per fan in the latest snapshot. Advanced
+        # by its own timer (on_mount) rather than update_metrics, so spin rate
+        # tracks RPM continuously instead of jumping once per sample.
+        self._last_fans: list = []
+        self._fan_spin_idx: list = []
+        self._fan_spin_acc: list = []
+
+    def on_mount(self) -> None:
+        self.set_interval(_FAN_SPINNER_TICK_SECONDS, self._tick_fan_spinners)
+
+    def _tick_fan_spinners(self) -> None:
+        if not self._last_fans:
+            return
+        frames = _FAN_SPINNER_FRAMES
+        n = len(frames)
+        advanced = False
+        for i, fan in enumerate(self._last_fans):
+            self._fan_spin_acc[i] += (
+                fan.current * _FAN_SPINNER_TICK_SECONDS / _FAN_SPINNER_RPM_PER_STEP
+            )
+            steps = int(self._fan_spin_acc[i])
+            if steps:
+                self._fan_spin_acc[i] -= steps
+                self._fan_spin_idx[i] = (self._fan_spin_idx[i] + steps) % n
+                advanced = True
+        if advanced:
+            self._render_fan_label()
+
+    def _render_fan_label(self) -> None:
+        frames = _FAN_SPINNER_FRAMES
+        if self._last_fans:
+            rpm_text = " · ".join(
+                "{} {}".format(
+                    frames[self._fan_spin_idx[i] % len(frames)],
+                    "{:.0f}/{:.0f}".format(fan.current, fan.max)
+                    if fan.max
+                    else "{:.0f}".format(fan.current),
+                )
+                for i, fan in enumerate(self._last_fans)
+            )
+        else:
+            rpm_text = "0"
+        self.query_one("#fan-label", Static).update("Fan {} RPM".format(rpm_text))
 
     def compose(self) -> ComposeResult:
         cfg = self._config
@@ -842,24 +985,20 @@ class HardwareDashboard(Widget):
             )
 
         # Fan RPM: hide the row entirely on fanless Macs (no SMC fan keys),
-        # mirroring the Mem BW hide-on-unavailable pattern above.
+        # mirroring the Mem BW hide-on-unavailable pattern above. Per-fan
+        # "current/max" (or bare "current" when max is unknown) is rendered by
+        # _render_fan_label, which also prefixes each fan's spinner glyph;
+        # fans are joined with " · " so the inter-fan separator never collides
+        # with the "/" inside a single fan's current/max.
         fan_label = self.query_one("#fan-label", Static)
         if fan_label.display != s.fan_available:
             fan_label.display = s.fan_available
         if s.fan_available:
-            # Per fan: "current/max" when max is known, else bare "current".
-            # Fans are joined with " · " so the inter-fan separator never
-            # collides with the "/" inside a single fan's current/max.
-            if s.fans:
-                rpm_text = " · ".join(
-                    "{:.0f}/{:.0f}".format(f.current, f.max)
-                    if f.max
-                    else "{:.0f}".format(f.current)
-                    for f in s.fans
-                )
-            else:
-                rpm_text = "0"
-            fan_label.update("Fan {} RPM".format(rpm_text))
+            self._last_fans = list(s.fans)
+            if len(self._fan_spin_idx) != len(self._last_fans):
+                self._fan_spin_idx = [0] * len(self._last_fans)
+                self._fan_spin_acc = [0.0] * len(self._last_fans)
+            self._render_fan_label()
 
         # Update per-core rows
         if cfg.show_cores:
@@ -1112,4 +1251,7 @@ class HardwareDashboard(Widget):
         if width <= 0:
             return ""
         interval = max(1, int(getattr(self._config, "sample_interval", 1)))
-        return _format_window_span(width * interval)
+        # `dots` packs 2 samples per character (see BrailleChart._render_dots),
+        # so it covers twice the time span of `block` for the same width.
+        samples_per_char = 1 if self._chart_glyph == "block" else 2
+        return _format_window_span(width * samples_per_char * interval)
