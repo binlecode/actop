@@ -6,6 +6,20 @@ This project follows a Keep a Changelog-style format and uses version tags for r
 
 ## [Unreleased]
 
+## [1.4.9] - 2026-07-02
+
+### Docs
+- `pyproject.toml`: refresh the PyPI-facing `description` from the stale generic
+  "Performance monitoring CLI tool for Apple Silicon" to match the current
+  positioning already locked in for the GitHub repo description — sudoless,
+  TUI + Python API, GPU/ANE/bandwidth, local-LLM profiling — so the PyPI project
+  page summary is consistent with GitHub.
+- `docs/TODO-architecture-roadmap.md`: fix a dangling reference to "the launch
+  runbook's post-launch loop" (that runbook is private/local-only, removed from
+  origin in v1.4.7) with a self-contained description, now that this file is
+  directly linked from the README's new `## Roadmap` section and read by
+  external contributors.
+
 ## [1.4.8] - 2026-07-02
 
 ### Docs
