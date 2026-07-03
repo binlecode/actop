@@ -56,7 +56,6 @@ The `docs/` directory contains essential system reviews, research, and operation
 - `docs/REVIEW-architecture-comparison.md`: Performance and architectural comparison between `actop` (Python) and `mactop` (Go).
 - `docs/REVIEW-tui-frameworks.md`: Analysis of modern Python TUI frameworks and selection of Textual.
 - `docs/DESIGN-sdlc-cicd-release.md`: CI/CD bottling and tap release operational runbook.
-- `docs/RUNBOOK-launch-and-growth.md`: Launch/growth operational runbook.
 - `docs/TODO-architecture-roadmap.md`: Open hardware/metric-coverage gaps and their priority.
 
 **Conformance auditing:** the `/audit-conformance` skill (`.claude/skills/audit-conformance/`) periodically judgment-scans the whole tree against 12 coding rules (layering, dead code, DRY, naming, swallowed errors) — the whole-codebase counterpart to diff-scoped `/code-review`. It writes an actionable `docs/TODO-conformance-YYYY-MM-DD.md` and never proposes structural/guard tests (they would violate the functional-tests-only mandate).

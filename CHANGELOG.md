@@ -6,6 +6,15 @@ This project follows a Keep a Changelog-style format and uses version tags for r
 
 ## [Unreleased]
 
+## [1.4.7] - 2026-07-02
+
+### Chore
+- Remove the private launch/growth runbook (`docs/RUNBOOK-launch-and-growth.md`) from
+  version control — it is internal market-promo notes, not part of the shipped product.
+  Now untracked and `.gitignore`d (kept locally only). Dangling references in
+  `CLAUDE.md` and the `docs/TODO-*` files were removed; historical `CHANGELOG` mentions
+  are left as-is.
+
 ## [1.4.6] - 2026-07-02
 
 ### Docs
