@@ -17,8 +17,8 @@ shipped v1.2.3/v1.4.1 — and `TODO-net-disk-io`):
     lands in the core (`pillow`/`coremltools` stay in the optional `ane` extra), so it does
     not carry the same "harden before ship" weight as core sampling code.
 -   **Launch leverage:** a real MobileNetV2-on-ANE classification loop is the ideal workload
-    for the hero GIF and the r/LocalLLaMA post (`docs/RUNBOOK-launch-and-growth.md` Steps 1
-    & 4) — it makes the ANE gauge visibly move on a *representative* workload rather than the
+    for the hero GIF and the r/LocalLLaMA launch post — it makes the ANE gauge visibly
+    move on a *representative* workload rather than the
     synthetic conv stress in `scripts/ane_load.py`. Landing this **before** recording the
     hero capture strengthens the launch story materially. That is the reason to do it soon,
     even though it is not on the hardware-coverage critical path.
