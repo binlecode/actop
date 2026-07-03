@@ -62,6 +62,21 @@ How the sudoless, in-process field stacks up:
 
 For the broadest TUI and DevOps feature set (network/disk I/O, a menu-bar app, more export formats), use **mactop**; for the leanest single Rust binary, **macmon**. Full head-to-head: [docs/REVIEW-architecture-comparison.md](docs/REVIEW-architecture-comparison.md).
 
+## Roadmap
+
+The gaps above are tracked, not abandoned — see
+[docs/TODO-architecture-roadmap.md](docs/TODO-architecture-roadmap.md) for the open
+items and their reasoning:
+
+- **Net/disk I/O** — the one open must-have for hardware/metric coverage; the
+  feasibility spike is done (verified on-device, unprivileged) and the full
+  implementation-ready design lives in `docs/TODO-net-disk-io-2026-07-02.md`.
+- **Menu bar mode** — deliberately deferred post-launch; a second application
+  surface (not a feature add), revisited only after the initial launch cycle.
+
+actop stays scoped to one thesis — a fast, unprivileged, resource-efficient Apple
+Silicon telemetry monitor — and rejects feature creep into general ML/APM frameworks.
+
 ## Installation
 
 ### Homebrew (recommended)

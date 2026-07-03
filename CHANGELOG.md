@@ -6,6 +6,15 @@ This project follows a Keep a Changelog-style format and uses version tags for r
 
 ## [Unreleased]
 
+## [1.4.8] - 2026-07-02
+
+### Docs
+- README: add a `## Roadmap` section linking `docs/TODO-architecture-roadmap.md`,
+  naming the one open must-have (net/disk I/O, feasibility spike done) and the
+  deliberately-deferred item (menu bar mode). Closes the gap where the "Where actop
+  fits" comparison table showed a competitive gap (network/disk I/O, menu bar) with
+  no indication it was tracked rather than abandoned.
+
 ## [1.4.7] - 2026-07-02
 
 ### Chore
