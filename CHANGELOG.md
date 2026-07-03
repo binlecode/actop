@@ -6,6 +6,21 @@ This project follows a Keep a Changelog-style format and uses version tags for r
 
 ## [Unreleased]
 
+## [1.4.11] - 2026-07-03
+
+### Changed
+- TUI: the P-CPU and E-CPU clusters now render as **two separate titled boxes**
+  (previously two halves of a single "CPU" box), so each cluster's chart stands
+  out as a sibling alongside GPU. The `grid` preset lays them out as the top row,
+  with GPU·ANE / Memory on the next row and Power spanning the full width beneath.
+- TUI: **per-core panels are now hidden by default.** With cores off, the
+  P-CPU / E-CPU / GPU charts read as the prominent sibling boxes. `--show_cores`
+  still opts into showing them at startup; the new `c` key toggles them live.
+
+### Added
+- TUI `c` key: toggle the per-core panels on/off at runtime (independent of the
+  `--show_cores` startup default). Painted immediately on show, no sample wait.
+
 ## [1.4.10] - 2026-07-03
 
 ### Changed
@@ -19,8 +34,8 @@ This project follows a Keep a Changelog-style format and uses version tags for r
   for the 2×-denser `dots` sampling.
 
 ### Added
-- TUI Fan row: each fan's RPM reading is prefixed with an ASCII-rotor spinner
-  (`|/-\`) whose spin rate is proportional to RPM, driven by its own timer
+- TUI Fan row: each fan's RPM reading is prefixed with a braille-cascade spinner
+  (`⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏`) whose spin rate is proportional to RPM, driven by its own timer
   decoupled from the sampler poll cadence.
 
 ### Docs

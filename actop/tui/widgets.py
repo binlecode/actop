@@ -470,10 +470,11 @@ class HardwareDashboard(Widget):
 
     # Dashboard CSS lives here (scoped to this widget), not in ActopApp: the two
     # layout presets are just a class swap on this widget. `grid` is a two-column
-    # grid with the tall CPU section spanning all three right-column rows; `stack`
-    # is the single scrollable column (only the stack preset scrolls — grid is
-    # sized to fit). Below `_GRID_MIN_WIDTH` cols grid auto-degrades to stack
-    # (`on_resize`), so a grid never squeezes its columns below readability.
+    # grid — the P-CPU / E-CPU cluster boxes share the top row, GPU·ANE / Memory
+    # the second, and Power spans the full width beneath them; `stack` is the
+    # single scrollable column (only the stack preset scrolls — grid is sized to
+    # fit). Below `_GRID_MIN_WIDTH` cols grid auto-degrades to stack (`on_resize`),
+    # so a grid never squeezes its columns below readability.
     DEFAULT_CSS = """
     HardwareDashboard {
         width: 1fr;
@@ -490,11 +491,20 @@ class HardwareDashboard(Widget):
         grid-columns: 1fr 1fr;
         grid-rows: auto auto auto;
     }
-    HardwareDashboard.layout-grid #section-cpu {
-        row-span: 3;
-        /* Fill the 3-row span (not just content height) so the CPU box's bottom
-           border aligns with the lowest right-column box (Power) instead of
-           closing early and leaving dead space below it. */
+    /* Power is a single wide chart, so it spans both columns on the bottom row
+       instead of leaving a half-empty cell beside it. */
+    HardwareDashboard.layout-grid #section-power {
+        column-span: 2;
+    }
+    /* Keep each row's paired boxes vertically boundary-aligned: fill the row
+       height (which the grid sizes to the taller box) so both bottom borders
+       line up instead of the shorter box closing early with a ragged edge.
+       The cost is blank space inside the shorter box — preferred over a
+       ragged grid, and matches how Power's row already spans full width. */
+    HardwareDashboard.layout-grid #section-pcpu,
+    HardwareDashboard.layout-grid #section-ecpu,
+    HardwareDashboard.layout-grid #section-gpu-ane,
+    HardwareDashboard.layout-grid #section-memory {
         height: 100%;
     }
     .dash-section {
@@ -529,9 +539,6 @@ class HardwareDashboard(Widget):
     .core-grid {
         height: auto;
     }
-    .cpu-half {
-        height: auto;
-    }
     """
 
     _VALID_PRESETS = ("grid", "stack")
@@ -544,6 +551,11 @@ class HardwareDashboard(Widget):
         self._config = config
         cfg = config
         self._chart_glyph = getattr(cfg, "chart_glyph", "dots")
+        # Per-core panels are a runtime toggle (`c` key), not compose-time only:
+        # the core grids are always composed but start hidden unless --show_cores
+        # was passed, so the P-CPU / E-CPU / GPU charts read as the prominent
+        # sibling boxes by default and cores can be summoned on demand.
+        self._show_cores = bool(getattr(cfg, "show_cores", False))
         # Gradient palette, fixed for the session (--palette). Passed eagerly to
         # every chart at compose time, exactly like _chart_glyph.
         self._palette = getattr(cfg, "palette", _DEFAULT_PALETTE)
@@ -656,43 +668,49 @@ class HardwareDashboard(Widget):
     def compose(self) -> ComposeResult:
         cfg = self._config
 
-        # Four titled section containers (border_title lives in the border, so
-        # it costs no content row). Every child widget id is unchanged so the
-        # update_metrics query paths keep working after sectionizing.
-        with Vertical(id="section-cpu", classes="dash-section") as cpu_sec:
-            cpu_sec.border_title = "CPU"
-            with Vertical(classes="cpu-half"):
-                yield Static(
-                    "P-CPU   0% @0MHz",
-                    id="pcpu-summary-row",
-                    classes="cpu-summary-row",
-                )
-                yield BrailleChart(
-                    glyph_mode=self._chart_glyph,
-                    palette=self._palette,
-                    id="pcpu-chart",
-                    classes="metric-chart",
-                )
-                if cfg.show_cores:
-                    yield Static("", id="pcores-grid", classes="core-grid")
-                if cfg.show_residency:
-                    yield Static("", id="pcpu-residency-row", classes="residency-row")
-            with Vertical(classes="cpu-half"):
-                yield Static(
-                    "E-CPU   0% @0MHz",
-                    id="ecpu-summary-row",
-                    classes="cpu-summary-row",
-                )
-                yield BrailleChart(
-                    glyph_mode=self._chart_glyph,
-                    palette=self._palette,
-                    id="ecpu-chart",
-                    classes="metric-chart",
-                )
-                if cfg.show_cores:
-                    yield Static("", id="ecores-grid", classes="core-grid")
-                if cfg.show_residency:
-                    yield Static("", id="ecpu-residency-row", classes="residency-row")
+        # Five titled section containers (border_title lives in the border, so
+        # it costs no content row). The P-CPU and E-CPU clusters are now separate
+        # sibling boxes (not two halves of one "CPU" box) so each cluster's chart
+        # stands out next to GPU. Every child widget id is unchanged so the
+        # update_metrics query paths keep working; the core grids are always
+        # composed and their display is toggled by `_show_cores` (the `c` key).
+        with Vertical(id="section-pcpu", classes="dash-section") as pcpu_sec:
+            pcpu_sec.border_title = "P-CPU"
+            yield Static(
+                "P-CPU   0% @0MHz",
+                id="pcpu-summary-row",
+                classes="cpu-summary-row",
+            )
+            yield BrailleChart(
+                glyph_mode=self._chart_glyph,
+                palette=self._palette,
+                id="pcpu-chart",
+                classes="metric-chart",
+            )
+            pcores = Static("", id="pcores-grid", classes="core-grid")
+            pcores.display = self._show_cores
+            yield pcores
+            if cfg.show_residency:
+                yield Static("", id="pcpu-residency-row", classes="residency-row")
+
+        with Vertical(id="section-ecpu", classes="dash-section") as ecpu_sec:
+            ecpu_sec.border_title = "E-CPU"
+            yield Static(
+                "E-CPU   0% @0MHz",
+                id="ecpu-summary-row",
+                classes="cpu-summary-row",
+            )
+            yield BrailleChart(
+                glyph_mode=self._chart_glyph,
+                palette=self._palette,
+                id="ecpu-chart",
+                classes="metric-chart",
+            )
+            ecores = Static("", id="ecores-grid", classes="core-grid")
+            ecores.display = self._show_cores
+            yield ecores
+            if cfg.show_residency:
+                yield Static("", id="ecpu-residency-row", classes="residency-row")
 
         with Vertical(id="section-gpu-ane", classes="dash-section") as gpu_sec:
             gpu_sec.border_title = "GPU · ANE"
@@ -808,13 +826,23 @@ class HardwareDashboard(Widget):
         if not self.is_mounted:
             return
         self._render_power_rows()
-        if getattr(self._config, "show_cores", False):
-            self._update_core_two_col(
-                "#pcores-grid", self._last_p_cores, "P", append_sample=False
-            )
-            self._update_core_two_col(
-                "#ecores-grid", self._last_e_cores, "E", append_sample=False
-            )
+        self._repaint_core_grids()
+
+    def _repaint_core_grids(self) -> None:
+        """Re-render both core grids from the last snapshot, without advancing
+        their per-core spark histories (`append_sample=False`).
+
+        The single repaint path shared by every non-sample trigger — glyph
+        toggle, width/preset change, and the `c` show/hide toggle. No-op while
+        cores are hidden (the grids carry no visible content then)."""
+        if not self._show_cores:
+            return
+        self._update_core_two_col(
+            "#pcores-grid", self._last_p_cores, "P", append_sample=False
+        )
+        self._update_core_two_col(
+            "#ecores-grid", self._last_e_cores, "E", append_sample=False
+        )
 
     @property
     def chart_glyph(self) -> str:
@@ -827,13 +855,29 @@ class HardwareDashboard(Widget):
         # The CPU/GPU power rows carry inline sparks (not BrailleChart widgets),
         # so re-render them here the same way the core grids are re-rendered.
         self._render_power_rows()
-        if getattr(self._config, "show_cores", False):
-            self._update_core_two_col(
-                "#pcores-grid", self._last_p_cores, "P", append_sample=False
-            )
-            self._update_core_two_col(
-                "#ecores-grid", self._last_e_cores, "E", append_sample=False
-            )
+        self._repaint_core_grids()
+
+    @property
+    def show_cores(self) -> bool:
+        """Whether the per-core panels are currently visible."""
+        return self._show_cores
+
+    def set_show_cores(self, show: bool) -> None:
+        """Show or hide the per-core panels inside the P-CPU / E-CPU boxes.
+
+        A runtime toggle (the `c` key), independent of the compose-time
+        `--show_cores` startup default. Never touches history deques, so
+        toggling loses no per-core spark history; painting the grids on show
+        (rather than waiting for the next sample) makes the toggle feel instant."""
+        show = bool(show)
+        if show == self._show_cores:
+            return
+        self._show_cores = show
+        for widget_id in ("#pcores-grid", "#ecores-grid"):
+            self.query_one(widget_id, Static).display = show
+        # A just-unhidden grid has no width until the next layout pass, so defer
+        # the paint (a synchronous one would read width 0 and truncate the row).
+        self.call_after_refresh(self._repaint_core_grids)
 
     def update_metrics(self, message: MetricsUpdated) -> None:
         """Update all dashboard widgets from new metrics. Called by ActopApp."""
@@ -1000,10 +1044,12 @@ class HardwareDashboard(Widget):
                 self._fan_spin_acc = [0.0] * len(self._last_fans)
             self._render_fan_label()
 
-        # Update per-core rows
-        if cfg.show_cores:
-            self._last_p_cores = list(s.p_cores)
-            self._last_e_cores = list(s.e_cores)
+        # Update per-core rows. Always capture the latest core lists (a cheap
+        # list copy) so a runtime toggle-on (`c`) can render immediately; only
+        # append to the per-core spark histories + repaint the grids while shown.
+        self._last_p_cores = list(s.p_cores)
+        self._last_e_cores = list(s.e_cores)
+        if self._show_cores:
             self._update_core_two_col(
                 "#pcores-grid", self._last_p_cores, "P", append_sample=True
             )
