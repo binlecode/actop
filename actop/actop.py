@@ -33,8 +33,9 @@ def build_parser():
     parser.add_argument(
         "--show_cores",
         action=argparse.BooleanOptionalAction,
-        default=True,
-        help="Enable per-core panels (disable with --no-show_cores)",
+        default=False,
+        help="Show per-core panels inside the P-CPU/E-CPU boxes at startup "
+        "(hidden by default; toggle live with the 'c' key)",
     )
     parser.add_argument(
         "--show-residency",

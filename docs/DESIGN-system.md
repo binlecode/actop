@@ -250,13 +250,16 @@ Reading `F{n}Mx` alone closes the only 2/2-converged peer gap for fans (both `ma
 
 ## 5. TUI Layout & Rendering Engine (`tui/`)
 
-The user interface is powered by Textual. The dashboard is four titled section
+The user interface is powered by Textual. The dashboard is five titled section
 containers rendered under one of two layout presets (§5.1.1); the process table
 is a fixed-width panel beside it and the thermal/alert status line is fixed app
-chrome below both. Captures below are live frames on an Apple M4 Max.
+chrome below both. Per-core panels are hidden by default (toggle with `c`), so
+the cluster charts read as the prominent siblings. Captures below are live
+frames on an Apple M4 Max.
 
-**`grid`** (default) — two columns: the CPU section spans the left; `GPU · ANE`
-/ `Memory` / `Power` stack on the right. Fits short terminals without scrolling.
+**`grid`** (default) — two columns: the `P-CPU` / `E-CPU` cluster boxes share
+the top row, `GPU · ANE` / `Memory` the next, and `Power` spans the full width
+beneath. Fits short terminals without scrolling.
 
 ```
                                            actop — v1.4.10 · Apple M4 Max · 4E+12P+40GPU                                    22:32:31
@@ -291,7 +294,7 @@ span 4m08s  ·  energy 0.33Wh  ·  thermal: Nominal  alerts: none
  q Quit  p Pause  s Sort  g Glyph  l Layout  t Processes  ? Help
 ```
 
-**`stack`** (`l` toggles) — the same four sections full-width in one scrollable
+**`stack`** (`l` toggles) — the same five sections full-width in one scrollable
 column; charts get the longest history span (blank chart bodies elided below):
 
 ```
@@ -404,12 +407,12 @@ span 3m28s  ·  energy 10mWh  ·  thermal: Nominal  alerts: none
 
 The application initiates a background thread via textual `@work(thread=True, exclusive=True)` to run the polling loop, delivering parsed snapshots to the main thread via a custom event, `MetricsUpdated`. A spinner splash covers the first sampler warm-up; the dashboard swaps in once the first snapshot arrives. The framework command palette is disabled (`ENABLE_COMMAND_PALETTE = False`).
 
-The dashboard body is four titled section containers — `CPU`, `GPU · ANE`, `Memory`, `Power` (section titles live in the border, costing no content row). The thermal/alert status line is fixed **app chrome** below the dashboard (not inside its scrollable subtree), fed by an `AlertsComputed` message the dashboard posts each frame — so it stays visible even while a tall `stack` dashboard scrolls. CPU/GPU rail power collapse to single inline-sparkline rows (`CPU 6.59W <spark>  avg … · max …`); only Package Power keeps a full chart.
+The dashboard body is five titled section containers — `P-CPU`, `E-CPU`, `GPU · ANE`, `Memory`, `Power` (section titles live in the border, costing no content row). The `P-CPU` and `E-CPU` clusters are separate sibling boxes (not two halves of one "CPU" box) so each cluster chart stands out alongside GPU. The thermal/alert status line is fixed **app chrome** below the dashboard (not inside its scrollable subtree), fed by an `AlertsComputed` message the dashboard posts each frame — so it stays visible even while a tall `stack` dashboard scrolls. CPU/GPU rail power collapse to single inline-sparkline rows (`CPU 6.59W <spark>  avg … · max …`); only Package Power keeps a full chart. The per-core panels inside the `P-CPU` / `E-CPU` boxes are hidden by default and toggled live with `c` (`HardwareDashboard.set_show_cores`); `--show_cores` opts into showing them at startup.
 
 ### 5.1.1 Layout presets (`grid` / `stack`)
-The same four sections render under two presets, selected by `--layout` (default `grid`) and cycled live with `l` (`HardwareDashboard.set_layout_preset`, which never touches the history deques — switching mid-session loses no data). Presets are a pure CSS class swap in `HardwareDashboard.DEFAULT_CSS` (scoped to the widget); nothing about the data flow or metric computation differs between them.
-- **`grid`**: a two-column CSS grid — the CPU section spans all three right-column rows (`row-span: 3`) while `GPU · ANE` / `Memory` / `Power` stack on the right. ~25 content rows; fits a 30-row terminal without scrolling.
-- **`stack`**: all four sections full-width in a single scrollable column — the longest chart-history span (~47 rows, scrolls by design; the fixed status bar does not scroll with it).
+The same five sections render under two presets, selected by `--layout` (default `grid`) and cycled live with `l` (`HardwareDashboard.set_layout_preset`, which never touches the history deques — switching mid-session loses no data). Presets are a pure CSS class swap in `HardwareDashboard.DEFAULT_CSS` (scoped to the widget); nothing about the data flow or metric computation differs between them.
+- **`grid`**: a two-column CSS grid — `P-CPU` / `E-CPU` share the top row, `GPU · ANE` / `Memory` the next, and `Power` spans both columns (`column-span: 2`) on the bottom row. Fits a short terminal without scrolling.
+- **`stack`**: all five sections full-width in a single scrollable column — the longest chart-history span (scrolls by design; the fixed status bar does not scroll with it).
 - **Width auto-degrade**: below `_GRID_MIN_WIDTH` (96 cols) each grid column would fall under ~48 cols and stop being readable, so a requested `grid` silently renders as `stack` until the terminal widens again (`on_resize` → `_reconcile_layout`). `layout_preset` reports what was requested; `effective_layout_preset` reports what is applied. Width-adaptive Static rows (inline power sparks, core grids) re-render on the resize/preset swap so their spark widths track the new column width immediately rather than waiting for the next sample.
 
 ### 5.2 Custom Sparklines (`BrailleChart`)

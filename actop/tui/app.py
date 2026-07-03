@@ -87,6 +87,7 @@ HELP_TEXT = """\
   s          Cycle process sort (CPU% → PWR → RSS → PID)
   g          Toggle chart glyph (braille dots / blocks)
   l          Cycle layout preset (grid ⇄ stack)
+  c          Toggle per-core panels (hidden by default)
   t          Toggle the process table
   /          Filter processes by regex (when table shown)
   ?          Show / hide this help
@@ -94,9 +95,10 @@ HELP_TEXT = """\
 
 [b]Layout presets[/b]
 
-  grid       Two columns (default): CPU section spans the left, GPU·ANE /
-             Memory / Power stack on the right. Fits short terminals without
-             scrolling. Falls back to stack automatically under ~96 cols.
+  grid       Two columns (default): P-CPU / E-CPU cluster boxes share the top
+             row, GPU·ANE / Memory the next, and Power spans the full width
+             beneath. Fits short terminals without scrolling. Falls back to
+             stack automatically under ~96 cols.
   stack      Single full-width column — longest chart history span; scrolls
              on tall dashboards while the status line stays fixed.
 
@@ -221,6 +223,7 @@ class ActopApp(App):
         ("s", "cycle_sort", "Sort"),
         ("g", "toggle_chart_glyph", "Glyph"),
         ("l", "cycle_layout", "Layout"),
+        ("c", "toggle_cores", "Cores"),
         ("t", "toggle_processes", "Processes"),
         ("/", "toggle_filter", "Filter"),
         ("question_mark", "show_help", "Help"),
@@ -364,6 +367,10 @@ class ActopApp(App):
         dash = self.query_one("#hardware-dash", HardwareDashboard)
         next_preset = "stack" if dash.layout_preset == "grid" else "grid"
         dash.set_layout_preset(next_preset)
+
+    def action_toggle_cores(self) -> None:
+        dash = self.query_one("#hardware-dash", HardwareDashboard)
+        dash.set_show_cores(not dash.show_cores)
 
     def check_action(self, action: str, parameters: tuple[object, ...]) -> bool | None:
         if action == "toggle_filter":

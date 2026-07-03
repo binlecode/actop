@@ -19,7 +19,7 @@ from textual.app import App, ComposeResult
 from textual.widgets import Static
 
 from actop.config import DashboardConfig
-from actop.models import FanReading, SystemSnapshot
+from actop.models import CoreSample, FanReading, SystemSnapshot
 from actop.tui.widgets import (
     AlertsComputed,
     BrailleChart,
@@ -28,7 +28,7 @@ from actop.tui.widgets import (
 )
 
 
-def _config(show_residency: bool = True) -> DashboardConfig:
+def _config(show_residency: bool = True, show_cores: bool = False) -> DashboardConfig:
     return DashboardConfig(
         sample_interval=1,
         avg_window=30,
@@ -46,7 +46,7 @@ def _config(show_residency: bool = True) -> DashboardConfig:
         chart_glyph="dots",
         palette="thermal",
         layout="grid",
-        show_cores=False,
+        show_cores=show_cores,
         show_residency=show_residency,
         alert_bw_sat_percent=85,
         alert_package_power_percent=85,
@@ -79,6 +79,8 @@ def _snapshot(
     gpu_residency_pct: dict = None,
     fans: list = None,
     fan_available: bool = False,
+    p_cores: list = None,
+    e_cores: list = None,
     timestamp: float = 0.0,
 ) -> SystemSnapshot:
     fans = [] if fans is None else fans
@@ -113,6 +115,8 @@ def _snapshot(
         ecpu_residency_pct=dict(ecpu_residency_pct or idle_residency),
         pcpu_residency_pct=dict(pcpu_residency_pct or idle_residency),
         gpu_residency_pct=dict(gpu_residency_pct or idle_residency),
+        p_cores=[] if p_cores is None else list(p_cores),
+        e_cores=[] if e_cores is None else list(e_cores),
     )
 
 
@@ -407,6 +411,63 @@ def test_residency_rows_hidden_when_show_residency_disabled():
     assert state["pcpu_residency_row"] is None
     assert state["ecpu_residency_row"] is None
     assert state["gpu_residency_row"] is None
+
+
+def test_per_core_panels_hidden_by_default_and_toggle_on_via_public_api():
+    # Cores are hidden by default so the P-CPU / E-CPU / GPU charts read as the
+    # prominent sibling boxes. The `c`-key path (set_show_cores) must reveal the
+    # grids and paint the current per-core readings immediately — without waiting
+    # for the next sample — from data captured on every frame.
+    async def _run():
+        dash = HardwareDashboard(config=_config())  # show_cores defaults False
+        app = _Host(dash)
+        async with app.run_test(size=(160, 50)) as pilot:
+            snap = _snapshot(
+                0.0,
+                False,
+                p_cores=[CoreSample(index=0, active_pct=73, freq_mhz=3200)],
+                e_cores=[CoreSample(index=1, active_pct=12, freq_mhz=1400)],
+            )
+            dash.update_metrics(MetricsUpdated(snap))
+            await pilot.pause()
+            pgrid = dash.query_one("#pcores-grid", Static)
+            # Composed but hidden, and carrying no visible core content yet.
+            assert pgrid.display is False
+            assert dash.show_cores is False
+
+            dash.set_show_cores(True)
+            await pilot.pause()
+            assert dash.show_cores is True
+            assert pgrid.display is True
+            # The captured P-core reading is painted on toggle-on, not deferred.
+            assert "P00" in str(pgrid.render())
+            assert "73%" in str(pgrid.render())
+
+            dash.set_show_cores(False)
+            await pilot.pause()
+            assert dash.query_one("#pcores-grid", Static).display is False
+
+    asyncio.run(_run())
+
+
+def test_pcpu_and_ecpu_are_separate_sibling_boxes():
+    # The clusters render as two independent titled boxes (not two halves of one
+    # "CPU" box), so their charts stand out as siblings alongside GPU.
+    async def _run():
+        dash = HardwareDashboard(config=_config())
+        app = _Host(dash)
+        async with app.run_test(size=(160, 50)) as pilot:
+            dash.update_metrics(MetricsUpdated(_snapshot(0.0, False)))
+            await pilot.pause()
+            from textual.containers import Vertical
+
+            pbox = dash.query_one("#section-pcpu", Vertical)
+            ebox = dash.query_one("#section-ecpu", Vertical)
+            return pbox.border_title, ebox.border_title
+
+    p_title, e_title = asyncio.run(_run())
+    assert p_title == "P-CPU"
+    assert e_title == "E-CPU"
 
 
 def test_status_line_surfaces_chart_time_window_span():
