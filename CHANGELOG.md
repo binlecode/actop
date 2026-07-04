@@ -6,6 +6,37 @@ This project follows a Keep a Changelog-style format and uses version tags for r
 
 ## [Unreleased]
 
+## [1.4.12] - 2026-07-03
+
+### Fixed
+- Memory bandwidth chart scaling: the Mem BW chart and the `MEM-BOUND`
+  saturation alert now normalize against the SoC's true **unified-memory
+  bandwidth** (a single `max_mem_bw` per profile), replacing the old
+  `cpu_max_bw + gpu_max_bw` sum. Apple Silicon has one shared DRAM bus, so
+  summing the two overstated the ceiling (e.g. 800 GB/s vs. the real 546 GB/s
+  on M4 Max) — the chart could never exceed ~68% and the 85%-default
+  `MEM-BOUND` alert (680 GB/s) was physically unreachable. The chart now spans
+  the real 0–100% range and the alert can fire.
+- Memory bandwidth reading on multi-die SoCs (Ultra): `_compute_bandwidth_gbps`
+  now computes each memory-controller die's residency-weighted average
+  **independently and sums them**, instead of pooling every die's histogram
+  into one mean. Pooling reported a single controller's rate as the whole-chip
+  total, under-reporting multi-die bandwidth. Single-die SoCs are unaffected.
+- Power chart `auto` scaling: the CPU/GPU power charts now normalize against a
+  true **rolling** peak over the retained wattage history, matching the
+  documented "rolling peak" behavior. Previously the peak was an all-time
+  monotonic max, so a single transient spike permanently compressed the charts
+  for the rest of the session.
+
+### Changed
+- `SocProfile` / `DashboardConfig`: replaced the unused `cpu_max_bw` /
+  `gpu_max_bw` split (only ever consumed summed) with a single `max_mem_bw`
+  unified-memory-bandwidth reference carrying real vendor headline specs.
+
+### Docs
+- `docs/DESIGN-system.md` §3.5 / §7: document the per-die sum and the
+  single `max_mem_bw` normalization reference.
+
 ## [1.4.11] - 2026-07-03
 
 ### Changed

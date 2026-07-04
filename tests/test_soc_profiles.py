@@ -35,8 +35,7 @@ def test_unknown_future_chip_falls_back_to_matching_tier():
         assert profile.name == name  # preserves the reported chip name
         assert profile.cpu_chart_ref_w == expected.cpu_chart_ref_w
         assert profile.gpu_chart_ref_w == expected.gpu_chart_ref_w
-        assert profile.cpu_max_bw == expected.cpu_max_bw
-        assert profile.gpu_max_bw == expected.gpu_max_bw
+        assert profile.max_mem_bw == expected.max_mem_bw
         # LC-1: ANE reference power is a profile field that must survive the
         # tier-fallback copy (it is the denominator for ane_util_pct).
         assert profile.ane_max_w == expected.ane_max_w
@@ -48,14 +47,14 @@ def test_unknown_base_chip_falls_back_to_base_tier():
     base = TIER_FALLBACKS["base"]
     assert profile.name == "Apple M9"
     assert profile.cpu_chart_ref_w == base.cpu_chart_ref_w
-    assert profile.gpu_max_bw == base.gpu_max_bw
+    assert profile.max_mem_bw == base.max_mem_bw
 
 
 def test_non_apple_name_falls_back_to_generic_profile():
     profile = get_soc_profile("Some Unknown CPU")
     assert profile.name == "Some Unknown CPU"
     assert profile.cpu_chart_ref_w == GENERIC_APPLE_SILICON_PROFILE.cpu_chart_ref_w
-    assert profile.gpu_max_bw == GENERIC_APPLE_SILICON_PROFILE.gpu_max_bw
+    assert profile.max_mem_bw == GENERIC_APPLE_SILICON_PROFILE.max_mem_bw
 
 
 def test_empty_name_falls_back_to_generic_apple_silicon():

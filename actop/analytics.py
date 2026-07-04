@@ -63,10 +63,12 @@ def domain_throttling(
 
 
 def bandwidth_percent(snapshot, max_total_bw):
-    """Memory bandwidth as a percent of summed CPU+GPU channel capacity.
+    """Memory bandwidth as a percent of the SoC's unified-memory bandwidth.
 
-    Returns 0 when bandwidth is unavailable. Shared by the chart and the
-    saturation alert so both normalise against the same reference.
+    Apple Silicon has one shared DRAM bus, so `max_total_bw` is a single peak
+    figure (not a CPU+GPU sum). Returns 0 when bandwidth is unavailable. Shared
+    by the chart and the saturation alert so both normalise against the same
+    reference.
     """
     if not snapshot.bandwidth_available:
         return 0
