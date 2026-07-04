@@ -6,6 +6,22 @@ This project follows a Keep a Changelog-style format and uses version tags for r
 
 ## [Unreleased]
 
+## [1.4.13] - 2026-07-04
+
+### Changed
+- Mem BW and Package Power charts/alerts now normalize against a session
+  ratchet: `max(calibrated_reference, highest_observed_this_session)`. Both
+  denominators are best-effort per-chip guesses (Apple doesn't publish exact
+  bus-bandwidth or power-limit specs); a real sample above the guess raises
+  the effective ceiling permanently for the session (increase-only — a later
+  lower sample never lowers it back), so the chart self-corrects toward the
+  true physical ceiling instead of silently saturating against an
+  under-calibrated static guess. `AlertEngine.feed()` computes both ratchets
+  via a small private `_Ratchet` helper and returns them as two new
+  `AlertFrame` fields (`effective_max_bw`, `effective_max_package_w`) — the
+  engine's one existing output contract — so the chart and its alert always
+  read the same ratcheted value from the same frame.
+
 ## [1.4.12] - 2026-07-03
 
 ### Fixed
