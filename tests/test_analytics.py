@@ -142,3 +142,59 @@ def test_feed_returns_alert_frame_with_thermal_verdict():
     frame = engine.feed(_snapshot(thermal_state="Serious"))
     assert isinstance(frame, AlertFrame)
     assert frame.thermal_alert is True
+
+
+def test_bandwidth_ceiling_ratchets_up_and_never_back_down():
+    # max_total_bw=200.0 is a calibrated *floor*, not a hard cap: a real
+    # sample above it must raise effective_max_bw, and a later lower sample
+    # must not lower it back — the physical bus ceiling a high sample proved
+    # doesn't become false again later in the session.
+    engine = _engine(max_total_bw=200.0, sustain_samples=1, bw_sat_percent=85)
+
+    frame = engine.feed(_snapshot(bandwidth_gbps=5.0))
+    assert frame.effective_max_bw == 200.0  # below the floor, no ratchet yet
+
+    frame = engine.feed(_snapshot(bandwidth_gbps=350.0))
+    assert frame.effective_max_bw == 350.0
+
+    frame = engine.feed(_snapshot(bandwidth_gbps=10.0))
+    assert frame.effective_max_bw == 350.0  # stayed at the observed peak
+
+    # bw_alert reflects the raised ceiling: 300/350 = 85.7% clears the 85%
+    # threshold, whereas 300/200 (the original floor) would have been 100%+
+    # and already alerting well before this — proves the alert and the chart
+    # share the ratcheted reference, not the static construction-time floor.
+    frame = engine.feed(_snapshot(bandwidth_gbps=300.0))
+    assert frame.bw_alert is True
+
+
+def test_bandwidth_ceiling_ignores_unavailable_samples():
+    # A platform with no DCS channel reports bandwidth_available=False; such
+    # samples must not perturb the ratchet even though bandwidth_gbps is 0.0.
+    engine = _engine(max_total_bw=200.0)
+    frame = engine.feed(_snapshot(bandwidth_gbps=0.0, bandwidth_available=False))
+    assert frame.effective_max_bw == 200.0
+
+
+def test_package_power_ceiling_ratchets_up_and_never_back_down():
+    # package_ref_w=58.0 is a calibrated *floor*, not a hard cap: a real
+    # sample above it must raise effective_max_package_w, and a later lower
+    # sample must not lower it back — mirrors the bandwidth ratchet, since the
+    # SoC's real power limit is also a fixed ceiling, not recent activity.
+    engine = _engine(package_ref_w=58.0, sustain_samples=1, pkg_power_percent=85)
+
+    frame = engine.feed(_snapshot(package_watts=5.0))
+    assert frame.effective_max_package_w == 58.0  # below the floor, no ratchet yet
+
+    frame = engine.feed(_snapshot(package_watts=90.0))
+    assert frame.effective_max_package_w == 90.0
+
+    frame = engine.feed(_snapshot(package_watts=5.0))
+    assert frame.effective_max_package_w == 90.0  # stayed at the observed peak
+
+    # pkg_alert reflects the raised ceiling: 78/90 = 86.7% clears the 85%
+    # threshold, whereas against the original 58.0 floor this would have been
+    # saturated at 100%+ already — proves the alert and chart share the
+    # ratcheted reference, not the static construction-time floor.
+    frame = engine.feed(_snapshot(package_watts=78.0))
+    assert frame.pkg_alert is True
