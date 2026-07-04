@@ -881,6 +881,14 @@ class HardwareDashboard(Widget):
         s = message.snapshot
         cfg = self._config
 
+        # Feed the alert engine once per frame (it mutates sustain counters,
+        # the session-energy integral, and the bandwidth/package ceiling
+        # ratchets — calling it twice would double-count all of these). The
+        # Power and Mem BW charts below read the ratcheted ceilings off this
+        # same frame, so each chart and its alert stay normalised against the
+        # same reference.
+        frame = self._alert_engine.feed(s)
+
         ecpu = clamp_percent(s.ecpu_util_pct)
         pcpu = clamp_percent(s.pcpu_util_pct)
         gpu = clamp_percent(s.gpu_util_pct)
@@ -921,17 +929,21 @@ class HardwareDashboard(Widget):
         self._cpupwr_hist.append(cpu_pwr_pct)
         self._gpupwr_hist.append(gpu_pwr_pct)
 
-        # Package power chart percent (vs SoC reference rail); the same L2
-        # normalisation the AlertEngine's PKG alert uses.
-        pkg_pwr_pct = package_power_percent(s, cfg.package_ref_w)
+        # Package power chart percent (vs the SoC power ceiling, ratcheted up
+        # if this session has observed higher — see AlertFrame.
+        # effective_max_package_w); the same L2 normalisation the AlertEngine's
+        # PKG alert uses.
+        pkg_pwr_pct = package_power_percent(s, frame.effective_max_package_w)
         if s.package_watts > 0 and pkg_pwr_pct == 0:
             pkg_pwr_pct = 1
         self._pkgpwr_hist.append(pkg_pwr_pct)
         self._pkg_w_hist.append(s.package_watts)
 
-        # Memory bandwidth chart percent (vs the SoC unified-memory bandwidth);
-        # the same L2 normalisation the AlertEngine's BW alert uses.
-        bw_pct = bandwidth_percent(s, cfg.max_mem_bw)
+        # Memory bandwidth chart percent (vs the SoC unified-memory bandwidth,
+        # ratcheted up if this session has observed higher — see
+        # AlertFrame.effective_max_bw); the same L2 normalisation the
+        # AlertEngine's BW alert uses.
+        bw_pct = bandwidth_percent(s, frame.effective_max_bw)
         if s.bandwidth_available and s.bandwidth_gbps > 0 and bw_pct == 0:
             bw_pct = 1  # nudge a tiny-but-nonzero draw off the floor for the chart
         self._bw_hist.append(bw_pct)
@@ -1056,7 +1068,7 @@ class HardwareDashboard(Widget):
             )
 
         # Compute and update status/alerts
-        self._compute_alerts(s)
+        self._compute_alerts(s, frame)
 
     _CORE_GRID_SEP = " │ "
     # History buffer depth (samples retained per metric/core). Must be >= the
@@ -1231,14 +1243,17 @@ class HardwareDashboard(Widget):
             rows.append("{}{}{}".format(left, self._CORE_GRID_SEP, right))
         widget.update("\n".join(rows))
 
-    def _compute_alerts(self, s: SystemSnapshot) -> None:
-        """Format the L2 alert frame into the status line (presentation only).
+    def _compute_alerts(self, s: SystemSnapshot, frame) -> None:
+        """Format an already-computed L2 alert frame into the status line
+        (presentation only).
 
         All alert/throttle/energy math lives in analytics.AlertEngine; this
-        method turns its AlertFrame into user-facing tokens.
+        method turns its AlertFrame into user-facing tokens. `frame` comes
+        from the single per-frame `AlertEngine.feed()` call in
+        `update_metrics` — this method must not call `feed()` itself, or the
+        sustain counters/energy integral/bandwidth ratchet would double-count.
         """
         cfg = self._config
-        frame = self._alert_engine.feed(s)
 
         # Chart time window: charts plot one sample per character, so the
         # visible span scales silently with terminal width. Surface it.

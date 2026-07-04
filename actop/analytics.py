@@ -92,7 +92,9 @@ class AlertFrame:
     field is a derived judgment, not raw hardware data. `swap_rise_gb` is the
     swap growth over the sustain window (surfaced even when below the alert
     threshold); `session_energy_j` is the cumulative package energy integrated
-    since the engine was constructed.
+    since the engine was constructed. `effective_max_bw`/`effective_max_package_w`
+    are the ratcheted ceilings the chart and the bw/pkg alerts both normalise
+    against this frame — see `_Ratchet`.
     """
 
     thermal_alert: bool
@@ -103,6 +105,33 @@ class AlertFrame:
     swap_alert: bool
     swap_rise_gb: float
     session_energy_j: float
+    effective_max_bw: float
+    effective_max_package_w: float
+
+
+class _Ratchet:
+    """A value that only ever rises to the highest observation seen.
+
+    For physical ceilings (bus bandwidth, package power) whose calibrated
+    reference may be an inexact guess — Apple doesn't publish exact specs for
+    either. Once a real sample proves the true ceiling is higher than the
+    guess, that fact doesn't become false later in the session, so `value`
+    only rises, never decays. This is the opposite choice from the CPU/GPU
+    `auto` power scale, which intentionally uses a decaying rolling peak,
+    because *typical power draw* genuinely varies by workload over a
+    session — unlike a fixed physical limit.
+    """
+
+    def __init__(self, floor):
+        self._floor = float(floor)
+        self._peak = 0.0
+
+    def observe(self, value):
+        self._peak = max(self._peak, float(value))
+
+    @property
+    def value(self):
+        return max(self._floor, self._peak)
 
 
 class AlertEngine:
@@ -135,8 +164,8 @@ class AlertEngine:
         self._throttle_freq_percent = throttle_freq_percent
         self._swap_rise_gb = swap_rise_gb
         self._sustain_samples = max(1, int(sustain_samples))
-        self._max_total_bw = max_total_bw
-        self._package_ref_w = package_ref_w
+        self._bw_ceiling = _Ratchet(max_total_bw)
+        self._pkg_ceiling = _Ratchet(package_ref_w)
 
         self._high_bw_counter = 0
         self._high_pkg_counter = 0
@@ -152,16 +181,19 @@ class AlertEngine:
         """Advance the engine one frame and return its alert verdicts."""
         s = snapshot
 
-        # Bandwidth saturation vs. summed CPU+GPU capacity.
-        bw_pct = bandwidth_percent(s, self._max_total_bw)
+        # Bandwidth saturation vs. the effective (floor-or-observed) ceiling.
+        if s.bandwidth_available:
+            self._bw_ceiling.observe(s.bandwidth_gbps)
+        bw_pct = bandwidth_percent(s, self._bw_ceiling.value)
         if s.bandwidth_available and bw_pct >= self._bw_sat_percent:
             self._high_bw_counter += 1
         else:
             self._high_bw_counter = 0
         bw_alert = self._high_bw_counter >= self._sustain_samples
 
-        # Package power vs. SoC reference rail.
-        pkg_pct = package_power_percent(s, self._package_ref_w)
+        # Package power vs. the effective (floor-or-observed) SoC power ceiling.
+        self._pkg_ceiling.observe(s.package_watts)
+        pkg_pct = package_power_percent(s, self._pkg_ceiling.value)
         if pkg_pct >= self._pkg_power_percent:
             self._high_pkg_counter += 1
         else:
@@ -228,4 +260,6 @@ class AlertEngine:
             swap_alert=swap_alert,
             swap_rise_gb=swap_rise,
             session_energy_j=self._session_joules,
+            effective_max_bw=self._bw_ceiling.value,
+            effective_max_package_w=self._pkg_ceiling.value,
         )
