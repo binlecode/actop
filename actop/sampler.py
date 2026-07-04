@@ -188,7 +188,7 @@ class IOReportSampler:
         p_core_data = {}
         gpu_freq_mhz = 0
         gpu_active_pct = 0
-        dram_bw_residencies = []
+        dram_bw_channels = []
         e_cluster_residency_ns = defaultdict(int)
         p_cluster_residency_ns = defaultdict(int)
         gpu_state_residencies = []
@@ -241,12 +241,15 @@ class IOReportSampler:
 
             elif item.group == "PMP" and item.subgroup == "DCS BW":
                 # Total DRAM bandwidth = sum over all AMCC RD+WR instances
-                # (one per memory-controller die; multi-die SoCs expose
-                # several). Per-agent channels (EACC/PACC/AGX/...) are skipped
-                # in delta() and intentionally not parsed: they hard-cap at
-                # 32 GB/s and cannot attribute high bandwidth correctly.
+                # (one per memory-controller die; multi-die SoCs — Ultra —
+                # expose several). Each instance's histogram is kept as its own
+                # channel so the per-die averages are *summed*, not pooled into
+                # one mean (pooling would report a single die's rate as the
+                # whole-chip total). Per-agent channels (EACC/PACC/AGX/...) are
+                # skipped in delta() and intentionally not parsed: they hard-cap
+                # at 32 GB/s and cannot attribute high bandwidth correctly.
                 if item.channel.startswith("AMCC") and item.channel.endswith("RD+WR"):
-                    dram_bw_residencies.extend(item.state_residencies)
+                    dram_bw_channels.append(item.state_residencies)
 
         # Scale energy to match parsers.py convention:
         # parsers.py returns cpu_W = energy_mJ / 1000 = energy_J
@@ -326,10 +329,10 @@ class IOReportSampler:
             ),
         }
 
-        total_gbps = _compute_bandwidth_gbps(dram_bw_residencies)
+        total_gbps = _compute_bandwidth_gbps(dram_bw_channels)
         bandwidth_metrics = {
             "total_gbps": total_gbps,
-            "_available": bool(dram_bw_residencies),
+            "_available": bool(dram_bw_channels),
         }
 
         return SampleResult(
@@ -584,13 +587,13 @@ def _keep_states(group, subgroup, channel):
 _GBPS_PATTERN = re.compile(r"(\d+)\s*GB/s")
 
 
-def _compute_bandwidth_gbps(residencies):
-    """Residency-weighted average bandwidth (GB/s) from a DCS BW histogram.
+def _channel_bandwidth_gbps(residencies):
+    """Residency-weighted average bandwidth (GB/s) for one DCS BW histogram.
 
     Each state name is a bandwidth bucket ("32GB/s", "64GB/s", …) and its value
     is the time spent at that level. The weighted mean Σ(level·time)/Σ(time) is
     already in GB/s — no division by the sample interval. Returns 0.0 when the
-    histogram is empty (no DCS channel on this platform).
+    histogram is empty.
     """
     weighted_sum = 0.0
     total = 0.0
@@ -603,3 +606,15 @@ def _compute_bandwidth_gbps(residencies):
     if total <= 0:
         return 0.0
     return weighted_sum / total
+
+
+def _compute_bandwidth_gbps(channels):
+    """Total DRAM bandwidth (GB/s) across all memory-controller channels.
+
+    ``channels`` is one residency histogram per AMCC RD+WR instance (one per
+    die). Each die's residency-weighted average is computed independently and
+    the per-die rates are summed, so a multi-die SoC reports whole-chip
+    bandwidth rather than a single controller's. Returns 0.0 when no channel is
+    present (no DCS channel on this platform).
+    """
+    return sum(_channel_bandwidth_gbps(res) for res in channels)

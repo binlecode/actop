@@ -16,8 +16,9 @@ class DashboardConfig:
     gpu_chart_ref_w: float
     ane_max_power: float
     package_ref_w: float
-    max_cpu_bw: float
-    max_gpu_bw: float
+    # Peak unified-memory bandwidth (GB/s); denominator for the bandwidth
+    # chart and the MEM-BOUND saturation alert.
+    max_mem_bw: float
 
     chip_name: str
     e_core_count: int
@@ -53,8 +54,7 @@ def create_dashboard_config(args, soc_info_dict):
     gpu_chart_ref_w = soc_info_dict["gpu_chart_ref_w"]
     ane_max_power = float(soc_info_dict.get("ane_max_w", 8.0))
     package_ref_w = max(cpu_chart_ref_w + gpu_chart_ref_w + ane_max_power, 1.0)
-    max_cpu_bw = max(float(soc_info_dict.get("cpu_max_bw", 0.0)), 1.0)
-    max_gpu_bw = max(float(soc_info_dict.get("gpu_max_bw", 0.0)), 1.0)
+    max_mem_bw = max(float(soc_info_dict.get("max_mem_bw", 0.0)), 1.0)
 
     chip_name = soc_info_dict.get("name", "Apple Silicon")
     e_core_count = max(0, int(soc_info_dict["e_core_count"]))
@@ -74,8 +74,7 @@ def create_dashboard_config(args, soc_info_dict):
         gpu_chart_ref_w=gpu_chart_ref_w,
         ane_max_power=ane_max_power,
         package_ref_w=package_ref_w,
-        max_cpu_bw=max_cpu_bw,
-        max_gpu_bw=max_gpu_bw,
+        max_mem_bw=max_mem_bw,
         chip_name=chip_name,
         e_core_count=e_core_count,
         p_core_count=p_core_count,

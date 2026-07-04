@@ -54,7 +54,7 @@ def test_package_ref_combines_cpu_gpu_and_ane_headroom():
         cfg.cpu_chart_ref_w + cfg.gpu_chart_ref_w + cfg.ane_max_power
     )
     assert cfg.package_ref_w >= cfg.cpu_chart_ref_w
-    assert cfg.max_cpu_bw >= 1.0 and cfg.max_gpu_bw >= 1.0
+    assert cfg.max_mem_bw >= 1.0
 
 
 def test_proc_filter_is_compiled_into_usable_regex():

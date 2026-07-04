@@ -599,9 +599,6 @@ class HardwareDashboard(Widget):
         # right-alignment, so avg/max must ignore the leading padding.
         self._sample_count: int = 0
 
-        self._cpu_peak_w: float = 0.0
-        self._gpu_peak_w: float = 0.0
-
         # L2 alert / throttle / session-energy analytics. Owns the sustain
         # counters, swap-rise window, and cumulative energy integral formerly
         # kept in this widget; constructed from threshold values so analytics
@@ -612,7 +609,7 @@ class HardwareDashboard(Widget):
             throttle_freq_percent=cfg.alert_throttle_freq_percent,
             swap_rise_gb=cfg.alert_swap_rise_gb,
             sustain_samples=cfg.alert_sustain_samples,
-            max_total_bw=cfg.max_cpu_bw + cfg.max_gpu_bw,
+            max_total_bw=cfg.max_mem_bw,
             package_ref_w=cfg.package_ref_w,
         )
 
@@ -899,14 +896,15 @@ class HardwareDashboard(Widget):
         self._gpu_w_hist.append(s.gpu_watts)
         self._sample_count += 1
 
-        # Power percents
-        self._cpu_peak_w = max(self._cpu_peak_w, s.cpu_watts)
-        self._gpu_peak_w = max(self._gpu_peak_w, s.gpu_watts)
+        # Power percents. In auto mode the denominator is a *rolling* peak over
+        # the retained wattage history (already appended above), not an all-time
+        # max — so a one-off spike decays out of the window instead of
+        # compressing the chart for the rest of the session.
         cpu_pwr_pct = power_to_percent(
             power_w=s.cpu_watts,
             mode=cfg.power_scale,
             profile_ref_w=cfg.cpu_chart_ref_w,
-            peak_w=self._cpu_peak_w,
+            peak_w=max(self._cpu_w_hist),
             floor_w=DEFAULT_CPU_FLOOR_W,
         )
         if s.cpu_watts > 0 and cpu_pwr_pct == 0:
@@ -915,7 +913,7 @@ class HardwareDashboard(Widget):
             power_w=s.gpu_watts,
             mode=cfg.power_scale,
             profile_ref_w=cfg.gpu_chart_ref_w,
-            peak_w=self._gpu_peak_w,
+            peak_w=max(self._gpu_w_hist),
             floor_w=DEFAULT_GPU_FLOOR_W,
         )
         if s.gpu_watts > 0 and gpu_pwr_pct == 0:
@@ -931,9 +929,9 @@ class HardwareDashboard(Widget):
         self._pkgpwr_hist.append(pkg_pwr_pct)
         self._pkg_w_hist.append(s.package_watts)
 
-        # Memory bandwidth chart percent (vs summed CPU+GPU channel capacity);
+        # Memory bandwidth chart percent (vs the SoC unified-memory bandwidth);
         # the same L2 normalisation the AlertEngine's BW alert uses.
-        bw_pct = bandwidth_percent(s, cfg.max_cpu_bw + cfg.max_gpu_bw)
+        bw_pct = bandwidth_percent(s, cfg.max_mem_bw)
         if s.bandwidth_available and s.bandwidth_gbps > 0 and bw_pct == 0:
             bw_pct = 1  # nudge a tiny-but-nonzero draw off the floor for the chart
         self._bw_hist.append(bw_pct)
