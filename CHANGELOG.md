@@ -6,6 +6,28 @@ This project follows a Keep a Changelog-style format and uses version tags for r
 
 ## [Unreleased]
 
+## [1.4.16] - 2026-07-29
+
+### Changed
+- Lint: unpin `ruff` and bring the tree into `0.16` compliance, lifting the
+  `>=0.15,<0.16` cap that 1.4.14 added as a stopgap when `0.16.0`'s expanded
+  default rule set turned a previously-clean tree into 126 errors. The rule
+  families are now codified in `[tool.ruff.lint]` rather than inherited from
+  ruff's defaults, so a future default-select expansion can't break the CI gate
+  again. Deliberately not selected: `BLE`/`S` (the native ctypes/IOKit/SMC reads
+  intentionally catch broad `Exception` and fail silent) and `EXE`/`PLW` (skill
+  and scratch helper scripts). `RUF001`-`003` are ignored because the TUI
+  intentionally uses `—`, `·`, `×` and braille; `RUF012` because Textual's
+  `BINDINGS = [...]` is the framework idiom. No runtime or API change — the
+  code edits are mechanical modernizations (`endswith` tuples,
+  `dict.fromkeys`, comprehension and import cleanups).
+
+### Fixed
+- `docs/DESIGN-system.md`: repair the `VMStatistics64` example, whose elision
+  markers had been collapsed into the field list (`...("compressor_page_count",
+  ...)` on one line, plus a stray `...,`), leaving the snippet syntactically
+  invalid.
+
 ## [1.4.15] - 2026-07-29
 
 ### Fixed

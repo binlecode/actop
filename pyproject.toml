@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "actop"
-version = "1.4.15"
+version = "1.4.16"
 description = "Apple Silicon (M1–M4) power, GPU, ANE & memory-bandwidth monitor — sudoless TUI + Python API for profiling local LLM / MLX / CoreML inference"
 readme = "README.md"
 license = { text = "MIT" }
@@ -28,10 +28,10 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
-# ruff capped below 0.16: 0.16.0 expanded its default rule set, turning a
-# previously-clean tree into 126 lint errors and breaking the CI lint gate.
-# Pin to the last-compatible line until the code is brought into 0.16 compliance.
-dev = ["ruff>=0.15,<0.16", "pytest"]
+# ruff unpinned again as of 1.4.16: the tree is now compliant under 0.16 and
+# the rule set is codified in [tool.ruff.lint] below, so CI no longer depends
+# on ruff's default select (whose 0.16.0 expansion had broken the gate).
+dev = ["ruff", "pytest"]
 pandas = ["pandas>=1.3"]
 # ANE load generator (scripts/ane_load.py) only; macOS-only + heavy, kept out
 # of `dev` so Linux CI (`pip install -e ".[dev]"`) stays lean and green.
@@ -48,6 +48,22 @@ actop = "actop.actop:cli"
 testpaths = ["tests"]
 markers = [
     "local: macOS-only tests requiring IOReport, vm_stat, or Apple Silicon hardware",
+]
+
+[tool.ruff.lint]
+# Explicit rule set so CI/local no longer ride ruff's shifting defaults —
+# ruff 0.16.0 silently expanded its default select and broke the previously
+# green lint gate (see CHANGELOG 1.4.14). `E4/E7/E9/F` is ruff's recommended
+# default equivalent; the rest are opt-in modernization/correctness families.
+# Deliberately NOT selected: `BLE`/`S` (blind-except & bandit — the native
+# ctypes/IOKit/SMC reads intentionally catch broad Exception and fail silent),
+# `EXE`/`PLW` (skill & scratch helper scripts).
+select = ["E4", "E7", "E9", "F", "I", "UP", "C4", "PIE", "RUF"]
+ignore = [
+    "RUF001",  # ambiguous-unicode (string): the TUI intentionally uses —, ·, ×, braille
+    "RUF002",  # ambiguous-unicode (docstring)
+    "RUF003",  # ambiguous-unicode (comment)
+    "RUF012",  # mutable-class-default: Textual `BINDINGS = [...]` is the framework idiom
 ]
 
 [tool.setuptools.packages.find]

@@ -19,7 +19,6 @@ from actop.power_scaling import (
     power_to_percent,
 )
 
-
 _COOL_RGB = (66, 135, 245)  # blue
 _HOT_RGB = (240, 70, 64)  # red
 
@@ -159,20 +158,20 @@ def _pct_to_color(
     r, g, b = _pct_to_rgb(pct, palette)
     if mode == "256":
         idx = 16 + 36 * round(r / 255 * 5) + 6 * round(g / 255 * 5) + round(b / 255 * 5)
-        return "color({})".format(idx)
-    return "rgb({},{},{})".format(r, g, b)
+        return f"color({idx})"
+    return f"rgb({r},{g},{b})"
 
 
 def _format_window_span(seconds: float) -> str:
     """Format a chart's visible time span (e.g. `45s`, `2m08s`, `1h05m`)."""
     seconds = int(max(0, seconds))
     if seconds < 60:
-        return "{}s".format(seconds)
+        return f"{seconds}s"
     minutes, secs = divmod(seconds, 60)
     if minutes < 60:
-        return "{}m{:02d}s".format(minutes, secs) if secs else "{}m".format(minutes)
+        return f"{minutes}m{secs:02d}s" if secs else f"{minutes}m"
     hours, minutes = divmod(minutes, 60)
-    return "{}h{:02d}m".format(hours, minutes) if minutes else "{}h".format(hours)
+    return f"{hours}h{minutes:02d}m" if minutes else f"{hours}h"
 
 
 def _normalize_chart_glyph_mode(value: str) -> str:
@@ -277,7 +276,7 @@ class BrailleChart(Widget):
     def __init__(
         self,
         glyph_mode: str = "dots",
-        color_mode: str = None,
+        color_mode: str | None = None,
         palette: str = _DEFAULT_PALETTE,
         **kwargs,
     ) -> None:
@@ -438,7 +437,7 @@ def _residency_bar_widths(percentages: dict, bar_width: int) -> dict:
     allocated widths sum to exactly `bar_width`.
     """
     if bar_width <= 0:
-        return {name: 0 for name in _RESIDENCY_ORDER}
+        return dict.fromkeys(_RESIDENCY_ORDER, 0)
     raw = {
         name: percentages.get(name, 0) / 100.0 * bar_width for name in _RESIDENCY_ORDER
     }
@@ -460,9 +459,9 @@ def _format_residency_row(label: str, percentages: dict, bar_width: int = 16) ->
     """`P-CPU  [bar]  idleN lowN midN highN` DVFS residency summary line."""
     bar = _format_residency_bar(percentages, bar_width)
     breakdown = " ".join(
-        "{}{}".format(name, percentages.get(name, 0)) for name in _RESIDENCY_ORDER
+        f"{name}{percentages.get(name, 0)}" for name in _RESIDENCY_ORDER
     )
-    return "{:<6} [{}]  {}".format(label, bar, breakdown)
+    return f"{label:<6} [{bar}]  {breakdown}"
 
 
 class HardwareDashboard(Widget):
@@ -563,16 +562,14 @@ class HardwareDashboard(Widget):
         requested = getattr(cfg, "layout", "grid")
         if requested not in self._VALID_PRESETS:
             raise ValueError(
-                "layout preset must be one of {}, got {!r}".format(
-                    self._VALID_PRESETS, requested
-                )
+                f"layout preset must be one of {self._VALID_PRESETS}, got {requested!r}"
             )
         # Requested preset is what the user/CLI asked for; effective is what is
         # actually applied after the width auto-degrade. They differ only when a
         # grid is squeezed below _GRID_MIN_WIDTH.
         self._requested_preset = requested
         self._effective_preset = requested
-        self.add_class("layout-{}".format(requested))
+        self.add_class(f"layout-{requested}")
 
         maxlen = self._CHART_HIST_MAXLEN
 
@@ -652,15 +649,15 @@ class HardwareDashboard(Widget):
             rpm_text = " · ".join(
                 "{} {}".format(
                     frames[self._fan_spin_idx[i] % len(frames)],
-                    "{:.0f}/{:.0f}".format(fan.current, fan.max)
+                    f"{fan.current:.0f}/{fan.max:.0f}"
                     if fan.max
-                    else "{:.0f}".format(fan.current),
+                    else f"{fan.current:.0f}",
                 )
                 for i, fan in enumerate(self._last_fans)
             )
         else:
             rpm_text = "0"
-        self.query_one("#fan-label", Static).update("Fan {} RPM".format(rpm_text))
+        self.query_one("#fan-label", Static).update(f"Fan {rpm_text} RPM")
 
     def compose(self) -> ComposeResult:
         cfg = self._config
@@ -784,9 +781,7 @@ class HardwareDashboard(Widget):
         applies)."""
         if name not in self._VALID_PRESETS:
             raise ValueError(
-                "layout preset must be one of {}, got {!r}".format(
-                    self._VALID_PRESETS, name
-                )
+                f"layout preset must be one of {self._VALID_PRESETS}, got {name!r}"
             )
         self._requested_preset = name
         self._reconcile_layout()
@@ -804,7 +799,7 @@ class HardwareDashboard(Widget):
             preset = "stack"
         if preset != self._effective_preset:
             self.remove_class("layout-grid", "layout-stack")
-            self.add_class("layout-{}".format(preset))
+            self.add_class(f"layout-{preset}")
             self._effective_preset = preset
 
     def on_resize(self, event) -> None:
@@ -963,8 +958,8 @@ class HardwareDashboard(Widget):
             self.query_one(widget_id, BrailleChart).data = data
 
         # Update labels
-        cpu_temp = " ({:.0f}°C)".format(s.cpu_temp_c) if s.cpu_temp_c > 0 else ""
-        gpu_temp = " ({:.0f}°C)".format(s.gpu_temp_c) if s.gpu_temp_c > 0 else ""
+        cpu_temp = f" ({s.cpu_temp_c:.0f}°C)" if s.cpu_temp_c > 0 else ""
+        gpu_temp = f" ({s.gpu_temp_c:.0f}°C)" if s.gpu_temp_c > 0 else ""
         self._update_cluster_summary_row(
             "#pcpu-summary-row",
             "P-CPU",
@@ -989,18 +984,14 @@ class HardwareDashboard(Widget):
                 _format_residency_row("E-CPU", s.ecpu_residency_pct)
             )
         self.query_one("#gpu-label", Static).update(
-            "GPU {}% @{}MHz{}{}".format(
-                gpu, s.gpu_freq_mhz, gpu_temp, self._pct_stats_suffix(self._gpu_hist)
-            )
+            f"GPU {gpu}% @{s.gpu_freq_mhz}MHz{gpu_temp}{self._pct_stats_suffix(self._gpu_hist)}"
         )
         if cfg.show_residency:
             self.query_one("#gpu-residency-row", Static).update(
                 _format_residency_row("GPU", s.gpu_residency_pct)
             )
         self.query_one("#ane-label", Static).update(
-            "ANE {}% ({:.1f}W){}".format(
-                ane_pct, s.ane_watts, self._pct_stats_suffix(self._ane_hist)
-            )
+            f"ANE {ane_pct}% ({s.ane_watts:.1f}W){self._pct_stats_suffix(self._ane_hist)}"
         )
 
         used_gb = s.ram_used_gb
@@ -1008,19 +999,15 @@ class HardwareDashboard(Widget):
         swap_used = s.swap_used_gb
         swap_total = s.swap_total_gb
         if (swap_total or 0.0) >= 0.1:
-            ram_label = "RAM {}/{}GB sw:{}/{}GB".format(
-                used_gb, total_gb, swap_used, swap_total
-            )
+            ram_label = f"RAM {used_gb}/{total_gb}GB sw:{swap_used}/{swap_total}GB"
         else:
-            ram_label = "RAM {}/{}GB".format(used_gb, total_gb)
+            ram_label = f"RAM {used_gb}/{total_gb}GB"
         ram_label += self._pct_stats_suffix(self._ram_hist)
         self.query_one("#ram-label", Static).update(ram_label)
 
         self._render_power_rows()
         self.query_one("#pkgpwr-label", Static).update(
-            "Package Power {:.2f}W{}".format(
-                s.package_watts, self._watt_stats_suffix(self._pkg_w_hist)
-            )
+            f"Package Power {s.package_watts:.2f}W{self._watt_stats_suffix(self._pkg_w_hist)}"
         )
 
         # Memory bandwidth: hide the row entirely when the platform exposes no
@@ -1033,9 +1020,7 @@ class HardwareDashboard(Widget):
             bw_chart.display = s.bandwidth_available
         if s.bandwidth_available:
             bw_label.update(
-                "Mem BW {:.1f} GB/s{}".format(
-                    s.bandwidth_gbps, self._gbps_stats_suffix(self._bw_gbps_hist)
-                )
+                f"Mem BW {s.bandwidth_gbps:.1f} GB/s{self._gbps_stats_suffix(self._bw_gbps_hist)}"
             )
 
         # Fan RPM: hide the row entirely on fanless Macs (no SMC fan keys),
@@ -1108,17 +1093,17 @@ class HardwareDashboard(Widget):
         for the RAM row, read as GB instead of percent.
         """
         avg, mx = self._avg_max(hist)
-        return "  avg {:.0f}% · max {:.0f}%".format(avg, mx)
+        return f"  avg {avg:.0f}% · max {mx:.0f}%"
 
     def _watt_stats_suffix(self, hist) -> str:
         """`  avg N.NW · max N.NW` context string for a watt-valued history."""
         avg, mx = self._avg_max(hist)
-        return "  avg {:.1f}W · max {:.1f}W".format(avg, mx)
+        return f"  avg {avg:.1f}W · max {mx:.1f}W"
 
     def _gbps_stats_suffix(self, hist) -> str:
         """`  avg N.N · max N.N GB/s` context string for a bandwidth history."""
         avg, mx = self._avg_max(hist)
-        return "  avg {:.1f} · max {:.1f} GB/s".format(avg, mx)
+        return f"  avg {avg:.1f} · max {mx:.1f} GB/s"
 
     def _update_cluster_summary_row(
         self,
@@ -1132,9 +1117,7 @@ class HardwareDashboard(Widget):
         """Render one full-width cluster summary line."""
         widget = self.query_one(widget_id, Static)
         avail = max(widget.size.width, 1)
-        line = "{} {:3d}% @{}MHz{}{}".format(
-            label, util_pct, freq_mhz, cpu_temp, stats_suffix
-        )
+        line = f"{label} {util_pct:3d}% @{freq_mhz}MHz{cpu_temp}{stats_suffix}"
         widget.update(line[:avail].ljust(avail))
 
     # Inline power spark bounds: keep the spark legible (>= 8 chars) but never
@@ -1176,7 +1159,7 @@ class HardwareDashboard(Widget):
         """
         widget = self.query_one(widget_id, Static)
         avail = max(widget.size.width, 1)
-        head = "{} {:.2f}W".format(label, watts)
+        head = f"{label} {watts:.2f}W"
         suffix = self._watt_stats_suffix(watt_hist)
         room = avail - len(head) - 1 - len(suffix)  # -1 for the space after head
         spark_w = max(0, min(self._POWER_SPARK_MAX, room))
@@ -1184,9 +1167,9 @@ class HardwareDashboard(Widget):
             spark = _inline_spark(
                 history=pct_hist, width_chars=spark_w, glyph_mode=self._chart_glyph
             )
-            line = "{} {}{}".format(head, spark, suffix)
+            line = f"{head} {spark}{suffix}"
         else:
-            line = "{}{}".format(head, suffix)
+            line = f"{head}{suffix}"
         widget.update(line[:avail].ljust(avail))
 
     def _format_core_entry(
@@ -1204,7 +1187,7 @@ class HardwareDashboard(Widget):
         )
         if append_sample:
             hist.append(core.active_pct)
-        base = "{}{:02d} {:3d}%".format(prefix, core.index, core.active_pct)
+        base = f"{prefix}{core.index:02d} {core.active_pct:3d}%"
         if col_width <= len(base):
             return base[:col_width].ljust(col_width)
         max_spark_w = col_width - len(base) - 1
@@ -1212,7 +1195,7 @@ class HardwareDashboard(Widget):
         spark = _inline_spark(
             history=hist, width_chars=spark_w, glyph_mode=self._chart_glyph
         )
-        entry = "{} {}".format(base, spark)
+        entry = f"{base} {spark}"
         return entry[:col_width].ljust(col_width)
 
     def _update_core_two_col(
@@ -1240,7 +1223,7 @@ class HardwareDashboard(Widget):
                 if i + 1 < len(cores)
                 else "".ljust(right_w)
             )
-            rows.append("{}{}{}".format(left, self._CORE_GRID_SEP, right))
+            rows.append(f"{left}{self._CORE_GRID_SEP}{right}")
         widget.update("\n".join(rows))
 
     def _compute_alerts(self, s: SystemSnapshot, frame) -> None:
@@ -1270,20 +1253,18 @@ class HardwareDashboard(Widget):
         if throttled:
             active_alerts.append("THROTTLING:{}".format(",".join(throttled)))
         if frame.bw_alert:
-            active_alerts.append("MEM-BOUND>{}%".format(cfg.alert_bw_sat_percent))
+            active_alerts.append(f"MEM-BOUND>{cfg.alert_bw_sat_percent}%")
         if frame.swap_alert:
-            active_alerts.append("SWAP+{:.1f}G".format(frame.swap_rise_gb))
+            active_alerts.append(f"SWAP+{frame.swap_rise_gb:.1f}G")
         if frame.pkg_alert:
-            active_alerts.append("PKG>{}%".format(cfg.alert_package_power_percent))
+            active_alerts.append(f"PKG>{cfg.alert_package_power_percent}%")
         alerts_str = ", ".join(active_alerts) if active_alerts else "none"
 
-        status = "thermal: {}  alerts: {}".format(s.thermal_state, alerts_str)
+        status = f"thermal: {s.thermal_state}  alerts: {alerts_str}"
         meta = []
         if span_label:
-            meta.append("span {}".format(span_label))
-        meta.append(
-            "energy {}".format(self._format_session_energy(frame.session_energy_j))
-        )
+            meta.append(f"span {span_label}")
+        meta.append(f"energy {self._format_session_energy(frame.session_energy_j)}")
         if meta:
             status = "{}  ·  {}".format("  ·  ".join(meta), status)
         # Status line lives in app chrome now; hand the string up to ActopApp.
@@ -1293,8 +1274,8 @@ class HardwareDashboard(Widget):
         """Cumulative session energy as `N.NWh` (or `N mWh` while still small)."""
         wh = joules / 3600.0
         if wh < 0.1:
-            return "{:.0f}mWh".format(wh * 1000)
-        return "{:.2f}Wh".format(wh)
+            return f"{wh * 1000:.0f}mWh"
+        return f"{wh:.2f}Wh"
 
     def _chart_window_label(self) -> str:
         """Visible time span of the charts, derived from a representative chart.

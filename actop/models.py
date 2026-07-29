@@ -1,7 +1,7 @@
 """Public data model for actop hardware snapshots."""
 
 from dataclasses import dataclass, field
-from typing import NamedTuple, Optional
+from typing import NamedTuple
 
 _EMPTY_RESIDENCY = {"idle": 0, "low": 0, "mid": 0, "high": 0}
 
@@ -12,7 +12,7 @@ class FanReading(NamedTuple):
     unknown). Immutable to match the SampleResult fan payload contract."""
 
     current: float  # actual RPM (F{n}Ac); 0.0 is a legitimate idle reading
-    max: Optional[float] = None  # max RPM (F{n}Mx); None when unknown
+    max: float | None = None  # max RPM (F{n}Mx); None when unknown
 
 
 def _default_residency() -> dict:
@@ -42,11 +42,11 @@ class ProcessSample:
     pid: int
     command: str
     cpu_percent: float  # Δ CPU-time over the interval, as a percent
-    cpu_time_share: Optional[float]  # fraction of total CPU time, or None
-    gpu_time_share: Optional[float]  # fraction of total GPU time, or None
+    cpu_time_share: float | None  # fraction of total CPU time, or None
+    gpu_time_share: float | None  # fraction of total GPU time, or None
     rss_mb: float
     num_threads: int
-    attributed_w: Optional[float]  # CPU+GPU watts, or None (no CPU delta yet)
+    attributed_w: float | None  # CPU+GPU watts, or None (no CPU delta yet)
 
 
 @dataclass

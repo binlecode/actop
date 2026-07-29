@@ -34,9 +34,9 @@ def test_smc_reader_temperatures_are_physical():
 
         # All returned values must be in the physical range (0, 150)
         for t in temps.cpu_temps_c:
-            assert 0.0 < t < 150.0, "CPU temp {:.1f}C out of range".format(t)
+            assert 0.0 < t < 150.0, f"CPU temp {t:.1f}C out of range"
         for t in temps.gpu_temps_c:
-            assert 0.0 < t < 150.0, "GPU temp {:.1f}C out of range".format(t)
+            assert 0.0 < t < 150.0, f"GPU temp {t:.1f}C out of range"
     finally:
         reader.close()
 

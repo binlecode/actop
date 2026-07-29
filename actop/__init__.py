@@ -9,11 +9,11 @@ except importlib.metadata.PackageNotFoundError:
     __version__ = "dev"
 
 __all__ = [
-    "Monitor",
-    "Profiler",
     "AsyncMonitor",
-    "SystemSnapshot",
     "CoreSample",
     "FanReading",
+    "Monitor",
+    "Profiler",
+    "SystemSnapshot",
     "__version__",
 ]

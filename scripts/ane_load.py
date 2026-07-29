@@ -46,7 +46,7 @@ import sys
 import time
 
 
-def _fail(msg: str) -> "None":
+def _fail(msg: str) -> None:
     print(f"error: {msg}", file=sys.stderr)
     raise SystemExit(1)
 
@@ -54,8 +54,8 @@ def _fail(msg: str) -> "None":
 def _require_deps():
     """Import heavy deps lazily with a friendly install hint on failure."""
     try:
-        import numpy as np  # noqa: F401
-        import coremltools as ct  # noqa: F401
+        import coremltools as ct
+        import numpy as np
     except ImportError as exc:
         _fail(
             f"missing dependency ({exc.name}). These are not actop runtime deps; "
