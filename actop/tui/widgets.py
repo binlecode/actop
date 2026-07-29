@@ -162,6 +162,17 @@ def _pct_to_color(
     return f"rgb({r},{g},{b})"
 
 
+def _to_gib(byte_count) -> float:
+    """Bytes → GiB (2^30) at one decimal, for display.
+
+    The snapshot carries exact byte counts; prefixing is a presentation choice
+    and binary prefixes are what modern monitors use for memory (btop, bottom,
+    `free -h`, nvidia-smi). Bandwidth is the deliberate exception — it stays
+    decimal GB/s because that is how Apple specifies the bus.
+    """
+    return round((byte_count or 0) / 1024 / 1024 / 1024, 1)
+
+
 def _format_window_span(seconds: float) -> str:
     """Format a chart's visible time span (e.g. `45s`, `2m08s`, `1h05m`)."""
     seconds = int(max(0, seconds))
@@ -604,7 +615,7 @@ class HardwareDashboard(Widget):
             bw_sat_percent=cfg.alert_bw_sat_percent,
             pkg_power_percent=cfg.alert_package_power_percent,
             throttle_freq_percent=cfg.alert_throttle_freq_percent,
-            swap_rise_gb=cfg.alert_swap_rise_gb,
+            swap_rise_gib=cfg.alert_swap_rise_gib,
             sustain_samples=cfg.alert_sustain_samples,
             max_total_bw=cfg.max_mem_bw,
             package_ref_w=cfg.package_ref_w,
@@ -994,14 +1005,18 @@ class HardwareDashboard(Widget):
             f"ANE {ane_pct}% ({s.ane_watts:.1f}W){self._pct_stats_suffix(self._ane_hist)}"
         )
 
-        used_gb = s.ram_used_gb
-        total_gb = s.ram_total_gb
-        swap_used = s.swap_used_gb
-        swap_total = s.swap_total_gb
-        if (swap_total or 0.0) >= 0.1:
-            ram_label = f"RAM {used_gb}/{total_gb}GB sw:{swap_used}/{swap_total}GB"
+        # The snapshot carries raw bytes; formatting into GiB is presentation, so
+        # it happens here. GiB (not GB) because these are 2^30 divisions — the
+        # Mem BW row below stays decimal GB/s, which is Apple's own unit for the
+        # bus (§3 of docs/TODO-reading-plane-audit-2026-07-29.md).
+        used_gib = _to_gib(s.ram_used_bytes)
+        total_gib = _to_gib(s.ram_total_bytes)
+        swap_used = _to_gib(s.swap_used_bytes)
+        swap_total = _to_gib(s.swap_total_bytes)
+        if swap_total >= 0.1:
+            ram_label = f"RAM {used_gib}/{total_gib}GiB sw:{swap_used}/{swap_total}GiB"
         else:
-            ram_label = f"RAM {used_gb}/{total_gb}GB"
+            ram_label = f"RAM {used_gib}/{total_gib}GiB"
         ram_label += self._pct_stats_suffix(self._ram_hist)
         self.query_one("#ram-label", Static).update(ram_label)
 
@@ -1255,7 +1270,7 @@ class HardwareDashboard(Widget):
         if frame.bw_alert:
             active_alerts.append(f"MEM-BOUND>{cfg.alert_bw_sat_percent}%")
         if frame.swap_alert:
-            active_alerts.append(f"SWAP+{frame.swap_rise_gb:.1f}G")
+            active_alerts.append(f"SWAP+{frame.swap_rise_gib:.1f}Gi")
         if frame.pkg_alert:
             active_alerts.append(f"PKG>{cfg.alert_package_power_percent}%")
         alerts_str = ", ".join(active_alerts) if active_alerts else "none"

@@ -6,6 +6,112 @@ This project follows a Keep a Changelog-style format and uses version tags for r
 
 ## [Unreleased]
 
+## [1.5.0] - 2026-07-29
+
+Reading-plane audit remediation (`docs/TODO-reading-plane-audit-2026-07-29.md`
+§§1-6), verified against live hardware on an M4 Max / Darwin 25.5.0. §8
+(`IOAccelerator` Device/Renderer/Tiler utilization) is deferred to its own PR;
+§3.5 (removing the deprecated `*_gb` fields) is breaking and rides 2.0.0.
+
+### Added
+- **Byte quantities are now exported as exact byte counts.** New
+  `SystemSnapshot.ram_used_bytes` / `ram_total_bytes` / `swap_used_bytes` /
+  `swap_total_bytes`, `ProcessSample.rss_bytes`, `*_bytes` keys on
+  `utils.get_ram_metrics_dict()`, and `actop_ram_used_bytes` /
+  `actop_ram_total_bytes` / `actop_swap_used_bytes` / `actop_swap_total_bytes`
+  Prometheus gauges.
+
+  Bytes rather than a GiB/GB prefix, for three reasons: the GB-vs-GiB question
+  cannot be got wrong if no prefix is applied; byte counts are exact, whereas the
+  old rounded fields quantize to ±50 MiB at one decimal; and base units are the
+  Prometheus/OpenMetrics naming convention (`node_exporter` uses
+  `node_memory_MemTotal_bytes`). Prefix formatting is a display concern and now
+  happens only in the TUI.
+
+  **Additive and non-breaking.** `ram_used_gb` / `ram_total_gb` / `swap_used_gb` /
+  `swap_total_gb` / `rss_mb`, the `*_GB` dict keys, `convert_to_GB` and the
+  `*_gigabytes` gauges all remain as rounded views with unchanged values.
+  **They are deprecated and will be removed in 2.0.0.**
+- `--alert-swap-rise-gib` replaces `--alert-swap-rise-gb`, which is kept as a
+  **working alias** (same destination) until 2.0.0. The threshold was always
+  compared against GiB values, so the old name was a misnomer rather than a
+  different unit. `AlertFrame.swap_rise_gb` is likewise renamed
+  `AlertFrame.swap_rise_gib`, and the alert token renders `SWAP+0.3Gi`.
+
+### Fixed
+- **Memory reported binary quantities under decimal names.** `convert_to_GB`
+  divided bytes by 2^30 and called the result GB; `rss_mb` divided by 2^20 and
+  called it MB. Per IEC 80000-13, `1 GB = 10^9` while `1 GiB = 2^30`, so both were
+  wrong by standard. The mislabel reached the public API (`ram_used_gb`,
+  `ram_total_gb`, `swap_*_gb`, `ProcessSample.rss_mb`), the `ram_used_gigabytes`
+  Prometheus gauge, the NDJSON stream, and the TUI (`RAM 66.7/128.0GB`,
+  `MEM (MB)`).
+
+  Anyone dividing memory against the genuinely decimal `bandwidth_gbps` was
+  picking up a silent **7.4% error** — and `actop`'s audience does exactly that
+  (`tokens/s ~= effective_bandwidth / bytes_read_per_token`, RAM headroom vs.
+  quantized weights). Fixing only the display string was considered and rejected:
+  it would protect the casual reader while continuing to mislead the actual user.
+
+  The TUI now displays **GiB** and **MiB**, matching modern monitors (btop,
+  bottom, `free -h`, `nvidia-smi`, `docker stats`, Kubernetes `Mi`/`Gi`).
+  **Bandwidth is deliberately left decimal**: the DCS bucket labels are literally
+  `"32GB/s"` and Apple publishes 546 GB/s for M4 Max decimally, so `GB/s` is the
+  vendor's own unit for the bus, not an inconsistency.
+- The swap-rise alert now measures growth from the exact `swap_used_bytes` counts
+  instead of the rounded `*_gb` view, so a 0.1 GiB threshold can no longer trip on
+  rounding alone.
+- **`_resolve_state_freq` returned `0` and `None` for different flavours of
+  "unresolvable", and its two consumers disagreed about which meant what.** An
+  out-of-range `V{n}P{m}` / `P{n}` index returned `0`, which
+  `_compute_residency_metrics` counted as an *active* state (inflating
+  `active_pct` while dragging `avg_freq` down) but
+  `_compute_residency_distribution` bucketed as *idle* — so `gpu_util_pct` and
+  `gpu_residency_pct`, displayed side by side, could contradict each other.
+  Out-of-range now returns `None` and both consumers reject `freq <= 0`.
+  **Latent on M1-M4:** a probe of all 316 real state entries across every
+  `CPU Stats` / `GPU Stats` channel on an M4 Max hit the zero path 0 times. It
+  triggers on a chip exposing more states than its DVFS table describes — the
+  unknown-future-chip path the `soc_profiles` tier fallback exists to serve.
+- **`bandwidth_available` reported that a channel exists, not that it carried
+  data.** A present-but-silent `AMCC RD+WR` channel surfaced
+  `bandwidth_available=True` with `bandwidth_gbps=0.0`, so the TUI showed
+  `Mem BW 0.0 GB/s` instead of hiding the row — the misleading zero the hide-row
+  logic exists to prevent. Availability now also requires non-zero residency.
+  Verified no row flicker on the first frame or at idle for both `subsamples=1`
+  and `subsamples=3`.
+- **Percentages truncated instead of rounding.** `floor` is a biased estimator
+  (expected error -0.5 units, max 1.0, for a uniform fractional part), so every
+  percentage read systematically low and 99.9% displayed as `99%`. `clamp_percent`,
+  the residency `avg_freq` / `active_pct`, and the RAM/swap used-percent now
+  round. Deliberately left as `int()`:
+  `sampler._largest_remainder_percentages`' floors, which are Hamilton's
+  apportionment rather than rounding — `round()` there would let the remainder go
+  negative and silently break the sum-to-100 guarantee.
+
+  **This is not purely cosmetic.** `clamp_percent` feeds `bandwidth_percent` and
+  `package_power_percent`, which feed the `MEM-BOUND` and `PKG` alert thresholds
+  through `AlertEngine`, so a value sitting *exactly* on its threshold can now
+  fire one sample earlier.
+- `Hz -> MHz` conversion in `native_sys.get_dvfs_tables_native` rounds instead of
+  flooring, so a 1,499,800,000 Hz state reads 1500 MHz rather than 1499.
+  **No visible change on M1-M4** — every observed table entry is already an exact
+  MHz multiple, and `get_dvfs_tables_native()` returns the same table set,
+  lengths and values before and after on an M4 Max. This is pre-emptive
+  correctness for chips whose tables are not exact, not a fix for a wrong number
+  anyone is seeing today.
+
+### Changed
+- Documented that Apple's DVFS tables are **not monotonic**. The M4 Max GPU
+  voltage-states table reads
+  `[0, 338, ..., 1312, 1242, 1380, 1326, 1470, 1578]` — non-ascending, with
+  `1182` appearing twice. Verified against raw `pmgr` bytes that the 8-byte
+  `(freq_hz, voltage)` stride is correct and this is the table's genuine shape,
+  not a stride bug. Three docstrings claimed ascending order, which would invite
+  "optimizing" `max(freq_table)` into `freq_table[-1]` and silently break the
+  DVFS ceiling. Docstrings and comments only; the code was already correct
+  because it uses `max()` throughout.
+
 ## [1.4.16] - 2026-07-29
 
 ### Changed

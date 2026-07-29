@@ -84,6 +84,18 @@ RAM metrics bypass the standard Unix `sysctl` interface when calculating "Used R
    $$\text{Used Bytes} = (\text{internal\_page\_count} - \text{purgeable\_count} + \text{wire\_count} + \text{compressor\_page\_count}) \times \text{page\_size}$$
    $$\text{Available Bytes} = \text{total\_ram} - \text{Used Bytes}$$
 
+**Units: byte counts cross every seam as bytes; prefixes are applied only for display.** Every memory quantity on the frame contract is a raw byte count — `SystemSnapshot.ram_used_bytes` / `ram_total_bytes` / `swap_used_bytes` / `swap_total_bytes`, `ProcessSample.rss_bytes`, the `actop_ram_used_bytes` family of Prometheus gauges, and the `*_bytes` keys on `utils.get_ram_metrics_dict()`. Three reasons:
+
+1. **No prefix ambiguity.** GB-vs-GiB cannot be got wrong if no prefix is applied. `hw.memsize` is `137,438,953,472`; that number is exact and self-describing.
+2. **No precision loss.** The rounded GiB view quantizes to ±50 MiB at one decimal — invisible in a TUI row, material to anyone computing quantized-weight headroom against it.
+3. **It is the Prometheus/OpenMetrics convention**, which specifies base units (`bytes`, `seconds`) with the unit as the metric-name suffix, leaving formatting to the dashboard. `node_exporter` does the same (`node_memory_MemTotal_bytes`).
+
+**Display uses binary prefixes.** `tui/widgets._to_gib` and the process table's MiB column format at render time, matching what modern monitors do for memory (btop, bottom, `free -h`, `nvidia-smi`, `docker stats`, Kubernetes `Mi`/`Gi`). Memory is addressed and manufactured in powers of two — `hw.memsize` is an exact multiple of 2³⁰ (128 GiB exactly on an M4 Max) and `hw.pagesize` is 2¹⁴ — so binary prefixes report the physical quantity as a round number where decimal GB would give 137.4. The legacy OS UIs that label binary values "GB" (Activity Monitor, Windows Explorer) are the outliers here, not the standard.
+
+**Bandwidth is the one deliberate exception.** The DCS bucket labels are literally `"32GB/s"` / `"64GB/s"` and Apple publishes 546 GB/s for M4 Max decimally, so `bandwidth_gbps` is genuinely decimal (§3.5) — the bus has no power-of-two structure. This is why bandwidth is *not* normalized into the byte-count rule: it is a rate in the vendor's own unit, not a byte quantity actop measured.
+
+This matters because actop's audience divides these fields against each other programmatically (`tokens/s ≈ effective_bandwidth / bytes_read_per_token`, RAM headroom vs. quantized weights): mixing a 2³⁰ memory figure with a 10⁹ bandwidth figure silently costs 7.4%. The older `ram_used_gb` / `swap_*_gb` / `rss_mb` fields, the `*_GB` dict keys and the `*_gigabytes` gauges are a **deprecated misnomer** — they always held GiB/MiB under a decimal name — kept as rounded views for one release and removed in 2.0.0. `--alert-swap-rise-gb` is likewise renamed `--alert-swap-rise-gib`, with the old spelling kept as a working alias.
+
 ### 2.2 Swap Memory via `XSWUsage`
 To avoid process execution, swap statistics read the binary structure directly from the BSD sysctl kernel tree:
 - Path name: `"vm.swapusage"`
@@ -273,7 +285,7 @@ beneath. Fits short terminals without scrolling.
 │ P02  69% ⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⢠⣴⣤⣆⣆⣦⣤⣴ │ P03  68% ⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⢠⣴⣤⣆⣆⣤⣤⣴ ││ ⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀ │
 │ P04  66% ⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⢠⣴⣄⣆⣆⣤⣤⣴ │ P05  64% ⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⢠⣴⣄⣄⣆⣤⣤⣰ │╰────────────────────────────────────────────────────────────────╯
 │ P10  65% ⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⢠⣤⣴⣴⣴⣴⣴⣶ │ P11  55% ⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⢠⣤⣴⣴⣴⣴⣤⣦ │╭─ Memory ───────────────────────────────────────────────────────╮
-│ P12  39% ⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⢠⣤⣴⣴⣰⣴⣤⣤ │ P13  27% ⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⢠⣄⣤⣰⣰⣤⣤⣄ ││ RAM 97.8/128.0GB sw:6.0/7.0GB  avg 75% · max 76%               │
+│ P12  39% ⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⢠⣤⣴⣴⣰⣴⣤⣤ │ P13  27% ⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⢠⣄⣤⣰⣰⣤⣤⣄ ││ RAM 97.8/128.0GiB sw:6.0/7.0GiB  avg 75% · max 76%             │
 │ P14  21% ⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⢠⣄⣤⣰⣰⣠⣤⣄ │ P15  18% ⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⢠⣄⣤⣰⣰⣰⣄⣄ ││ ⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⢠⣤⣤⣤⣤⣤⣤⣤ │
 │ P-CPU  [░░░░░░░░████████]  idle47 low0 mid0 high53             ││ ⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⢸⣿⣿⣿⣿⣿⣿⣿ │
 │ E-CPU  21% @847MHz (110°C)  avg 18% · max 25%                  ││ Mem BW 206.3 GB/s  avg 206.0 · max 209.7 GB/s                  │
@@ -329,7 +341,7 @@ column; charts get the longest history span (blank chart bodies elided below):
 │ ⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀ │
 ╰──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────╯
 ╭─ Memory ─────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────╮
-│ RAM 100.2/128.0GB sw:6.0/7.0GB  avg 77% · max 78%                                                                                │
+│ RAM 100.2/128.0GiB sw:6.0/7.0GiB  avg 77% · max 78%                                                                              │
 │ ⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⣤⣤⣤⣤⣤⣤⣤⣤⣤⣤⣤⣤⣤⣤⣤⣤⣤⣤⣤ │
 │ ⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿ │
 │ Mem BW 138.3 GB/s  avg 135.6 · max 152.2 GB/s                                                                                    │
@@ -360,7 +372,7 @@ threshold, so it has auto-degraded to `stack`:
 ```
                                            actop — v1.4.10 · Apple M4 Max · 4E+12P+40GPU                                    22:49:15
 ╭─ CPU ────────────────────────────────────────────────╮  ╭────────────────────────────────────────────────────────────────────────╮
-│ P-CPU   1% @1082MHz (57°C)  avg 2% · max 51%         │  │ PID    Command                 *CPU%  PWR    MEM (MB)  Threads         │
+│ P-CPU   1% @1082MHz (57°C)  avg 2% · max 51%         │  │ PID    Command                *CPU%  PWR    MEM (MiB)  Threads         │
 │ ⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀ │  │ 62055  Ollama                  0.0    0.00W  5765.6    21              │
 │ ⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀ │  │ 94100  ollama                  0.0    0.00W  117.2     24              │
 │ ⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⡇⠀⠀⠀⠀⠀⠀⠀⠀ │  │ 94107  ollama                  0.0    0.00W  58.5      24              │
@@ -426,7 +438,7 @@ The `BrailleChart` widget is designed to render charts efficiently inside Termin
 - **Time-window labeling**: the visible span scales silently with terminal width. The status line leads with a `span <Ns/m/h>` token computed as chart width \u00D7 samples-per-character \u00D7 `--interval` (`_format_window_span` / `_chart_window_label`) \u2014 2 samples/character in `dots`, 1 in `block`; it degrades to no token before layout, so the per-frame path never raises.
 
 ### 5.3 Metric Label Context (cur / avg / max)
-Each live reading carries rolling context, matching frontier monitors (btop / bottom / macmon). The dashboard retains 500-sample deques per metric; histories are zero-padded for chart right-alignment, so avg/max ignore the leading padding (`_avg_max` reads only the last `_sample_count` real samples). Avg is taken over the `--avg` window; max is the session peak. Every stat carries its unit (`avg N% \u00B7 max N%`, watt labels show `W`, bandwidth shows `GB/s`) so it stays unambiguous beside a headline in a different unit (MHz / GB / W / GB/s). Applied to per-cluster CPU summary rows, GPU, ANE, RAM, memory-bandwidth, and CPU/GPU/package power labels.
+Each live reading carries rolling context, matching frontier monitors (btop / bottom / macmon). The dashboard retains 500-sample deques per metric; histories are zero-padded for chart right-alignment, so avg/max ignore the leading padding (`_avg_max` reads only the last `_sample_count` real samples). Avg is taken over the `--avg` window; max is the session peak. Every stat carries its unit (`avg N% \u00B7 max N%`, watt labels show `W`, bandwidth shows `GB/s`) so it stays unambiguous beside a headline in a different unit (MHz / GiB / W / GB/s). Applied to per-cluster CPU summary rows, GPU, ANE, RAM, memory-bandwidth, and CPU/GPU/package power labels.
 
 The dashboard also surfaces two SoC-level headline metrics whose data already flowed through `SystemSnapshot` but was previously only consumed by alerts: **Mem BW** (unified-memory bandwidth in GB/s, the headline bottleneck for LLM inference) and **Package Power** (total SoC draw = CPU + GPU + ANE + other rails). Their chart percents reuse the same normalisation as the `MEM-BOUND>` / `PKG>` alerts (bandwidth vs summed CPU+GPU channel capacity; package vs `package_ref_w`). The Mem BW row is hidden when `SystemSnapshot.bandwidth_available` is false (no DCS channel on the platform).
 
@@ -440,7 +452,7 @@ Alert/throttle/session-energy analytics live in **L2** (`analytics.AlertEngine`)
 - **Bandwidth Saturation**: Triggers when Memory bandwidth exceeds a configured percentage of the SoC's reference limit (defaults to `85%`). Normalised via `analytics.bandwidth_percent(snapshot, max_total_bw)`.
 - **Power Peak Alert**: Triggers when Package Watts exceeds a configured percentage of the SoC's reference limit (defaults to `85%`). Normalised via `analytics.package_power_percent(snapshot, package_ref_w)`.
 - **Throttle**: `analytics.domain_throttling(...)` flags a silicon domain busy + held below its DVFS ceiling + hot; sustained like the others.
-- **Swap Rise**: Triggers when Swap space usage increases by a configured limit (defaults to `0.3 GB`) across the sustain window.
+- **Swap Rise**: Triggers when Swap space usage increases by a configured limit (defaults to `0.3 GiB`, `--alert-swap-rise-gib`) across the sustain window. The rise is computed from the exact `swap_used_bytes` counts, not the rounded `*_gb` view, so a 0.1 GiB threshold cannot trip on rounding alone.
 - **Alert Sliding Window**: To prevent intermittent spikes from causing noisy notifications, alerts are validated using a sliding window. The metric must exceed the threshold for a sustained count of sequential intervals (defaults to `3` samples) before the frame reports the alert.
 - **Session energy**: integrated as `Σ package_watts × dt` where `dt` is the real inter-frame delta from `snapshot.timestamp` (the first `feed()` has no prior timestamp, so it contributes 0 J) — the live-TUI counterpart to `Profiler.total_package_joules`.
 

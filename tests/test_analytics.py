@@ -25,8 +25,8 @@ def _snapshot(
     pcpu_max_freq_mhz: int = 3200,
     cpu_temp_c: float = 0.0,
     thermal_state: str = "Nominal",
-    swap_used_gb: float = 0.0,
-    swap_total_gb: float = 0.0,
+    swap_used_gib: float = 0.0,
+    swap_total_gib: float = 0.0,
 ) -> SystemSnapshot:
     return SystemSnapshot(
         timestamp=timestamp,
@@ -42,11 +42,17 @@ def _snapshot(
         ecpu_freq_mhz=1000,
         pcpu_freq_mhz=pcpu_freq_mhz,
         gpu_freq_mhz=800,
+        # Bytes are the canonical fields the engine reads; the *_gb mirrors are
+        # the deprecated rounded views, populated here the way api.py does.
+        ram_used_bytes=8 * 1024**3,
+        ram_total_bytes=32 * 1024**3,
+        swap_used_bytes=int(swap_used_gib * 1024**3),
+        swap_total_bytes=int(swap_total_gib * 1024**3),
         ram_used_gb=8.0,
-        swap_used_gb=swap_used_gb,
+        swap_used_gb=swap_used_gib,
         ram_total_gb=32.0,
         ram_used_percent=25.0,
-        swap_total_gb=swap_total_gb,
+        swap_total_gb=swap_total_gib,
         thermal_state=thermal_state,
         bandwidth_gbps=bandwidth_gbps,
         bandwidth_available=bandwidth_available,
@@ -63,7 +69,7 @@ def _engine(**overrides) -> AlertEngine:
         "bw_sat_percent": 85,
         "pkg_power_percent": 85,
         "throttle_freq_percent": 90,
-        "swap_rise_gb": 1.0,
+        "swap_rise_gib": 1.0,
         "sustain_samples": 3,
         "max_total_bw": 200.0,
         "package_ref_w": 58.0,
@@ -104,17 +110,19 @@ def test_throttle_counter_resets_when_condition_clears():
 
 
 def test_swap_rise_alert_fires_on_growth_across_window():
-    # Swap climbing by >= alert_swap_rise_gb across the sustain window must
+    # Swap climbing by >= alert_swap_rise_gib across the sustain window must
     # raise the swap alert; a flat swap footprint must not.
-    engine = _engine(sustain_samples=3, swap_rise_gb=1.0)
+    engine = _engine(sustain_samples=3, swap_rise_gib=1.0)
     rising = [0.0, 0.5, 1.0, 1.5]  # rise of 1.5 GB across 4 retained samples
-    frames = [engine.feed(_snapshot(swap_used_gb=v, swap_total_gb=8.0)) for v in rising]
+    frames = [
+        engine.feed(_snapshot(swap_used_gib=v, swap_total_gib=8.0)) for v in rising
+    ]
     assert frames[-1].swap_alert is True
-    assert frames[-1].swap_rise_gb >= 1.0
+    assert frames[-1].swap_rise_gib >= 1.0
 
-    flat = _engine(sustain_samples=3, swap_rise_gb=1.0)
+    flat = _engine(sustain_samples=3, swap_rise_gib=1.0)
     flat_frames = [
-        flat.feed(_snapshot(swap_used_gb=2.0, swap_total_gb=8.0)) for _ in range(4)
+        flat.feed(_snapshot(swap_used_gib=2.0, swap_total_gib=8.0)) for _ in range(4)
     ]
     assert not any(f.swap_alert for f in flat_frames)
 

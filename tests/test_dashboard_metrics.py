@@ -50,7 +50,7 @@ def _config(show_residency: bool = True, show_cores: bool = False) -> DashboardC
         alert_bw_sat_percent=85,
         alert_package_power_percent=85,
         alert_throttle_freq_percent=90,
-        alert_swap_rise_gb=1.0,
+        alert_swap_rise_gib=1.0,
         alert_sustain_samples=3,
         subsamples=1,
         process_display_count=50,
@@ -98,6 +98,12 @@ def _snapshot(
         ecpu_freq_mhz=1200,
         pcpu_freq_mhz=pcpu_freq_mhz,
         gpu_freq_mhz=gpu_freq_mhz,
+        # Both sets, mirroring what api.py populates: bytes are canonical (the
+        # TUI formats GiB from these), *_gb the deprecated rounded view.
+        ram_used_bytes=18 * 1024**3,
+        ram_total_bytes=32 * 1024**3,
+        swap_used_bytes=0,
+        swap_total_bytes=0,
         ram_used_gb=18.0,
         swap_used_gb=0.0,
         ram_total_gb=32.0,
@@ -198,11 +204,12 @@ def test_power_rows_render_cpu_gpu_watts_with_inline_spark():
 
 
 def test_ram_row_renders_from_snapshot_fields():
-    # LC-1: RAM/swap are carried on the SystemSnapshot (ram_used_gb /
-    # ram_total_gb), not a second get_ram_metrics_dict() call. The row must
-    # render the snapshot's used/total GB through the real update path.
+    # LC-1: RAM/swap are carried on the SystemSnapshot (ram_used_bytes /
+    # ram_total_bytes), not a second get_ram_metrics_dict() call. The row must
+    # render the snapshot's used/total through the real update path, formatted as
+    # GiB — a 2^30 division, unlike the decimal Mem BW row below.
     state = asyncio.run(_drive([_snapshot(0.0, False)]))
-    assert "RAM 18.0/32.0GB" in state["ram_label"]
+    assert "RAM 18.0/32.0GiB" in state["ram_label"]
 
 
 def test_mem_bw_row_shows_gbps_when_available():

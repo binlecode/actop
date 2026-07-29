@@ -42,7 +42,7 @@ def sort_processes(processes, sort_mode, limit):
     delta yet sinks to the bottom via its None → 0.0 fallback).
     """
     if sort_mode == SORT_MEMORY:
-        return sorted(processes, key=lambda p: p.rss_mb, reverse=True)[:limit]
+        return sorted(processes, key=lambda p: p.rss_bytes, reverse=True)[:limit]
     elif sort_mode == SORT_PID:
         return sorted(processes, key=lambda p: p.pid)[:limit]
     elif sort_mode == SORT_POWER:
@@ -457,7 +457,7 @@ class ActopApp(App):
         if self._sort_mode != self._last_sort_mode:
             self._last_sort_mode = self._sort_mode
             table.clear(columns=True)
-            cols = ["PID", "Command", "CPU%", "PWR", "MEM (MB)", "Threads"]
+            cols = ["PID", "Command", "CPU%", "PWR", "MEM (MiB)", "Threads"]
             if self._sort_mode == SORT_PID:
                 cols[0] = "*PID"
             elif self._sort_mode == SORT_CPU:
@@ -465,7 +465,7 @@ class ActopApp(App):
             elif self._sort_mode == SORT_POWER:
                 cols[3] = "*PWR"
             elif self._sort_mode == SORT_MEMORY:
-                cols[4] = "*MEM (MB)"
+                cols[4] = "*MEM (MiB)"
             table.add_columns(*cols)
         else:
             table.clear()
@@ -497,7 +497,8 @@ class ActopApp(App):
                 _process_display_name(proc.command, max_len=28),
                 f"{proc.cpu_percent or 0.0:.1f}",
                 pwr_cell,
-                f"{proc.rss_mb or 0.0:.1f}",
+                # MiB from the exact byte count; the column header says MiB.
+                f"{(proc.rss_bytes or 0) / 1024 / 1024:.1f}",
                 str(proc.num_threads),
             )
 

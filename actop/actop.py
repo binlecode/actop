@@ -107,10 +107,16 @@ def build_parser():
         "percent of its DVFS max frequency (1-100)",
     )
     parser.add_argument(
+        # --alert-swap-rise-gb is the original spelling, kept as a working alias:
+        # the threshold was always compared against GiB values, so the old name
+        # was a misnomer, not a different unit. Removed in 2.0.0.
+        "--alert-swap-rise-gib",
         "--alert-swap-rise-gb",
-        type=_validate_swap_rise_gb,
+        dest="alert_swap_rise_gib",
+        type=_validate_swap_rise_gib,
         default=0.3,
-        help="Alert when swap rises by at least this many GB over sustained samples",
+        help="Alert when swap rises by at least this many GiB over sustained "
+        "samples (--alert-swap-rise-gb is a deprecated alias)",
     )
     parser.add_argument(
         "--alert-sustain-samples",
@@ -156,7 +162,7 @@ def _validate_percent_threshold(value):
     return threshold
 
 
-def _validate_swap_rise_gb(value):
+def _validate_swap_rise_gib(value):
     try:
         swap_rise = float(value)
     except (TypeError, ValueError) as error:
