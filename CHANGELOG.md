@@ -6,6 +6,23 @@ This project follows a Keep a Changelog-style format and uses version tags for r
 
 ## [Unreleased]
 
+## [1.4.14] - 2026-07-29
+
+### Changed
+- CI: bump the pinned GitHub Actions to their latest SHAs (checkout
+  `v7.0.1`, setup-python `v7.0.0`, pypi-publish `v1.14.1`) via the
+  dependabot github-actions group update (#39). No runtime or API change;
+  release cut to keep `main` tagged and version-bumped per the repo's
+  per-PR convention, which the dependabot PR bypassed.
+
+### Fixed
+- CI: pin `ruff` to `>=0.15,<0.16` in both `pyproject.toml` `[dev]` and
+  `main-ci.yml`. The lint step installed `ruff` unpinned, so a fresh runner
+  pulled the new `0.16.0`, whose expanded default rule set turned a
+  previously-clean tree into 126 `ruff check` errors — breaking the lint gate
+  on `main` with no code change. Capping below `0.16` restores a reproducible,
+  green gate; bringing the code into `0.16` compliance is deferred to its own PR.
+
 ## [1.4.13] - 2026-07-04
 
 ### Changed
