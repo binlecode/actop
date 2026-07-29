@@ -74,9 +74,10 @@ RAM metrics bypass the standard Unix `sysctl` interface when calculating "Used R
            ("active_count", ctypes.c_uint32),
            ("inactive_count", ctypes.c_uint32),
            ("wire_count", ctypes.c_uint32),
-           ...("compressor_page_count", ctypes.c_uint32),
+           # ...
+           ("compressor_page_count", ctypes.c_uint32),
            ("internal_page_count", ctypes.c_uint32),
-           ...,
+           # ...
        ]
    ```
 4. **Activity Monitor Memory Logic**:

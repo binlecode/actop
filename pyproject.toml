@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "actop"
-version = "1.4.15"
+version = "1.4.16"
 description = "Apple Silicon (M1–M4) power, GPU, ANE & memory-bandwidth monitor — sudoless TUI + Python API for profiling local LLM / MLX / CoreML inference"
 readme = "README.md"
 license = { text = "MIT" }
@@ -28,7 +28,7 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
-# ruff unpinned again as of 1.4.15: the tree is now compliant under 0.16 and
+# ruff unpinned again as of 1.4.16: the tree is now compliant under 0.16 and
 # the rule set is codified in [tool.ruff.lint] below, so CI no longer depends
 # on ruff's default select (whose 0.16.0 expansion had broken the gate).
 dev = ["ruff", "pytest"]
