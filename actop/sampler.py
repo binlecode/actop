@@ -591,17 +591,27 @@ def _channel_bandwidth_gbps(residencies):
     """Residency-weighted average bandwidth (GB/s) for one DCS BW histogram.
 
     Each state name is a bandwidth bucket ("32GB/s", "64GB/s", …) and its value
-    is the time spent at that level. The weighted mean Σ(level·time)/Σ(time) is
-    already in GB/s — no division by the sample interval. Returns 0.0 when the
-    histogram is empty.
+    is the time spent in that bucket. The name carries the bucket's *upper*
+    edge, so each bucket is represented by its midpoint — the mean of its own
+    edge and the previous one (the first bucket's lower edge is 0). Weighting by
+    the upper edge instead pins an idle machine at a flat 32 GB/s, since nearly
+    all of its residency sits in the bottom 0-32 GB/s bucket. Deriving the
+    midpoint from consecutive edges rather than assuming a fixed 32 GB/s step
+    keeps this correct if a chip ever reports differently spaced buckets.
+
+    The weighted mean Σ(midpoint·time)/Σ(time) is already in GB/s — no division
+    by the sample interval. Returns 0.0 when the histogram is empty.
     """
     weighted_sum = 0.0
     total = 0.0
+    prev_level = 0.0
     for name, residency in residencies:
         m = _GBPS_PATTERN.search(name)
         if not m:
             continue
-        weighted_sum += float(m.group(1)) * residency
+        level = float(m.group(1))
+        weighted_sum += (prev_level + level) / 2.0 * residency
+        prev_level = level
         total += residency
     if total <= 0:
         return 0.0
