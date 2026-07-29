@@ -6,6 +6,15 @@ This project follows a Keep a Changelog-style format and uses version tags for r
 
 ## [Unreleased]
 
+## [1.4.14] - 2026-07-29
+
+### Changed
+- CI: bump the pinned GitHub Actions to their latest SHAs (checkout
+  `v7.0.1`, setup-python `v7.0.0`, pypi-publish `v1.14.1`) via the
+  dependabot github-actions group update (#39). No runtime or API change;
+  release cut to keep `main` tagged and version-bumped per the repo's
+  per-PR convention, which the dependabot PR bypassed.
+
 ## [1.4.13] - 2026-07-04
 
 ### Changed
