@@ -6,6 +6,34 @@ This project follows a Keep a Changelog-style format and uses version tags for r
 
 ## [Unreleased]
 
+## [1.4.15] - 2026-07-29
+
+### Fixed
+- Memory bandwidth reading: each DCS BW histogram bucket is now represented by
+  its **midpoint** instead of its upper edge. The `PMP` / `DCS BW` /
+  `AMCC RD+WR` state names are bucket *upper* edges in 32 GB/s steps, so the
+  bottom bucket spans 0-32 GB/s but scored a flat 32. On an idle machine ~99%
+  of the residency sits in that bucket (measured on an M4 Max: 4351 of 4396
+  samples), so `Mem BW` was pinned at a constant `32.0 GB/s` with a flat chart
+  line and an `avg`/`max` barely above it — real idle traffic of a few GB/s was
+  indistinguishable from 31 GB/s. Each bucket is now weighted by the mean of its
+  own edge and the previous one (the first bucket's lower edge is 0), derived
+  from consecutive edges rather than assuming a fixed step.
+
+  **Reported values shift down by half a bucket width (~16 GB/s per
+  controller die).** Measured on an M4 Max via `Monitor.get_snapshot()`: idle
+  went from a constant `32.0` to `16.85 / 17.00 / 16.82 / 16.87` GB/s over
+  consecutive samples — no longer pinned — and a 4-thread `memcpy` workload
+  read `109.8` GB/s, so loaded readings still track proportionally.
+
+  Note this does not give sub-bucket resolution: the bottom bucket is 32 GB/s
+  wide and holds nearly all idle residency, so an idle machine now reads ~16
+  GB/s (that bucket's midpoint) rather than its true few-GB/s traffic. The
+  histogram simply carries no finer detail below 32 GB/s, so the idle chart
+  stays relatively flat — just at a defensible value instead of the bucket's
+  ceiling. Chart and `MEM-BOUND` alert scaling are unchanged; both still
+  normalize against the session ratchet from 1.4.13.
+
 ## [1.4.14] - 2026-07-29
 
 ### Changed
