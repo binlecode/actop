@@ -290,8 +290,14 @@ def get_gpu_cores_native() -> int:
 def get_dvfs_tables_native() -> dict:
     """Read DVFS frequency tables from IOKit pmgr device.
 
-    Returns dict with keys 'ecpu', 'pcpu', 'gpu', each a list of
-    MHz values in ascending frequency order (indexed by V-state or P-state).
+    Returns dict with keys 'ecpu', 'pcpu', 'gpu', each a list of MHz values
+    indexed by V-state / P-state position. NOT guaranteed monotonic: Apple's
+    GPU voltage-states table on M4 Max reads
+    [0, 338, ..., 1312, 1242, 1380, 1326, 1470, 1578] — non-ascending, with a
+    duplicate (1182 twice). The 8-byte (freq_hz, voltage) stride is correct;
+    the table genuinely has this shape. Positional lookup is therefore still
+    correct, but anything needing the DVFS ceiling must use max(), never
+    table[-1].
     Returns {'ecpu': [], 'pcpu': [], 'gpu': []} on failure or non-Darwin.
     """
     if not _DARWIN:
@@ -358,7 +364,8 @@ def get_dvfs_tables_native() -> dict:
         freqs = []
         for j in range(n_entries):
             freq_hz, _voltage = struct.unpack_from("<II", raw, j * 8)
-            freqs.append(freq_hz // 1_000_000)
+            # round, not floor: a 1,499,800,000 Hz state is 1500 MHz, not 1499.
+            freqs.append(round(freq_hz / 1_000_000))
         real_count = sum(1 for f in freqs if f > 50)
         if real_count >= max(1, len(freqs) // 2):
             tables[key_name] = freqs

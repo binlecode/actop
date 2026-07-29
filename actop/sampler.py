@@ -266,6 +266,7 @@ class IOReportSampler:
             "E-Cluster_freq_MHz": 0,
             # DVFS ceiling per cluster (silicon max), from the frequency table
             # discovered at startup; used by the throttle indicator.
+            # max(), not [-1]: the DVFS table is not guaranteed ordered.
             "E-Cluster_max_freq_MHz": max(ecpu_freqs) if ecpu_freqs else 0,
             "P-Cluster_active": 0,
             "P-Cluster_freq_MHz": 0,
@@ -322,6 +323,7 @@ class IOReportSampler:
 
         gpu_metrics = {
             "freq_MHz": gpu_freq_mhz,
+            # max(), not [-1]: the DVFS table is not guaranteed ordered.
             "max_freq_MHz": max(gpu_freqs) if gpu_freqs else 0,
             "active": gpu_active_pct,
             "residency_pct": _compute_residency_distribution(
@@ -448,8 +450,9 @@ def _compute_residency_metrics(residencies, freq_table=None):
     - "P{n}" (GPU performance state — n is the table index)
     - "IDLE", "DOWN", "OFF" (inactive states)
 
-    freq_table: list of MHz values indexed by state position, from
-    lowest to highest frequency. Used to resolve V{n}P{m} / P{n} names.
+    freq_table: list of MHz values indexed by state position (not necessarily
+    ascending — see native_sys.get_dvfs_tables_native). Used to resolve
+    V{n}P{m} / P{n} names.
 
     Returns (freq_mhz, active_percent) as (int, int).
     """
@@ -500,7 +503,9 @@ def _compute_residency_distribution(residencies, freq_table=None):
     across chips with different absolute clock ranges — mirrors the ceiling-
     relative ratio used by the throttle indicator. Unresolvable states and an
     unknown ceiling both bucket as idle: "low" should only mean "resolved to
-    a real, low frequency," not "we couldn't tell."
+    a real, low frequency," not "we couldn't tell." max(freq_table) is used
+    rather than the last element precisely because the table is not guaranteed
+    ordered.
 
     Returns {"idle": int, "low": int, "mid": int, "high": int} summing to
     ~100 (all zero when there is no residency to bucket).

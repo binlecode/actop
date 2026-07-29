@@ -57,6 +57,17 @@ def test_monitor_get_snapshot_returns_valid_snapshot():
     assert snapshot.pcpu_freq_mhz > 0
     assert snapshot.gpu_freq_mhz >= 0  # GPU may be idle (0)
 
+    # DVFS ceilings are max() over the pmgr voltage-states table (the tables are
+    # not ordered, so table[-1] would be wrong) with Hz→MHz rounded, not floored.
+    # A units/stride regression surfaces as an implausible ceiling; a bad
+    # positional lookup as a current frequency above the ceiling.
+    assert 500 < snapshot.ecpu_max_freq_mhz < 10000
+    assert 500 < snapshot.pcpu_max_freq_mhz < 10000
+    assert 500 < snapshot.gpu_max_freq_mhz < 10000
+    assert snapshot.ecpu_freq_mhz <= snapshot.ecpu_max_freq_mhz
+    assert snapshot.pcpu_freq_mhz <= snapshot.pcpu_max_freq_mhz
+    assert snapshot.gpu_freq_mhz <= snapshot.gpu_max_freq_mhz
+
     # RAM — LC-1 completes the frame contract: totals + used-percent now ride
     # on the snapshot so the TUI needs no second get_ram_metrics_dict() call.
     assert snapshot.ram_used_gb > 0
