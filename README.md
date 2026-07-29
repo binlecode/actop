@@ -183,7 +183,7 @@ with Monitor(include_processes=True) as m:
 | `--proc-filter REGEX` | Filter process panel by command name | all (applies when panel is enabled) |
 | `--alert-bw-sat-percent` | Bandwidth saturation alert threshold | `85` |
 | `--alert-package-power-percent` | Package power alert threshold (profile-relative) | `85` |
-| `--alert-swap-rise-gb` | Swap growth alert threshold (GB) | `0.3` |
+| `--alert-swap-rise-gib` | Swap growth alert threshold (GiB); `--alert-swap-rise-gb` is a deprecated alias | `0.3` |
 | `--alert-sustain-samples` | Consecutive samples for sustained alerts | `3` |
 | `--json` | Stream metrics as NDJSON to stdout instead of the TUI | `off` |
 | `--serve PORT` | Serve Prometheus metrics on `http://0.0.0.0:PORT/metrics` instead of the TUI | `off` |
@@ -262,7 +262,7 @@ No sudo required. Degrades to `Unknown` if the ObjC runtime call fails.
 | Per-core activity (%) | IOReport CPU Core Performance States | Via `CoreSample` (residency-weighted active%) |
 | GPU frequency and activity | IOReport GPU Performance States | Weighted average of GPUPH residencies |
 | CPU/GPU temperature (°C) | SMC via IOKit ctypes | Max die temp per cluster |
-| RAM / swap | Native `ctypes` (`host_statistics64` + `XSWUsage`) | `total - available` for used |
+| RAM / swap | Native `ctypes` (`host_statistics64` + `XSWUsage`) | `total - available` for used. API/export carry exact **bytes**; the TUI displays **GiB** (2³⁰). Bandwidth stays decimal `GB/s` — Apple's own unit for the bus |
 | SoC profile | `sysctl` brand → 16 M1–M4 profiles | Tier fallbacks for unknown chips |
 | Top processes | Native `ctypes` (`proc_listpids`/`proc_pidinfo`) | Optional `--proc-filter` regex |
 | Bandwidth | IOReport (when available) | N/A if DCS counters not exposed |

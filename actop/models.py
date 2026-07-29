@@ -44,9 +44,14 @@ class ProcessSample:
     cpu_percent: float  # Δ CPU-time over the interval, as a percent
     cpu_time_share: float | None  # fraction of total CPU time, or None
     gpu_time_share: float | None  # fraction of total GPU time, or None
-    rss_mb: float
+    rss_mb: float  # deprecated misnomer: holds MiB (2^20) — read rss_bytes below
     num_threads: int
     attributed_w: float | None  # CPU+GPU watts, or None (no CPU delta yet)
+    # Resident set size in raw bytes — the canonical, exact field. rss_mb is a
+    # rounded MiB value under a decimal name and is removed in 2.0.0. Defaulted
+    # so existing ProcessSample(...) call sites stay valid.
+    # See docs/TODO-reading-plane-audit-2026-07-29.md §3.
+    rss_bytes: int = 0
 
 
 @dataclass
@@ -64,6 +69,10 @@ class SystemSnapshot:
     ecpu_freq_mhz: int
     pcpu_freq_mhz: int
     gpu_freq_mhz: int
+    # Deprecated misnomer: these hold GiB (2^30) rounded to 0.1, not decimal GB.
+    # Read the *_bytes fields below instead — mixing these with the genuinely
+    # decimal bandwidth_gbps picks up a silent 7.4% error, and the rounding
+    # quantizes to ±50 MiB. Removed in 2.0.0.
     ram_used_gb: float
     swap_used_gb: float
     thermal_state: str  # "Nominal", "Fair", "Serious", "Critical"
@@ -79,9 +88,21 @@ class SystemSnapshot:
     # (and any API consumer) reads memory from the snapshot alone rather than a
     # second get_ram_metrics_dict() call. Defaulted for construction-site
     # compatibility, matching the *_max_freq_mhz precedent above.
-    ram_total_gb: float = 0.0
+    ram_total_gb: float = 0.0  # deprecated misnomer: holds GiB — see *_bytes below
     ram_used_percent: float = 0.0
-    swap_total_gb: float = 0.0
+    swap_total_gb: float = 0.0  # deprecated misnomer: holds GiB — see *_bytes below
+    # Memory in raw bytes — the canonical, exact fields. Bytes are prefix-free
+    # (no GB-vs-GiB ambiguity), lossless (the *_gb fields round to 0.1 GiB, i.e.
+    # ±50 MiB), and the base unit Prometheus/OpenMetrics naming expects.
+    # Formatting into GiB is a presentation concern and lives in the TUI.
+    # Note bandwidth_gbps above stays genuinely decimal GB/s — that is Apple's
+    # own unit for the bus, not an inconsistency. Defaulted for construction-site
+    # compatibility, matching the *_max_freq_mhz precedent above.
+    # See docs/TODO-reading-plane-audit-2026-07-29.md §3.
+    ram_used_bytes: int = 0
+    ram_total_bytes: int = 0
+    swap_used_bytes: int = 0
+    swap_total_bytes: int = 0
     # ANE utilization as a percent of the SoC's ANE reference power
     # (soc_profiles.ane_max_w), computed in L2 so it is a data point rather
     # than a render-time derivation.

@@ -20,5 +20,5 @@ def test_monitor_subsamples_mode_produces_snapshot():
     assert snapshot.package_watts >= 0.0
     assert 0 <= snapshot.ecpu_util_pct <= 100
     assert 0 <= snapshot.pcpu_util_pct <= 100
-    assert snapshot.ram_used_gb > 0
+    assert snapshot.ram_used_bytes > 0
     assert snapshot.timestamp > 0

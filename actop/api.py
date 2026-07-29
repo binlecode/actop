@@ -43,6 +43,8 @@ def _processes_to_samples(proc_dict: dict, cpu_watts: float, gpu_watts: float) -
             cpu_percent=float(entry.get("cpu_percent", 0.0) or 0.0),
             cpu_time_share=share_cpu,
             gpu_time_share=share_gpu,
+            rss_bytes=int(entry.get("rss_bytes", 0) or 0),
+            # Deprecated rounded-MiB view of rss_bytes; removed in 2.0.0.
             rss_mb=float(entry.get("rss_mb", 0.0) or 0.0),
             num_threads=int(entry.get("num_threads", 0) or 0),
             attributed_w=attributed_w,
@@ -110,6 +112,11 @@ def _sample_to_snapshot(
         ecpu_residency_pct=dict(cm.get("E-Cluster_residency_pct", _EMPTY_RESIDENCY)),
         pcpu_residency_pct=dict(cm.get("P-Cluster_residency_pct", _EMPTY_RESIDENCY)),
         gpu_residency_pct=dict(gm.get("residency_pct", _EMPTY_RESIDENCY)),
+        ram_used_bytes=int(ram.get("used_bytes", 0) or 0),
+        ram_total_bytes=int(ram.get("total_bytes", 0) or 0),
+        swap_used_bytes=int(ram.get("swap_used_bytes", 0) or 0),
+        swap_total_bytes=int(ram.get("swap_total_bytes", 0) or 0),
+        # Deprecated rounded-GiB views of the *_bytes fields above; removed in 2.0.0.
         ram_used_gb=float(ram.get("used_GB", 0.0)),
         swap_used_gb=float(ram.get("swap_used_GB", 0.0)),
         ram_total_gb=float(ram.get("total_GB", 0.0)),

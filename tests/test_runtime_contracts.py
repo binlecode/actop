@@ -14,16 +14,25 @@ def test_ram_metrics_reflect_a_sane_live_reading():
     regressions). The dict's derived fields (used = total - available, free =
     available) make used+free==total tautological, so those add up regardless of
     what the syscall returned; the load-bearing checks are that the *raw* reading
-    is physical — a real machine reports non-zero total RAM in a plausible GB
-    range, and 'available' never exceeds 'total' (so used_GB stays within
-    [0, total]). A units or offset bug surfaces as an absurd total or used > total.
+    is physical — a real machine reports non-zero total RAM in a plausible range,
+    and 'available' never exceeds 'total' (so used_bytes stays within [0, total]).
+    A units or offset bug surfaces as an absurd total or used > total.
+
+    Also pins the deprecated *_GB keys against the canonical byte keys: they are a
+    rounded GiB view under a decimal name, kept for one release, so a consumer
+    reading either must see the same quantity until they go away in 2.0.0.
     """
     ram = utils.get_ram_metrics_dict()
-    total = ram["total_GB"]
-    used = ram["used_GB"]
+    total = ram["total_bytes"]
+    used = ram["used_bytes"]
 
-    assert 1 <= total <= 4096  # plausible Mac RAM (GB); catches units/parse bugs
+    # Plausible Mac RAM in bytes (1 GiB - 4 TiB); catches units/parse bugs.
+    assert 1024**3 <= total <= 4096 * 1024**3
     assert 0 <= used <= total  # 'available' in [0, total]; catches offset/sign bugs
+
+    assert abs(ram["total_GB"] - total / 1024**3) <= 0.05
+    assert abs(ram["used_GB"] - used / 1024**3) <= 0.05
+    assert abs(ram["swap_used_GB"] - ram["swap_used_bytes"] / 1024**3) <= 0.05
 
 
 def test_top_processes_with_filter_contract():

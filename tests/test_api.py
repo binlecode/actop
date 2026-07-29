@@ -9,6 +9,7 @@ import time
 import pytest
 
 from actop import Monitor, Profiler, SystemSnapshot
+from actop.native_sys import get_sysctl_int
 
 pytestmark = pytest.mark.local
 
@@ -90,11 +91,27 @@ def test_monitor_get_snapshot_returns_valid_snapshot():
 
     # RAM — LC-1 completes the frame contract: totals + used-percent now ride
     # on the snapshot so the TUI needs no second get_ram_metrics_dict() call.
-    assert snapshot.ram_used_gb > 0
-    assert snapshot.ram_total_gb > 0
-    assert snapshot.ram_used_gb <= snapshot.ram_total_gb + 0.5
+    assert snapshot.ram_used_bytes > 0
+    assert snapshot.ram_total_bytes > 0
+    assert snapshot.ram_used_bytes <= snapshot.ram_total_bytes
     assert 0 <= snapshot.ram_used_percent <= 100
-    assert snapshot.swap_total_gb >= 0
+    assert snapshot.swap_total_bytes >= 0
+
+    # Memory crosses the API as exact bytes, so ram_total_bytes must equal
+    # hw.memsize outright — no rounding tolerance needed. This is the assertion
+    # that catches a unit regression: the old *_gb fields divided by 2^30 while
+    # naming themselves decimal GB, so anyone dividing memory against the
+    # genuinely decimal bandwidth_gbps silently picked up a 7.4% error.
+    memsize_bytes = get_sysctl_int("hw.memsize")
+    assert memsize_bytes and memsize_bytes > 0
+    assert snapshot.ram_total_bytes == memsize_bytes
+
+    # The *_gb fields are a deprecated rounded-GiB view of the byte fields,
+    # retained until 2.0.0. They must stay consistent with their source to
+    # within the 0.1 GiB rounding step.
+    assert abs(snapshot.ram_used_gb - snapshot.ram_used_bytes / 1024**3) <= 0.05
+    assert abs(snapshot.ram_total_gb - snapshot.ram_total_bytes / 1024**3) <= 0.05
+    assert abs(snapshot.swap_used_gb - snapshot.swap_used_bytes / 1024**3) <= 0.05
 
     # ANE utilization is a data point (L2), computed from ane_watts against the
     # SoC's ANE reference power — consistent with the raw watts it derives from.

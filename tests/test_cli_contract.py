@@ -19,7 +19,7 @@ def test_cli_help_runs_and_exposes_show_cores_as_flag():
     assert "--proc-filter PROC_FILTER" in result.stdout
     assert "--alert-bw-sat-percent ALERT_BW_SAT_PERCENT" in result.stdout
     assert "--alert-package-power-percent ALERT_PACKAGE_POWER_PERCENT" in result.stdout
-    assert "--alert-swap-rise-gb ALERT_SWAP_RISE_GB" in result.stdout
+    assert "--alert-swap-rise-gib ALERT_SWAP_RISE_GIB" in result.stdout
     assert "--alert-sustain-samples ALERT_SUSTAIN_SAMPLES" in result.stdout
     assert "--subsamples SUBSAMPLES" in result.stdout
     assert "--chart-glyph {dots,block}" in result.stdout
@@ -29,6 +29,20 @@ def test_cli_help_runs_and_exposes_show_cores_as_flag():
     # the supported value set + default is documented for all args.
     assert "(default:" in result.stdout
     assert "(default: 2)" in result.stdout  # --interval
+
+
+def test_cli_accepts_deprecated_swap_rise_gb_alias():
+    # --alert-swap-rise-gb was renamed to --alert-swap-rise-gib (the threshold was
+    # always compared against GiB, so the old name was a misnomer, not a different
+    # unit). The old spelling must keep parsing to the same destination until 2.0.0
+    # so existing invocations and scripts do not break.
+    parser = build_parser()
+
+    canonical = parser.parse_args(["--alert-swap-rise-gib", "1.5"])
+    legacy = parser.parse_args(["--alert-swap-rise-gb", "1.5"])
+
+    assert canonical.alert_swap_rise_gib == 1.5
+    assert legacy.alert_swap_rise_gib == 1.5
 
 
 def test_cli_rejects_legacy_show_cores_value_form():

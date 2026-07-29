@@ -89,9 +89,11 @@ class AlertFrame:
     """One frame's alert/throttle/energy verdicts (L2 data point).
 
     A small frozen bundle the presentation layer formats into tokens; every
-    field is a derived judgment, not raw hardware data. `swap_rise_gb` is the
-    swap growth over the sustain window (surfaced even when below the alert
-    threshold); `session_energy_j` is the cumulative package energy integrated
+    field is a derived judgment, not raw hardware data. `swap_rise_gib` is the
+    swap growth over the sustain window in GiB (surfaced even when below the
+    alert threshold — the underlying snapshot fields are raw bytes; GiB is the
+    unit the user-facing threshold is expressed in);
+    `session_energy_j` is the cumulative package energy integrated
     since the engine was constructed. `effective_max_bw`/`effective_max_package_w`
     are the ratcheted ceilings the chart and the bw/pkg alerts both normalise
     against this frame — see `_Ratchet`.
@@ -103,7 +105,7 @@ class AlertFrame:
     bw_alert: bool
     pkg_alert: bool
     swap_alert: bool
-    swap_rise_gb: float
+    swap_rise_gib: float
     session_energy_j: float
     effective_max_bw: float
     effective_max_package_w: float
@@ -154,7 +156,7 @@ class AlertEngine:
         bw_sat_percent,
         pkg_power_percent,
         throttle_freq_percent,
-        swap_rise_gb,
+        swap_rise_gib,
         sustain_samples,
         max_total_bw,
         package_ref_w,
@@ -162,7 +164,7 @@ class AlertEngine:
         self._bw_sat_percent = bw_sat_percent
         self._pkg_power_percent = pkg_power_percent
         self._throttle_freq_percent = throttle_freq_percent
-        self._swap_rise_gb = swap_rise_gb
+        self._swap_rise_gib = swap_rise_gib
         self._sustain_samples = max(1, int(sustain_samples))
         self._bw_ceiling = _Ratchet(max_total_bw)
         self._pkg_ceiling = _Ratchet(package_ref_w)
@@ -229,17 +231,19 @@ class AlertEngine:
         gpu_throttle = self._throttle_gpu_counter >= self._sustain_samples
 
         # Swap rise over the sustain window (oldest vs. newest retained sample).
-        self._swap_hist.append(max(0.0, float(s.swap_used_gb or 0.0)))
+        # From the exact byte counts, not the rounded *_gb fields: a 0.1 GiB
+        # threshold against values quantized to 0.1 GiB would trip on rounding.
+        self._swap_hist.append(max(0.0, (s.swap_used_bytes or 0) / 1024**3))
         swap_rise = (
             max(0.0, self._swap_hist[-1] - self._swap_hist[0])
             if len(self._swap_hist) > 1
             else 0.0
         )
-        swap_total = float(s.swap_total_gb or 0.0)
+        swap_total = (s.swap_total_bytes or 0) / 1024**3
         swap_alert = (
             swap_total >= 0.1
             and len(self._swap_hist) >= self._sustain_samples + 1
-            and swap_rise >= self._swap_rise_gb
+            and swap_rise >= self._swap_rise_gib
         )
 
         # Cumulative session energy: integrate package watts over the real
@@ -258,7 +262,7 @@ class AlertEngine:
             bw_alert=bw_alert,
             pkg_alert=pkg_alert,
             swap_alert=swap_alert,
-            swap_rise_gb=swap_rise,
+            swap_rise_gib=swap_rise,
             session_energy_j=self._session_joules,
             effective_max_bw=self._bw_ceiling.value,
             effective_max_package_w=self._pkg_ceiling.value,

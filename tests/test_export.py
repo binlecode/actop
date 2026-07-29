@@ -40,8 +40,15 @@ def _sample_snapshot(
         ecpu_freq_mhz=1200,
         pcpu_freq_mhz=3200,
         gpu_freq_mhz=1296,
-        ram_used_gb=18.2,
-        swap_used_gb=0.0,
+        # Bytes are canonical; *_gb are the deprecated rounded views. Values are
+        # deliberately NOT consistent with each other, so a gauge wired to the
+        # wrong field is caught rather than passing by luck.
+        ram_used_bytes=19_542_236_365,
+        ram_total_bytes=137_438_953_472,
+        swap_used_bytes=1_610_612_736,
+        swap_total_bytes=2_147_483_648,
+        ram_used_gb=17.4,
+        swap_used_gb=1.4,
         thermal_state="Nominal",
         bandwidth_gbps=42.0,
         bandwidth_available=True,
@@ -62,6 +69,14 @@ def test_snapshot_to_json_is_single_line_and_round_trips():
     assert record == snapshot_to_dict(snapshot)
     assert record["cpu_watts"] == 12.5
     assert record["thermal_state"] == "Nominal"
+    # Memory rides the NDJSON record as exact byte counts — no GB-vs-GiB
+    # ambiguity and no rounding loss — alongside the deprecated rounded *_gb
+    # keys. A consumer dividing against the genuinely decimal bandwidth_gbps
+    # can therefore pick its own base explicitly.
+    assert record["ram_used_bytes"] == 19_542_236_365
+    assert record["ram_total_bytes"] == 137_438_953_472
+    assert record["swap_used_bytes"] == 1_610_612_736
+    assert record["ram_used_gb"] == 17.4
     # Per-core lists must survive serialization for downstream consumers.
     assert record["p_cores"][0]["index"] == 4
     assert record["p_cores"][0]["active_pct"] == 80
@@ -78,6 +93,15 @@ def test_prometheus_exposition_is_well_formed():
     assert "actop_cpu_power_watts 12.5" in lines
     assert "actop_package_power_watts 16" in lines
     assert "actop_pcpu_utilization_percent 55.5" in lines
+
+    # Memory is exposed in base units (bytes), per Prometheus naming convention,
+    # with the deprecated gigabytes gauges kept alongside so existing scrape
+    # configs keep working until 2.0.0. Each must read its own field, not the
+    # other's — the fixture's byte and *_gb values disagree on purpose.
+    assert "actop_ram_used_bytes 19542236365" in lines
+    assert "actop_ram_total_bytes 137438953472" in lines
+    assert "actop_swap_used_bytes 1610612736" in lines
+    assert "actop_ram_used_gigabytes 17.4" in lines
 
     # Per-core gauges are labelled by cluster + core index.
     assert 'actop_core_utilization_percent{cluster="P",core="4"} 80' in lines
