@@ -5,6 +5,7 @@ import threading
 import time
 
 from .analytics import attribute_power
+from .gpu_registry import GPUPerfStats, get_gpu_perf_stats
 from .models import _EMPTY_RESIDENCY, CoreSample, ProcessSample, SystemSnapshot
 from .power_scaling import clamp_percent
 from .sampler import SampleResult, create_sampler
@@ -58,8 +59,13 @@ def _sample_to_snapshot(
     interval_s: float,
     ane_max_w: float = 8.0,
     proc_dict: dict | None = None,
+    gpu_perf: GPUPerfStats | None = None,
 ) -> SystemSnapshot:
-    """Map raw SampleResult + RAM dict to a clean SystemSnapshot."""
+    """Map raw SampleResult + RAM dict to a clean SystemSnapshot.
+
+    `gpu_perf` carries the driver's IOAccelerator utilization read; None means
+    it was not collected, which is treated the same as unavailable.
+    """
     cm = sample.cpu_metrics
     gm = sample.gpu_metrics
     bw = sample.bandwidth_metrics
@@ -71,6 +77,17 @@ def _sample_to_snapshot(
     gpu_watts = cm["gpu_W"] / interval_s
     ane_watts = cm["ane_W"] / interval_s
     ane_util_pct = clamp_percent(ane_watts / ane_max_w * 100) if ane_max_w > 0 else 0.0
+    perf = gpu_perf if gpu_perf is not None else GPUPerfStats()
+    # Fall back to the driver's utilization only when residency is unusable —
+    # i.e. the DVFS table was not classified, so gm["max_freq_MHz"] is 0 and
+    # gpu_util_pct/gpu_freq_mhz are meaningless. Source selection is an
+    # adapter-level concern (which acquisition path to trust), not an L2 domain
+    # judgment, so it lives here rather than in analytics.py.
+    gpu_util = float(gm["active"])
+    gpu_util_source = "residency"
+    if int(gm.get("max_freq_MHz", 0)) <= 0 and perf.available:
+        gpu_util = float(perf.device_pct)
+        gpu_util_source = "ioaccelerator"
     processes = (
         _processes_to_samples(proc_dict, cpu_watts, gpu_watts)
         if proc_dict is not None
@@ -100,7 +117,12 @@ def _sample_to_snapshot(
         package_watts=cm["package_W"] / interval_s,
         ecpu_util_pct=float(cm["E-Cluster_active"]),
         pcpu_util_pct=float(cm["P-Cluster_active"]),
-        gpu_util_pct=float(gm["active"]),
+        gpu_util_pct=gpu_util,
+        gpu_util_source=gpu_util_source,
+        gpu_device_pct=perf.device_pct,
+        gpu_renderer_pct=perf.renderer_pct,
+        gpu_tiler_pct=perf.tiler_pct,
+        gpu_perf_stats_available=perf.available,
         cpu_temp_c=sample.cpu_temp_c,
         gpu_temp_c=sample.gpu_temp_c,
         ecpu_freq_mhz=int(cm["E-Cluster_freq_MHz"]),
@@ -198,7 +220,12 @@ class Monitor:
             else None
         )
         return _sample_to_snapshot(
-            sample, ram, self._interval_s, self._ane_max_w, proc_dict
+            sample,
+            ram,
+            self._interval_s,
+            self._ane_max_w,
+            proc_dict,
+            get_gpu_perf_stats(),
         )
 
     def close(self):

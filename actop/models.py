@@ -107,6 +107,19 @@ class SystemSnapshot:
     # (soc_profiles.ane_max_w), computed in L2 so it is a data point rather
     # than a render-time derivation.
     ane_util_pct: float = 0.0
+    # GPU utilization from IOAccelerator PerformanceStatistics (driver point
+    # reads, no interval integration — see docs/DESIGN-system.md §3.8).
+    # gpu_util_pct above remains the interval-integrated primary metric.
+    # Renderer vs Tiler separates shader/compute work from geometry work: an
+    # MLX/CoreML compute frame shows Renderer high with Tiler near zero.
+    gpu_device_pct: float = 0.0
+    gpu_renderer_pct: float = 0.0
+    gpu_tiler_pct: float = 0.0
+    gpu_perf_stats_available: bool = False
+    # Provenance of gpu_util_pct: "residency" (IOReport, preferred) or
+    # "ioaccelerator" (fallback used when the GPU DVFS table could not be
+    # classified, so residency and gpu_freq_mhz are meaningless).
+    gpu_util_source: str = "residency"
     # Fan tachometer, one entry per fan; empty + fan_available=False on
     # fanless Macs (mirrors the bandwidth_available hide-row pattern above).
     # `fans` carries structured current/max readings; `fan_rpms` is a derived

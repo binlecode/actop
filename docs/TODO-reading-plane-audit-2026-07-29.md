@@ -29,7 +29,7 @@ section, in the same PR.
 | B | §4 unresolvable-state consistency + §6 `bandwidth_available` | patch | medium | latent today |
 | C | §5 rounding (`round()` except apportionment) | patch | medium | every % ±1 |
 | D | §3 step 1 — additive `*_gib` fields | **minor** | low | new fields + `GiB` label |
-| E | §8 GPU `IOAccelerator` fallback + Renderer/Tiler breakdown | **minor** | medium | new panel rows |
+| E | §8 GPU `IOAccelerator` fallback + Renderer/Tiler breakdown — **shipped v1.6.0** | **minor** | medium | new panel rows |
 | F | §3 step 2 — remove deprecated `*_gb` | **major** | breaking | field removal |
 
 PR F is deliberately deferred; it is the only breaking change and should ride a real 2.0.0.
@@ -548,6 +548,19 @@ sampling monitor. Adopt it as **fallback + breakdown** only (§8).
 ---
 
 ## 8. Adopt `IOAccelerator` PerformanceStatistics — fallback + Renderer/Tiler breakdown
+
+**Status: SHIPPED in v1.6.0.** As-built design is documented in `docs/DESIGN-system.md` §3.8;
+the plan below is retained as the originating spec. Two deviations from it, both deliberate:
+
+* **No service caching.** §8.3 called for caching the matched `io_object_t` the way `SMCReader`
+  does. Measured cost is **0.025 ms/call** — 33× cheaper than the `get_gpu_time_by_pid()` walk
+  already running every frame — so the reader stays a stateless function matching its
+  neighbour in the same module. Caching would have added a stale-handle failure mode to buy
+  nothing.
+* **The fallback branch has no automated test.** §8.5 asked for one. It is unreachable on
+  M1–M4 (every shipped chip's DVFS table classifies), and forcing it would require a mock,
+  which the testing mandate forbids. Verified by inspection; the provenance field
+  (`gpu_util_source`) is asserted on the reachable branch instead.
 
 **Severity:** enhancement (robustness + a metric actop cannot currently express).
 

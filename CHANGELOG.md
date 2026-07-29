@@ -6,6 +6,84 @@ This project follows a Keep a Changelog-style format and uses version tags for r
 
 ## [Unreleased]
 
+## [1.6.0] - 2026-07-29
+
+Reading-plane audit §8: adopt the GPU driver's `IOAccelerator`
+`PerformanceStatistics` as a second, independent GPU utilization source.
+Verified on live hardware (M4 Max / Darwin 25.5.0). As-built design in
+`docs/DESIGN-system.md` §3.8.
+
+### Added
+- **Renderer/Tiler GPU breakdown — a metric actop could not previously
+  express.** `Renderer Utilization %` (shader/compute work) and `Tiler
+  Utilization %` (geometry work) are read off the accelerator's own
+  `PerformanceStatistics` dict via IOKit ctypes. For local-inference profiling
+  this separates an MLX/CoreML compute frame (Renderer high, Tiler ≈ 0) from a
+  render-bound one — a split IOReport residency cannot report at all, because
+  the GPU exposes a single unified `GPUPH` channel.
+
+  New `SystemSnapshot` fields `gpu_device_pct` / `gpu_renderer_pct` /
+  `gpu_tiler_pct` / `gpu_perf_stats_available` / `gpu_util_source`; new
+  `actop_gpu_device_utilization_percent` /
+  `actop_gpu_renderer_utilization_percent` /
+  `actop_gpu_tiler_utilization_percent` Prometheus gauges; all five fields in
+  NDJSON. `gpu_util_source` is a string and so is deliberately **not** a
+  Prometheus gauge — emitting it as one would produce a non-numeric value line
+  and break the whole scrape.
+- **New public L1 reader** `gpu_registry.get_gpu_perf_stats()`, returning a
+  `GPUPerfStats(device_pct, renderer_pct, tiler_pct, available)` namedtuple.
+  Costs 0.025 ms/call measured — 33× less than the per-process GPU-time walk
+  already running each frame — so it needs no caching and adds no measurable
+  idle-CPU load. `ioreg` is deliberately not shelled out to.
+- **A `Rend N% · Tiler N%` row in the `GPU · ANE` TUI section**, hidden entirely
+  when the accelerator reports no statistics (the same hide-row contract as Mem
+  BW and Fan) rather than showing a phantom `0/0`. `Device Utilization %` is
+  deliberately kept out of the TUI: the GPU row already carries the headline
+  percent, and a second, differently-measured whole-GPU number beside it reads
+  as a contradiction. It remains available via the API and both exports.
+
+### Changed
+- **GPU utilization now degrades to the driver's reading instead of silently to
+  zero.** `gpu_util_pct` and `gpu_freq_mhz` both depend on the GPU DVFS table
+  being classified by `_classify_dvfs_tables`; when that fails there is no
+  ceiling (`gpu_max_freq_mhz == 0`) and both values were meaningless but
+  indistinguishable from a genuinely idle GPU. `api._sample_to_snapshot` now
+  falls back to `Device Utilization %` in exactly that case and records which
+  path was used in `gpu_util_source` (`"residency"` | `"ioaccelerator"`). The
+  TUI renders `GPU N% (drv)` and drops the unmeasured `@NMHz` when the fallback
+  is active.
+
+  IOReport residency remains the primary metric on every recognized chip.
+  Measured side-by-side, the two diverge hard per-sample (`actop=40% @1232MHz`
+  vs `Device=91%` in one frame) because residency is integrated over the sample
+  interval while the driver's number is an instantaneous point read; swapping
+  them wholesale would be a regression in sampling semantics for a sampling
+  monitor. The fallback branch is unreachable on M1–M4, so it is verified by
+  inspection rather than by a test — forcing it would need a mock, which the
+  testing contract forbids.
+
+### Fixed
+- **Every letter key went dead under Caps Lock, which broke the TUI outright for
+  CJK input-source users.** Caps Lock and Shift deliver the uppercase character,
+  and Textual names that key `"Q"`, not `"q"` — so the lowercase-only bindings
+  simply never matched and `q`/`p`/`s`/`g`/`l`/`c`/`t` all stopped responding
+  with no feedback. This is not a fringe case: with a Chinese input source
+  selected, Caps Lock is *how* macOS forces direct ASCII, so uppercase is the
+  normal way these keys arrive in that mode.
+
+  Each letter action now carries a hidden uppercase alias, derived from a single
+  `_LETTER_BINDINGS` list so the two cannot drift, and the footer still shows one
+  row per action rather than fourteen. `check_action` gates by action name, so
+  the aliases inherit its gating unchanged. The help overlay's own close keys get
+  the same treatment.
+
+  Two consequences worth knowing. **`Shift`+`q` now quits too** — a terminal
+  delivers the same `Q` for Shift as for Caps Lock, so the two cannot be told
+  apart and aliasing one aliases both. And a **CJK input source with Caps Lock
+  off still will not respond**: the IME consumes the letters before they ever
+  reach the process, which no in-app binding can reach. Caps Lock on — the case
+  this fixes — is the documented way to get direct ASCII in that mode.
+
 ## [1.5.0] - 2026-07-29
 
 Reading-plane audit remediation (`docs/TODO-reading-plane-audit-2026-07-29.md`
