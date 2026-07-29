@@ -52,6 +52,26 @@ def test_monitor_get_snapshot_returns_valid_snapshot():
     assert 0 <= snapshot.pcpu_util_pct <= 100
     assert 0 <= snapshot.gpu_util_pct <= 100
 
+    # active% and the residency distribution are two views of the same residency
+    # data and must not contradict: active ≈ 100 - idle, within integer rounding
+    # and the largest-remainder redistribution (≤2 points). A ≥3-point gap means
+    # the two consumers of _resolve_state_freq have diverged on how they classify
+    # a state — e.g. one counting an unresolvable state as active while the other
+    # buckets it as idle.
+    for active_pct, residency in (
+        (snapshot.ecpu_util_pct, snapshot.ecpu_residency_pct),
+        (snapshot.pcpu_util_pct, snapshot.pcpu_residency_pct),
+        (snapshot.gpu_util_pct, snapshot.gpu_residency_pct),
+    ):
+        assert abs(active_pct - (100 - residency["idle"])) <= 2
+
+    # Bandwidth availability must mean "we have a real reading", not merely "a
+    # DCS channel exists": a present-but-silent channel reporting available with
+    # 0.0 GB/s is the misleading zero the hide-row logic exists to prevent. This
+    # also cross-checks the bucket-name parse against raw residency — if Apple
+    # renamed the buckets, gbps would read 0 while the channel still had time.
+    assert snapshot.bandwidth_available == (snapshot.bandwidth_gbps > 0)
+
     # Frequencies — must be positive on real hardware
     assert snapshot.ecpu_freq_mhz > 0
     assert snapshot.pcpu_freq_mhz > 0

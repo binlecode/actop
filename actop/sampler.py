@@ -332,9 +332,13 @@ class IOReportSampler:
         }
 
         total_gbps = _compute_bandwidth_gbps(dram_bw_channels)
+        total_residency = sum(ns for ch in dram_bw_channels for _name, ns in ch)
         bandwidth_metrics = {
             "total_gbps": total_gbps,
-            "_available": bool(dram_bw_channels),
+            # Available only when a channel exists AND carried residency: a
+            # present-but-silent channel would otherwise surface a misleading
+            # 0.0 GB/s instead of hiding the row.
+            "_available": bool(dram_bw_channels) and total_residency > 0,
         }
 
         return SampleResult(
@@ -470,7 +474,10 @@ def _compute_residency_metrics(residencies, freq_table=None):
             continue
 
         freq_mhz = _resolve_state_freq(name, freq_table)
-        if freq_mhz is None:
+        if freq_mhz is None or freq_mhz <= 0:
+            # Unresolvable, or a real 0 MHz state — neither is "active". Matches
+            # _compute_residency_distribution, which buckets both as idle; the
+            # two are views of the same residency data and must not disagree.
             continue
 
         active_ns += ns
@@ -550,7 +557,11 @@ _P_PATTERN = re.compile(r"^P(\d+)$")
 def _resolve_state_freq(name, freq_table):
     """Resolve a P-state name to a frequency in MHz.
 
-    Returns frequency as int, or None if the state is unrecognized.
+    Returns the frequency as an int, or None when the state is unresolvable —
+    either an unrecognized name or a V{n}P{m}/P{n} index past the end of the
+    DVFS table (which happens on a chip exposing more states than its table
+    describes). None is the single "cannot resolve" outcome; callers must treat
+    a *resolved* 0 MHz as idle rather than as an active state.
     """
     # Try plain integer (e.g. "600" for 600 MHz)
     try:
@@ -564,7 +575,7 @@ def _resolve_state_freq(name, freq_table):
         idx = int(m.group(1))
         if 0 <= idx < len(freq_table):
             return freq_table[idx]
-        return 0
+        return None  # out of range is unresolvable, not 0 MHz
 
     # Try P{n} pattern (GPU) — n is the index into the freq table
     m = _P_PATTERN.match(name)
@@ -572,7 +583,7 @@ def _resolve_state_freq(name, freq_table):
         idx = int(m.group(1))
         if 0 <= idx < len(freq_table):
             return freq_table[idx]
-        return 0
+        return None  # out of range is unresolvable, not 0 MHz
 
     return None
 
