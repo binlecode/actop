@@ -486,8 +486,8 @@ def _compute_residency_metrics(residencies, freq_table=None):
     if total_ns <= 0 or active_ns <= 0:
         return (0, 0)
 
-    avg_freq = int(weighted_freq_sum / active_ns)
-    active_pct = int(active_ns / total_ns * 100)
+    avg_freq = round(weighted_freq_sum / active_ns)
+    active_pct = round(active_ns / total_ns * 100)
     return (avg_freq, active_pct)
 
 
@@ -542,6 +542,11 @@ def _compute_residency_distribution(residencies, freq_table=None):
 def _largest_remainder_percentages(bucket_ns, total_ns, order):
     """Round bucket_ns/total_ns shares to ints that sum exactly to 100."""
     raw = {name: (bucket_ns[name] / total_ns) * 100.0 for name in order}
+    # int() here is Hamilton's apportionment, NOT rounding: floor every share,
+    # then hand the leftover to the largest fractional parts so the buckets sum
+    # to exactly 100. Do not "fix" this to round() along with the percentage
+    # sites elsewhere — remainder could go negative and fracs[:remainder] would
+    # silently distribute nothing, breaking the sum-to-100 guarantee.
     floors = {name: int(raw[name]) for name in order}
     remainder = 100 - sum(floors.values())
     fracs = sorted(order, key=lambda n: raw[n] - floors[n], reverse=True)

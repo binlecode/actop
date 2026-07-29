@@ -4,7 +4,14 @@ DEFAULT_AUTO_MULTIPLIER = 1.25
 
 
 def clamp_percent(percent_value):
-    return max(0, min(100, int(percent_value)))
+    """Clamp a percentage into [0, 100] as an int, rounding rather than flooring.
+
+    round() is the unbiased estimator: floor has an expected error of -0.5 units
+    (max 1.0) for a uniform fractional part, which systematically under-reported
+    every gauge and displayed 99.9% as 99%. Python's round-half-to-even is also
+    unbiased on ties, unlike round-half-up.
+    """
+    return max(0, min(100, round(percent_value)))
 
 
 def resolve_power_denominator(

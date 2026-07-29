@@ -33,12 +33,12 @@ def get_ram_metrics_dict():
     used_bytes = vm.total - vm.available
     free_bytes = vm.available
     used_percent = (
-        min(100, int(used_bytes / total_bytes * 100)) if total_bytes > 0 else 0
+        min(100, round(used_bytes / total_bytes * 100)) if total_bytes > 0 else 0
     )
 
     swap = get_native_swap()
     if swap.total > 0:
-        swap_used_percent = int(swap.used / swap.total * 100)
+        swap_used_percent = round(swap.used / swap.total * 100)
     else:
         swap_used_percent = None
 

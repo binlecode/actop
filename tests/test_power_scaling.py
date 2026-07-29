@@ -41,7 +41,7 @@ def test_floor_prevents_tiny_denominator_blowups():
     assert pct == 50
 
 
-def test_percent_is_clamped_to_0_100():
+def test_percent_is_rounded_and_clamped_to_0_100():
     over = power_to_percent(
         power_w=100.0, mode="profile", profile_ref_w=10.0, peak_w=0.0, floor_w=1.0
     )
@@ -51,6 +51,23 @@ def test_percent_is_clamped_to_0_100():
         power_w=None, mode="profile", profile_ref_w=10.0, peak_w=0.0, floor_w=1.0
     )
     assert none_power == 0
+
+    negative = power_to_percent(
+        power_w=-1.0, mode="profile", profile_ref_w=10.0, peak_w=0.0, floor_w=1.0
+    )
+    assert negative == 0
+
+    # Percentages round rather than truncate: flooring biased every gauge down by
+    # an expected half point and rendered a near-saturated 99.6% as 99%.
+    nearly_full = power_to_percent(
+        power_w=9.96, mode="profile", profile_ref_w=10.0, peak_w=0.0, floor_w=1.0
+    )
+    assert nearly_full == 100
+
+    nearly_zero = power_to_percent(
+        power_w=0.04, mode="profile", profile_ref_w=10.0, peak_w=0.0, floor_w=1.0
+    )
+    assert nearly_zero == 0
 
 
 def test_non_positive_denominator_yields_zero():
