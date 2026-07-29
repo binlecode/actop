@@ -23,7 +23,7 @@ from actop.models import CoreSample, SystemSnapshot
 
 
 def _sample_snapshot(
-    fan_rpms: list = None, fan_available: bool = False
+    fan_rpms: list | None = None, fan_available: bool = False
 ) -> SystemSnapshot:
     fan_rpms = [] if fan_rpms is None else fan_rpms
     return SystemSnapshot(

@@ -9,15 +9,16 @@ has a single, assignable layer.
 
 import re
 import time
+
 from .gpu_registry import get_gpu_time_by_pid
 from .native_sys import (
     get_gpu_cores_native,
-    get_sysctl_int,
-    get_sysctl_string,
+    get_native_processes,
     get_native_ram,
     get_native_swap,
-    get_native_processes,
     get_process_cmdline,
+    get_sysctl_int,
+    get_sysctl_string,
 )
 from .soc_profiles import get_soc_profile
 

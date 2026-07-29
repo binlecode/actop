@@ -4,8 +4,8 @@ import os
 import re
 import threading
 
-from textual.app import App, ComposeResult
 from textual import work
+from textual.app import App, ComposeResult
 from textual.binding import Binding
 from textual.containers import Horizontal, Vertical
 from textual.screen import ModalScreen
@@ -491,13 +491,13 @@ class ActopApp(App):
                 pwr_cell = "–"
             else:
                 shown_pwr += attributed_w
-                pwr_cell = "{:.2f}W".format(attributed_w)
+                pwr_cell = f"{attributed_w:.2f}W"
             table.add_row(
                 str(proc.pid),
                 _process_display_name(proc.command, max_len=28),
-                "{:.1f}".format(proc.cpu_percent or 0.0),
+                f"{proc.cpu_percent or 0.0:.1f}",
                 pwr_cell,
-                "{:.1f}".format(proc.rss_mb or 0.0),
+                f"{proc.rss_mb or 0.0:.1f}",
                 str(proc.num_threads),
             )
 
@@ -506,10 +506,6 @@ class ActopApp(App):
         # construction; the shown subset is a lower bound. Flagged an
         # estimate (P/E-core skew, CPU+GPU — not ANE).
         if cpu_watts > 0 or gpu_watts > 0:
-            table.border_subtitle = (
-                "Σ shown {:.1f}W / pkg CPU+GPU {:.1f}W · est CPU+GPU time share".format(
-                    shown_pwr, cpu_watts + gpu_watts
-                )
-            )
+            table.border_subtitle = f"Σ shown {shown_pwr:.1f}W / pkg CPU+GPU {cpu_watts + gpu_watts:.1f}W · est CPU+GPU time share"
         else:
             table.border_subtitle = ""

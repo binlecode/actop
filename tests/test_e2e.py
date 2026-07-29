@@ -24,7 +24,7 @@ def test_actop_runs_and_handles_sigint():
         process.send_signal(signal.SIGINT)
 
         # Wait for it to quit gracefully
-        stdout, stderr = process.communicate(timeout=3)
+        _stdout, stderr = process.communicate(timeout=3)
 
         # Textual manages its own lifecycle: exits 0 on clean quit, or 130 if
         # the outer main() catches KeyboardInterrupt first.
@@ -36,7 +36,7 @@ def test_actop_runs_and_handles_sigint():
 
     except subprocess.TimeoutExpired:
         process.kill()
-        stdout, stderr = process.communicate()
+        _stdout, stderr = process.communicate()
         assert False, (
             f"actop did not quit within timeout after SIGINT. stderr: {stderr}"
         )

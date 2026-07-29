@@ -415,7 +415,7 @@ def _is_int_cpu_metric(key):
         "P-Cluster_freq_MHz",
     ):
         return True
-    return key.endswith("_active") or key.endswith("_freq_MHz")
+    return key.endswith(("_active", "_freq_MHz"))
 
 
 def _parse_core_index(channel_name, prefix):
@@ -509,7 +509,7 @@ def _compute_residency_distribution(residencies, freq_table=None):
         freq_table = []
     max_freq = max(freq_table) if freq_table else 0
 
-    bucket_ns = {name: 0 for name in _RESIDENCY_BUCKETS}
+    bucket_ns = dict.fromkeys(_RESIDENCY_BUCKETS, 0)
     total_ns = 0
     for name, ns in residencies:
         total_ns += ns

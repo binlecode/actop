@@ -141,7 +141,7 @@ def _validate_proc_filter(value):
         re.compile(value, re.IGNORECASE)
     except re.error as error:
         raise argparse.ArgumentTypeError(
-            "invalid --proc-filter regex: {}".format(error)
+            f"invalid --proc-filter regex: {error}"
         ) from error
     return value
 

@@ -1,6 +1,6 @@
-import time
 import os
 import subprocess
+import time
 
 start = time.time()
 for _ in range(100):

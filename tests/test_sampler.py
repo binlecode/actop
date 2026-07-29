@@ -68,7 +68,7 @@ def test_sampler_sample_returns_valid_metrics():
             "e_core",
             "p_core",
         ]:
-            assert key in cpu, "Missing CPU metric key: {}".format(key)
+            assert key in cpu, f"Missing CPU metric key: {key}"
         assert isinstance(cpu["e_core"], list)
         assert isinstance(cpu["p_core"], list)
         assert cpu["cpu_W"] >= 0

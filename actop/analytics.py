@@ -173,7 +173,7 @@ class AlertEngine:
         self._throttle_gpu_counter = 0
         # One more slot than the sustain window so a rise across the full window
         # is measurable (oldest vs newest); mirrors the retired widget deque.
-        self._swap_hist: deque = deque([], maxlen=max(2, self._sustain_samples + 1))
+        self._swap_hist: deque = deque(maxlen=max(2, self._sustain_samples + 1))
         self._session_joules = 0.0
         self._last_timestamp = None
 

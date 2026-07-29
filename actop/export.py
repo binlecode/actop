@@ -52,8 +52,8 @@ def snapshot_to_prometheus(snapshot: SystemSnapshot) -> str:
     for field, suffix in _PROM_GAUGES:
         name = "actop_" + suffix
         value = float(getattr(snapshot, field))
-        lines.append("# TYPE {} gauge".format(name))
-        lines.append("{} {}".format(name, _fmt_number(value)))
+        lines.append(f"# TYPE {name} gauge")
+        lines.append(f"{name} {_fmt_number(value)}")
 
     # Per-fan tachometer as a labelled gauge; omitted entirely on fanless Macs
     # (empty fan_rpms) rather than fabricating a phantom reading.
@@ -61,9 +61,7 @@ def snapshot_to_prometheus(snapshot: SystemSnapshot) -> str:
         lines.append("# TYPE actop_fan_speed_rpm gauge")
         for idx, rpm in enumerate(snapshot.fan_rpms):
             lines.append(
-                'actop_fan_speed_rpm{{fan="{}"}} {}'.format(
-                    idx, _fmt_number(float(rpm))
-                )
+                f'actop_fan_speed_rpm{{fan="{idx}"}} {_fmt_number(float(rpm))}'
             )
 
     # Per-core utilization/frequency as labelled gauges.
@@ -71,16 +69,12 @@ def snapshot_to_prometheus(snapshot: SystemSnapshot) -> str:
     lines.append("# TYPE actop_core_frequency_mhz gauge")
     for cluster, cores in (("E", snapshot.e_cores), ("P", snapshot.p_cores)):
         for core in cores:
-            labels = 'cluster="{}",core="{}"'.format(cluster, core.index)
+            labels = f'cluster="{cluster}",core="{core.index}"'
             lines.append(
-                "actop_core_utilization_percent{{{}}} {}".format(
-                    labels, _fmt_number(float(core.active_pct))
-                )
+                f"actop_core_utilization_percent{{{labels}}} {_fmt_number(float(core.active_pct))}"
             )
             lines.append(
-                "actop_core_frequency_mhz{{{}}} {}".format(
-                    labels, _fmt_number(float(core.freq_mhz))
-                )
+                f"actop_core_frequency_mhz{{{labels}}} {_fmt_number(float(core.freq_mhz))}"
             )
     return "\n".join(lines) + "\n"
 
@@ -122,7 +116,7 @@ def _make_prometheus_handler(read_latest):
     """Build a BaseHTTPRequestHandler serving the latest snapshot at /metrics."""
 
     class _Handler(BaseHTTPRequestHandler):
-        def do_GET(self):  # noqa: N802 (stdlib-mandated name)
+        def do_GET(self):
             if self.path.rstrip("/") not in ("", "/metrics"):
                 self.send_error(404, "not found")
                 return
@@ -174,7 +168,7 @@ def serve_prometheus(
     handler = _make_prometheus_handler(_read_latest)
     server = ThreadingHTTPServer((host, port), handler)
     print(
-        "actop: serving Prometheus metrics on http://{}:{}/metrics".format(host, port),
+        f"actop: serving Prometheus metrics on http://{host}:{port}/metrics",
         file=sys.stderr,
         flush=True,
     )

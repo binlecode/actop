@@ -122,6 +122,7 @@ Back-edge examples that ARE violations: `ioreport`/`smc`/`sampler` importing `tu
    ROOT = Path(sys.argv[1]) if len(sys.argv) > 1 else Path("actop")
    PKG = ROOT.name  # "actop"
 
+
    def is_private(name: str) -> bool:
        # single-underscore only; dunders (__version__, __init__, __all__) are public
        return any(
@@ -129,8 +130,10 @@ Back-edge examples that ARE violations: `ioreport`/`smc`/`sampler` importing `tu
            for part in name.split(".")
        )
 
+
    def walk_imports(tree):
        """Yield (scope, node) for each import node, tagging TYPE_CHECKING / LOCAL."""
+
        def _walk(nodes, scope):
            for node in nodes:
                if isinstance(node, ast.If):
@@ -149,7 +152,9 @@ Back-edge examples that ARE violations: `ioreport`/`smc`/`sampler` importing `tu
                for attr in ("body", "orelse", "finalbody", "handlers"):
                    if hasattr(node, attr):
                        yield from _walk(getattr(node, attr) or [], scope)
+
        yield from _walk(tree.body, "MODULE")
+
 
    for py in sorted(ROOT.rglob("*.py")):
        try:

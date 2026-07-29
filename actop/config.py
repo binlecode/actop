@@ -2,7 +2,6 @@
 
 import re
 from dataclasses import dataclass
-from typing import Optional
 
 
 @dataclass(frozen=True)
@@ -42,7 +41,7 @@ class DashboardConfig:
 
     process_display_count: int
     show_processes: bool
-    process_filter_pattern: Optional[object]  # compiled regex or None
+    process_filter_pattern: object | None  # compiled regex or None
 
 
 def create_dashboard_config(args, soc_info_dict):

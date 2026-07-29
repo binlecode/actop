@@ -626,7 +626,7 @@ def get_native_processes() -> list:
                         .strip()
                     )
 
-                vms_bytes, rss_bytes, user_ns, sys_ns = struct.unpack_from(
+                _vms_bytes, rss_bytes, user_ns, sys_ns = struct.unpack_from(
                     "<QQQQ", raw, _OFF_PROC_METRICS
                 )
                 (threads_count,) = struct.unpack_from("<I", raw, _OFF_THREADS)

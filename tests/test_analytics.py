@@ -59,15 +59,15 @@ def _snapshot(
 
 
 def _engine(**overrides) -> AlertEngine:
-    kwargs = dict(
-        bw_sat_percent=85,
-        pkg_power_percent=85,
-        throttle_freq_percent=90,
-        swap_rise_gb=1.0,
-        sustain_samples=3,
-        max_total_bw=200.0,
-        package_ref_w=58.0,
-    )
+    kwargs = {
+        "bw_sat_percent": 85,
+        "pkg_power_percent": 85,
+        "throttle_freq_percent": 90,
+        "swap_rise_gb": 1.0,
+        "sustain_samples": 3,
+        "max_total_bw": 200.0,
+        "package_ref_w": 58.0,
+    }
     kwargs.update(overrides)
     return AlertEngine(**kwargs)
 
@@ -77,12 +77,12 @@ def test_throttle_alert_fires_only_after_sustain_threshold():
     # until the condition has held for sustain_samples consecutive frames:
     # N-1 hot frames → no alert; the Nth → alert.
     engine = _engine(sustain_samples=3)
-    hot = dict(
-        pcpu_util_pct=95.0,
-        pcpu_freq_mhz=2000,  # 62% of 3200 < 90%
-        pcpu_max_freq_mhz=3200,
-        thermal_state="Serious",
-    )
+    hot = {
+        "pcpu_util_pct": 95.0,
+        "pcpu_freq_mhz": 2000,  # 62% of 3200 < 90%
+        "pcpu_max_freq_mhz": 3200,
+        "thermal_state": "Serious",
+    }
     frames = [engine.feed(_snapshot(**hot)) for _ in range(3)]
     assert [f.cpu_throttle for f in frames] == [False, False, True]
 
@@ -91,13 +91,13 @@ def test_throttle_counter_resets_when_condition_clears():
     # A single cool frame in the middle must reset the sustain counter, so the
     # alert does not fire on the very next hot frame.
     engine = _engine(sustain_samples=3)
-    hot = dict(
-        pcpu_util_pct=95.0,
-        pcpu_freq_mhz=2000,
-        pcpu_max_freq_mhz=3200,
-        thermal_state="Serious",
-    )
-    cool = dict(pcpu_util_pct=5.0, pcpu_freq_mhz=3200, thermal_state="Nominal")
+    hot = {
+        "pcpu_util_pct": 95.0,
+        "pcpu_freq_mhz": 2000,
+        "pcpu_max_freq_mhz": 3200,
+        "thermal_state": "Serious",
+    }
+    cool = {"pcpu_util_pct": 5.0, "pcpu_freq_mhz": 3200, "thermal_state": "Nominal"}
     seq = [hot, hot, cool, hot, hot]  # never 3 hot in a row
     frames = [engine.feed(_snapshot(**kw)) for kw in seq]
     assert not any(f.cpu_throttle for f in frames)

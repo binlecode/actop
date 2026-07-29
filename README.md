@@ -149,7 +149,7 @@ from actop import Profiler
 with Profiler() as p:
     run_my_inference()
 
-df = p.to_pandas()   # rows = samples; cols = power/freq/residency/energy
+df = p.to_pandas()  # rows = samples; cols = power/freq/residency/energy
 ```
 
 `to_pandas()` needs the `pandas` extra: `pip install "actop[pandas]"`. For a single point-in-time reading instead of a background collector, use `Monitor().get_snapshot()`.
@@ -161,8 +161,10 @@ from actop import Monitor
 
 with Monitor(include_processes=True) as m:
     snap = m.get_snapshot()
-    for p in snap.processes:            # list[ProcessSample], CPU-sorted
-        print(p.pid, p.command, p.attributed_w)  # attributed_w is None until the first CPU delta
+    for p in snap.processes:  # list[ProcessSample], CPU-sorted
+        print(
+            p.pid, p.command, p.attributed_w
+        )  # attributed_w is None until the first CPU delta
 ```
 
 ## CLI Reference

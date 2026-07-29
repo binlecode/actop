@@ -287,7 +287,7 @@ def _discover_temperature_keys(conn):
         entry = (key_uint32, data_size, data_type)
 
         # Classify by prefix
-        if key_str.startswith("Tp") or key_str.startswith("Te"):
+        if key_str.startswith(("Tp", "Te")):
             cpu_keys.append(entry)
         elif key_str.startswith("Tg"):
             gpu_keys.append(entry)
@@ -330,10 +330,10 @@ def _discover_fan_keys(conn):
 
     fan_keys = []
     for i in range(fan_count):
-        ac = _discover_flt4_key(conn, "F{}Ac".format(i))
+        ac = _discover_flt4_key(conn, f"F{i}Ac")
         if ac is None:
             continue
-        mx = _discover_flt4_key(conn, "F{}Mx".format(i))
+        mx = _discover_flt4_key(conn, f"F{i}Mx")
         fan_keys.append({"ac": ac, "mx": mx})
 
     return fan_keys
