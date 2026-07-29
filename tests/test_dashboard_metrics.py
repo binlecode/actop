@@ -81,6 +81,10 @@ def _snapshot(
     p_cores: list | None = None,
     e_cores: list | None = None,
     timestamp: float = 0.0,
+    gpu_renderer_pct: float = 0.0,
+    gpu_tiler_pct: float = 0.0,
+    gpu_perf_stats_available: bool = False,
+    gpu_util_source: str = "residency",
 ) -> SystemSnapshot:
     fans = [] if fans is None else fans
     idle_residency = {"idle": 100, "low": 0, "mid": 0, "high": 0}
@@ -122,6 +126,11 @@ def _snapshot(
         gpu_residency_pct=dict(gpu_residency_pct or idle_residency),
         p_cores=[] if p_cores is None else list(p_cores),
         e_cores=[] if e_cores is None else list(e_cores),
+        gpu_device_pct=gpu_util_pct,
+        gpu_renderer_pct=gpu_renderer_pct,
+        gpu_tiler_pct=gpu_tiler_pct,
+        gpu_perf_stats_available=gpu_perf_stats_available,
+        gpu_util_source=gpu_util_source,
     )
 
 
@@ -164,6 +173,9 @@ async def _drive(snapshots, config=None):
             "bw_chart_display": dash.query_one("#bw-chart", BrailleChart).display,
             "fan_label": str(dash.query_one("#fan-label", Static).render()),
             "fan_label_display": dash.query_one("#fan-label", Static).display,
+            "gpu_label": str(dash.query_one("#gpu-label", Static).render()),
+            "gpu_rt_row": str(dash.query_one("#gpu-rt-row", Static).render()),
+            "gpu_rt_row_display": dash.query_one("#gpu-rt-row", Static).display,
             "status": app.last_status,
         }
         residency_ids = (
@@ -224,6 +236,64 @@ def test_mem_bw_row_hidden_when_bandwidth_unavailable():
     state = asyncio.run(_drive([_snapshot(0.0, False)]))
     assert state["bw_label_display"] is False
     assert state["bw_chart_display"] is False
+
+
+def test_renderer_tiler_row_shows_driver_split_when_available():
+    # The compute-vs-geometry split is the reason this row exists: an MLX/CoreML
+    # frame runs Renderer high with Tiler near zero. Both numbers must reach the
+    # row from their own fields — a swap would read as a render-bound workload.
+    state = asyncio.run(
+        _drive(
+            [
+                _snapshot(
+                    120.0,
+                    True,
+                    gpu_renderer_pct=91.0,
+                    gpu_tiler_pct=2.0,
+                    gpu_perf_stats_available=True,
+                )
+            ]
+        )
+    )
+    assert state["gpu_rt_row_display"] is True
+    assert "Rend 91%" in state["gpu_rt_row"]
+    assert "Tiler 2%" in state["gpu_rt_row"]
+
+
+def test_renderer_tiler_row_hidden_when_perf_stats_unavailable():
+    # No accelerator statistics: hide the row rather than show a phantom 0/0,
+    # the same contract the Mem BW row honours above.
+    state = asyncio.run(_drive([_snapshot(120.0, True)]))
+    assert state["gpu_rt_row_display"] is False
+
+
+def test_gpu_label_marks_driver_provenance_and_drops_meaningless_freq():
+    # When the GPU DVFS table cannot be classified, api.py falls back to the
+    # driver's utilization. The frequency is then unknown, so printing "@0MHz"
+    # would assert an idle clock that was never measured — the row must say
+    # where the percent came from instead.
+    state = asyncio.run(
+        _drive(
+            [
+                _snapshot(
+                    120.0,
+                    True,
+                    gpu_util_pct=77.0,
+                    gpu_freq_mhz=0,
+                    gpu_max_freq_mhz=0,
+                    gpu_perf_stats_available=True,
+                    gpu_util_source="ioaccelerator",
+                )
+            ]
+        )
+    )
+    assert "GPU 77% (drv)" in state["gpu_label"]
+    assert "MHz" not in state["gpu_label"]
+
+    # The residency path keeps the frequency and carries no provenance marker.
+    residency = asyncio.run(_drive([_snapshot(120.0, True, gpu_freq_mhz=900)]))
+    assert "GPU 30% @900MHz" in residency["gpu_label"]
+    assert "(drv)" not in residency["gpu_label"]
 
 
 def test_fan_row_shows_current_and_max_when_available():

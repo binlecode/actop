@@ -728,6 +728,20 @@ class HardwareDashboard(Widget):
             )
             if cfg.show_residency:
                 yield Static("", id="gpu-residency-row", classes="residency-row")
+            # Renderer/Tiler split from the driver's IOAccelerator statistics:
+            # shader/compute work vs geometry work. Hidden entirely when the
+            # accelerator exposes no statistics, gated per-snapshot via
+            # SystemSnapshot.gpu_perf_stats_available (the same hide-row pattern
+            # as Mem BW / Fan below). Device Utilization % is deliberately not
+            # shown — the GPU row above already carries the headline number, and
+            # a second, differently-measured whole-GPU percent next to it reads
+            # as a contradiction. It stays available via the API and exports.
+            # Starts hidden rather than showing a placeholder: the first frame
+            # reveals it if the accelerator reports statistics (an empty muted
+            # line is pure noise, unlike the "Mem BW 0 GB/s" placeholder below).
+            rt_row = Static("", id="gpu-rt-row", classes="metric-label")
+            rt_row.display = False
+            yield rt_row
             yield Static("ANE 0%", id="ane-label", classes="metric-label")
             yield BrailleChart(
                 glyph_mode=self._chart_glyph,
@@ -994,12 +1008,32 @@ class HardwareDashboard(Widget):
             self.query_one("#ecpu-residency-row", Static).update(
                 _format_residency_row("E-CPU", s.ecpu_residency_pct)
             )
+        # "(drv)" instead of "@NMHz" when gpu_util_pct came from the driver
+        # rather than IOReport residency: in that case the GPU DVFS table could
+        # not be classified, so there is no trustworthy frequency to print and
+        # the percent's provenance differs from every other gauge here.
+        if s.gpu_util_source == "ioaccelerator":
+            gpu_reading = f"GPU {gpu}% (drv)"
+        else:
+            gpu_reading = f"GPU {gpu}% @{s.gpu_freq_mhz}MHz"
         self.query_one("#gpu-label", Static).update(
-            f"GPU {gpu}% @{s.gpu_freq_mhz}MHz{gpu_temp}{self._pct_stats_suffix(self._gpu_hist)}"
+            f"{gpu_reading}{gpu_temp}{self._pct_stats_suffix(self._gpu_hist)}"
         )
         if cfg.show_residency:
             self.query_one("#gpu-residency-row", Static).update(
                 _format_residency_row("GPU", s.gpu_residency_pct)
+            )
+
+        # Renderer/Tiler detail: hidden when the accelerator exposes no
+        # statistics. Availability is effectively constant per session, so
+        # toggle display only on change (as with Mem BW below).
+        rt_row = self.query_one("#gpu-rt-row", Static)
+        if rt_row.display != s.gpu_perf_stats_available:
+            rt_row.display = s.gpu_perf_stats_available
+        if s.gpu_perf_stats_available:
+            rt_row.update(
+                f"Rend {clamp_percent(s.gpu_renderer_pct)}%"
+                f" · Tiler {clamp_percent(s.gpu_tiler_pct)}%"
             )
         self.query_one("#ane-label", Static).update(
             f"ANE {ane_pct}% ({s.ane_watts:.1f}W){self._pct_stats_suffix(self._ane_hist)}"

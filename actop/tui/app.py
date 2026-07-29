@@ -93,6 +93,9 @@ HELP_TEXT = """\
   ?          Show / hide this help
   esc        Cancel filter / close help
 
+  Letter keys also answer uppercase, so Caps Lock (how macOS forces direct
+  ASCII while a Chinese/CJK input source is selected) does not disable them.
+
 [b]Layout presets[/b]
 
   grid       Two columns (default): P-CPU / E-CPU cluster boxes share the top
@@ -158,6 +161,7 @@ class HelpScreen(ModalScreen):
         ("escape", "close", "Close"),
         ("question_mark", "close", "Close"),
         ("q", "close", "Close"),
+        Binding("Q", "close", "Close", show=False),  # see ActopApp.BINDINGS
     ]
 
     def compose(self) -> ComposeResult:
@@ -217,7 +221,9 @@ class ActopApp(App):
         height: auto;
     }
     """
-    BINDINGS = [
+    # The single-letter actions, and the sole place they are spelled out. The
+    # uppercase aliases below are derived from this list so the two can't drift.
+    _LETTER_BINDINGS = [
         ("q", "quit", "Quit"),
         ("p", "toggle_pause", "Pause"),
         ("s", "cycle_sort", "Sort"),
@@ -225,9 +231,21 @@ class ActopApp(App):
         ("l", "cycle_layout", "Layout"),
         ("c", "toggle_cores", "Cores"),
         ("t", "toggle_processes", "Processes"),
+    ]
+    BINDINGS = [
+        *_LETTER_BINDINGS,
         ("/", "toggle_filter", "Filter"),
         ("question_mark", "show_help", "Help"),
         Binding("escape", "cancel_filter", "Cancel filter", show=False),
+        # Caps Lock (and Shift) deliver the uppercase character, and Textual names
+        # that key "Q" — not "q" — so a lowercase-only binding simply never
+        # matches and every letter action goes dead with no feedback. That is not
+        # an edge case for a CJK user: with a Chinese input source selected,
+        # Caps Lock is *how* macOS forces direct ASCII, so uppercase is the normal
+        # way these keys arrive in that input mode. Aliased hidden, so the footer
+        # still shows one row per action rather than fourteen. `check_action`
+        # gates by action name, so the aliases inherit its gating for free.
+        *(Binding(k.upper(), a, d, show=False) for k, a, d in _LETTER_BINDINGS),
     ]
 
     def __init__(self, args) -> None:

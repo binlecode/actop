@@ -25,6 +25,13 @@ _PROM_GAUGES = (
     ("ecpu_util_pct", "ecpu_utilization_percent"),
     ("pcpu_util_pct", "pcpu_utilization_percent"),
     ("gpu_util_pct", "gpu_utilization_percent"),
+    # Driver-reported GPU utilization (IOAccelerator PerformanceStatistics),
+    # exported alongside the residency-derived gpu_utilization_percent above so
+    # a dashboard can compare the two. The companion `gpu_util_source` field is
+    # a string, so it belongs in NDJSON only — gauges must be numeric.
+    ("gpu_device_pct", "gpu_device_utilization_percent"),
+    ("gpu_renderer_pct", "gpu_renderer_utilization_percent"),
+    ("gpu_tiler_pct", "gpu_tiler_utilization_percent"),
     ("cpu_temp_c", "cpu_temperature_celsius"),
     ("gpu_temp_c", "gpu_temperature_celsius"),
     ("ecpu_freq_mhz", "ecpu_frequency_mhz"),

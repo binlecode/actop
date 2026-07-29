@@ -89,6 +89,23 @@ def test_monitor_get_snapshot_returns_valid_snapshot():
     assert snapshot.pcpu_freq_mhz <= snapshot.pcpu_max_freq_mhz
     assert snapshot.gpu_freq_mhz <= snapshot.gpu_max_freq_mhz
 
+    # Driver-reported GPU utilization (IOAccelerator PerformanceStatistics) — a
+    # second, independent view of GPU busyness. Every Apple Silicon GPU exposes
+    # the statistics dict, so unavailable here means the class match or the
+    # property read regressed, not that the hardware lacks the counters.
+    assert snapshot.gpu_perf_stats_available is True
+    for field in ("gpu_device_pct", "gpu_renderer_pct", "gpu_tiler_pct"):
+        value = getattr(snapshot, field)
+        assert 0 <= value <= 100, f"{field} out of physical range: {value}"
+
+    # Provenance contract: the GPU DVFS table classified (gpu_max_freq_mhz > 0,
+    # asserted above), so the interval-integrated residency reading must remain
+    # the primary metric. If the fallback condition ever inverts, gpu_util_pct
+    # silently becomes the driver's instantaneous device_pct — a regression in
+    # sampling semantics that the active ≈ 100 - idle check above would also
+    # start failing, since the two measures diverge per-sample by design.
+    assert snapshot.gpu_util_source == "residency"
+
     # RAM — LC-1 completes the frame contract: totals + used-percent now ride
     # on the snapshot so the TUI needs no second get_ram_metrics_dict() call.
     assert snapshot.ram_used_bytes > 0

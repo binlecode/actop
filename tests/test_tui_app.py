@@ -71,6 +71,55 @@ def test_pressing_l_cycles_the_dashboard_layout_preset():
     assert after_two == before  # a second press flips back
 
 
+def test_uppercase_letter_keys_drive_the_same_actions():
+    # Regression: with a Chinese input source selected, Caps Lock is how macOS
+    # forces direct ASCII — and it delivers "L", which Textual names as a key
+    # distinct from "l", so every letter action used to go dead in that mode.
+    # Drive the real uppercase presses and assert each action's public state
+    # moves. Three separate actions, because the bug was never per-key: the
+    # whole letter set went dead at once, and a single-key check would pass
+    # while most of the alias list was still missing.
+    async def _run():
+        app = ActopApp(build_parser().parse_args([]))
+        async with app.run_test(size=(160, 50)) as pilot:
+            await pilot.pause()
+            from actop.tui.widgets import HardwareDashboard
+
+            dash = app.query_one("#hardware-dash", HardwareDashboard)
+            app.set_focus(None)  # as in the lowercase test: unfocus the filter
+            state = {}
+            for key, read in (
+                ("L", lambda: dash.layout_preset),
+                ("C", lambda: dash.show_cores),
+                ("G", lambda: dash.chart_glyph),
+            ):
+                before = read()
+                await pilot.press(key)
+                await pilot.pause()
+                state[key] = (before, read())
+            return state
+
+    state = asyncio.run(_run())
+    assert set(state["L"]) == {"grid", "stack"}  # uppercase L flips the layout
+    assert state["C"][0] is not state["C"][1]  # uppercase C toggles core panels
+    assert set(state["G"]) == {"dots", "block"}  # uppercase G cycles the glyph
+
+
+def test_uppercase_q_still_quits():
+    # The worst symptom of the lowercase-only bindings: a user in CJK input mode
+    # could not even exit. Driven separately since it tears the app down.
+    async def _run():
+        app = ActopApp(build_parser().parse_args([]))
+        async with app.run_test(size=(160, 50)) as pilot:
+            await pilot.pause()
+            app.set_focus(None)
+            await pilot.press("Q")
+            await pilot.pause()
+            return app.is_running
+
+    assert asyncio.run(_run()) is False
+
+
 def test_help_overlay_documents_keys_metrics_and_alert_tokens():
     # Open the real help overlay (via the action the "?" binding is wired to)
     # and read its rendered body, so the in-app docs are validated through the

@@ -23,7 +23,9 @@ from actop.models import CoreSample, SystemSnapshot
 
 
 def _sample_snapshot(
-    fan_rpms: list | None = None, fan_available: bool = False
+    fan_rpms: list | None = None,
+    fan_available: bool = False,
+    gpu_util_source: str = "residency",
 ) -> SystemSnapshot:
     fan_rpms = [] if fan_rpms is None else fan_rpms
     return SystemSnapshot(
@@ -35,6 +37,14 @@ def _sample_snapshot(
         ecpu_util_pct=20.0,
         pcpu_util_pct=55.5,
         gpu_util_pct=40.0,
+        # Driver-reported GPU stats. Every value is distinct from every other
+        # (and from gpu_util_pct) so a gauge wired to the wrong field fails
+        # rather than passing by coincidence.
+        gpu_device_pct=61.0,
+        gpu_renderer_pct=58.0,
+        gpu_tiler_pct=7.0,
+        gpu_perf_stats_available=True,
+        gpu_util_source=gpu_util_source,
         cpu_temp_c=48.0,
         gpu_temp_c=45.0,
         ecpu_freq_mhz=1200,
@@ -114,6 +124,30 @@ def test_prometheus_exposition_is_well_formed():
         parts = line.rsplit(" ", 1)
         assert len(parts) == 2, f"malformed metric line: {line!r}"
         float(parts[1])  # value parses as a number
+
+
+def test_gpu_driver_stats_export_as_gauges_but_source_stays_out_of_prometheus():
+    # The Renderer/Tiler split is the metric actop cannot express from IOReport
+    # residency alone, so it has to reach both observability backends.
+    snapshot = _sample_snapshot(gpu_util_source="ioaccelerator")
+    lines = snapshot_to_prometheus(snapshot).strip().splitlines()
+
+    assert "actop_gpu_device_utilization_percent 61" in lines
+    assert "actop_gpu_renderer_utilization_percent 58" in lines
+    assert "actop_gpu_tiler_utilization_percent 7" in lines
+    # The residency-derived headline metric stays distinct from the driver's.
+    assert "actop_gpu_utilization_percent 40" in lines
+
+    # gpu_util_source is a string. Emitting it as a gauge would produce a line
+    # whose value does not parse as a number, breaking the whole scrape — so it
+    # must reach consumers through NDJSON only (or a label, if ever wanted).
+    assert "gpu_util_source" not in snapshot_to_prometheus(snapshot)
+
+    record = json.loads(snapshot_to_json(snapshot))
+    assert record["gpu_util_source"] == "ioaccelerator"
+    assert record["gpu_perf_stats_available"] is True
+    assert record["gpu_renderer_pct"] == 58.0
+    assert record["gpu_tiler_pct"] == 7.0
 
 
 def test_prometheus_fan_gauge_labelled_per_fan_when_available():

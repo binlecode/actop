@@ -137,7 +137,9 @@ actop --json                                        # stream NDJSON metrics to s
 actop --serve 9095                                  # serve Prometheus metrics at :9095/metrics (no TUI)
 ```
 
-Interactive keys: `p` pause · `s` cycle sort (CPU%→RSS→PID) · `g` toggle chart glyph (`dots`/`block`) · `l` cycle layout (`grid`⇄`stack`) · `t` toggle process panel · `/` filter processes · `?` help overlay · `q` quit
+Interactive keys: `p` pause · `s` cycle sort (CPU%→RSS→PID) · `g` toggle chart glyph (`dots`/`block`) · `l` cycle layout (`grid`⇄`stack`) · `c` toggle per-core panels · `t` toggle process panel · `/` filter processes · `?` help overlay · `q` quit
+
+Letter keys also answer uppercase, so Caps Lock — how macOS forces direct ASCII while a Chinese/CJK input source is selected — does not disable them.
 
 ## Python API
 
