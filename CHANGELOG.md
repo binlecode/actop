@@ -6,6 +6,43 @@ This project follows a Keep a Changelog-style format and uses version tags for r
 
 ## [Unreleased]
 
+## [1.6.1] - 2026-07-29
+
+Docs only — no code change.
+
+### Added
+- **Landed `docs/TODO-layering-cleanup-2026-07-02.md`, the design record behind
+  LC-1→LC-3** (shipped v1.2.4–v1.3.0: `SystemSnapshot` as the sole frame
+  contract, `ProcessSample` through L2, and `analytics.py`'s `AlertEngine` /
+  throttle / session-energy move out of the widget). The plan drove all three
+  releases but lived only on an unmerged branch, so the code shipped while its
+  rationale stayed unpublished — the violation inventory, per-violation fix
+  design, and sequencing are now in the repo instead of one branch tip.
+
+  §§1–9 are the July plan verbatim, so their line references point at July code.
+  A new **§10** records status verified against `main`, and is the only open
+  scope.
+- **Two roadmap items promoted out of that plan** into
+  `docs/TODO-architecture-roadmap.md`:
+  - **Export parity** (§10.2) — per-process rows, throttle/alert flags, and
+    session energy are still TUI-only and never reach `--json` / `--serve`, so
+    profiling a local inference run through the export backends cannot answer
+    which process drew the watts, whether the chip throttled, or what the run
+    cost in energy. Both candidate designs and the recommendation are recorded,
+    along with the per-PID Prometheus cardinality constraint that keeps process
+    data NDJSON-only either way.
+  - **LC-4** (§10.1) — the watt/GB-s history deques and `_avg_max` reducer never
+    moved to an `analytics.RollingStats`. Explicitly low priority: it relocates
+    working code, and the reason to do it is export parity needing the same
+    aggregates outside the TUI.
+
+  §10.3 records one acceptance criterion that does not literally pass and should
+  be reworded rather than "fixed": `tui/app.py` still imports `get_soc_info` for
+  a single construction-time call that builds `DashboardConfig`. The criterion
+  targeted per-frame L1 acquisition in the view, which is gone; routing that one
+  call through another module to satisfy a grep would add indirection for no
+  layering gain.
+
 ## [1.6.0] - 2026-07-29
 
 Reading-plane audit §8: adopt the GPU driver's `IOAccelerator`
