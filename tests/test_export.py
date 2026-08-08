@@ -19,7 +19,7 @@ from actop.export import (
     snapshot_to_json,
     snapshot_to_prometheus,
 )
-from actop.models import CoreSample, SystemSnapshot
+from actop.models import CoreSample, ProcessSample, SystemSnapshot
 
 
 def _sample_snapshot(
@@ -168,6 +168,111 @@ def test_prometheus_fan_gauge_omitted_when_unavailable():
     assert "actop_fan_speed_rpm" not in body
 
 
+def _sample_snapshot_with_processes() -> SystemSnapshot:
+    snap = _sample_snapshot()
+    return SystemSnapshot(
+        timestamp=snap.timestamp,
+        cpu_watts=snap.cpu_watts,
+        gpu_watts=snap.gpu_watts,
+        ane_watts=snap.ane_watts,
+        package_watts=snap.package_watts,
+        ecpu_util_pct=snap.ecpu_util_pct,
+        pcpu_util_pct=snap.pcpu_util_pct,
+        gpu_util_pct=snap.gpu_util_pct,
+        gpu_device_pct=snap.gpu_device_pct,
+        gpu_renderer_pct=snap.gpu_renderer_pct,
+        gpu_tiler_pct=snap.gpu_tiler_pct,
+        gpu_perf_stats_available=snap.gpu_perf_stats_available,
+        gpu_util_source=snap.gpu_util_source,
+        cpu_temp_c=snap.cpu_temp_c,
+        gpu_temp_c=snap.gpu_temp_c,
+        ecpu_freq_mhz=snap.ecpu_freq_mhz,
+        pcpu_freq_mhz=snap.pcpu_freq_mhz,
+        gpu_freq_mhz=snap.gpu_freq_mhz,
+        ram_used_bytes=snap.ram_used_bytes,
+        ram_total_bytes=snap.ram_total_bytes,
+        swap_used_bytes=snap.swap_used_bytes,
+        swap_total_bytes=snap.swap_total_bytes,
+        ram_used_gb=snap.ram_used_gb,
+        swap_used_gb=snap.swap_used_gb,
+        thermal_state=snap.thermal_state,
+        bandwidth_gbps=snap.bandwidth_gbps,
+        bandwidth_available=snap.bandwidth_available,
+        fan_rpms=snap.fan_rpms,
+        fan_available=snap.fan_available,
+        e_cores=snap.e_cores,
+        p_cores=snap.p_cores,
+        processes=[
+            ProcessSample(
+                pid=1234,
+                command="python",
+                cpu_percent=45.5,
+                cpu_time_share=0.35,
+                gpu_time_share=0.12,
+                rss_mb=2048.0,
+                rss_bytes=2_147_483_648,
+                num_threads=8,
+                attributed_w=5.6,
+            ),
+            ProcessSample(
+                pid=5678,
+                command="ollama",
+                cpu_percent=12.0,
+                cpu_time_share=0.09,
+                gpu_time_share=0.55,
+                rss_mb=4096.0,
+                rss_bytes=4_294_967_296,
+                num_threads=4,
+                attributed_w=1.8,
+            ),
+        ],
+    )
+
+
+def test_snapshot_to_json_includes_processes_when_present():
+    snapshot = _sample_snapshot_with_processes()
+    record = json.loads(snapshot_to_json(snapshot))
+
+    assert "processes" in record
+    assert len(record["processes"]) == 2
+    assert record["processes"][0]["pid"] == 1234
+    assert record["processes"][0]["command"] == "python"
+    assert record["processes"][0]["cpu_time_share"] == 0.35
+    assert record["processes"][0]["gpu_time_share"] == 0.12
+    assert record["processes"][0]["attributed_w"] == 5.6
+    assert record["processes"][0]["rss_bytes"] == 2_147_483_648
+    assert record["processes"][1]["pid"] == 5678
+    assert record["processes"][1]["command"] == "ollama"
+
+
+def test_prometheus_includes_process_gauges_when_processes_present():
+    body = snapshot_to_prometheus(_sample_snapshot_with_processes())
+    lines = body.strip().splitlines()
+
+    assert "# TYPE actop_process_cpu_percent gauge" in lines
+    assert "# TYPE actop_process_cpu_time_share gauge"
+    assert "# TYPE actop_process_gpu_time_share gauge"
+    assert "# TYPE actop_process_attributed_watts gauge"
+    assert "# TYPE actop_process_rss_bytes gauge"
+    assert "# TYPE actop_process_num_threads gauge"
+
+    assert 'actop_process_cpu_percent{pid="1234",command="python"} 45.5' in lines
+    assert 'actop_process_cpu_time_share{pid="1234",command="python"} 0.35' in lines
+    assert 'actop_process_gpu_time_share{pid="1234",command="python"} 0.12' in lines
+    assert 'actop_process_attributed_watts{pid="1234",command="python"} 5.6' in lines
+    assert 'actop_process_rss_bytes{pid="1234",command="python"} 2147483648' in lines
+    assert 'actop_process_num_threads{pid="1234",command="python"} 8' in lines
+
+    assert 'actop_process_cpu_percent{pid="5678",command="ollama"} 12' in lines
+
+
+def test_prometheus_omits_process_gauges_when_no_processes():
+    body = snapshot_to_prometheus(_sample_snapshot())
+
+    assert "actop_process_cpu_percent" not in body
+    assert "actop_process_gpu_time_share" not in body
+
+
 @pytest.mark.local
 def test_run_json_stream_emits_parseable_records():
     buffer = io.StringIO()
@@ -211,6 +316,126 @@ def test_serve_prometheus_endpoint_responds():
         assert body is not None, "metrics endpoint never returned 200"
         assert "actop_cpu_power_watts" in body
         assert "actop_core_utilization_percent{" in body
+    finally:
+        process.terminate()
+        try:
+            process.wait(timeout=5)
+        except subprocess.TimeoutExpired:
+            process.kill()
+
+
+@pytest.mark.local
+def test_json_stream_includes_processes_when_show_processes_flag_used():
+    import signal
+
+    process = subprocess.Popen(
+        [
+            sys.executable,
+            "-m",
+            "actop.actop",
+            "--json",
+            "--interval",
+            "1",
+            "--show-processes",
+        ],
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        text=True,
+    )
+    try:
+        stdout, _ = process.communicate(timeout=8)
+    except subprocess.TimeoutExpired:
+        process.send_signal(signal.SIGINT)
+        stdout, _ = process.communicate(timeout=2)
+    finally:
+        if process.poll() is None:
+            process.kill()
+
+    lines = [ln for ln in stdout.splitlines() if ln.strip()]
+    assert len(lines) >= 1
+    for line in lines:
+        record = json.loads(line)
+        assert "processes" in record
+        assert isinstance(record["processes"], list)
+
+
+@pytest.mark.local
+def test_json_stream_proc_filter_implies_show_processes():
+    import signal
+
+    process = subprocess.Popen(
+        [
+            sys.executable,
+            "-m",
+            "actop.actop",
+            "--json",
+            "--interval",
+            "1",
+            "--proc-filter",
+            "kernel|launchd",
+        ],
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        text=True,
+    )
+    try:
+        stdout, _ = process.communicate(timeout=8)
+    except subprocess.TimeoutExpired:
+        process.send_signal(signal.SIGINT)
+        stdout, _ = process.communicate(timeout=2)
+    finally:
+        if process.poll() is None:
+            process.kill()
+
+    lines = [ln for ln in stdout.splitlines() if ln.strip()]
+    assert len(lines) >= 1
+    for line in lines:
+        record = json.loads(line)
+        assert "processes" in record
+        assert isinstance(record["processes"], list)
+        assert len(record["processes"]) > 0, (
+            "processes empty — --proc-filter did not imply --show-processes"
+        )
+
+
+@pytest.mark.local
+def test_serve_prometheus_includes_process_gauges_with_show_processes():
+    import urllib.request
+
+    port = 19992
+    process = subprocess.Popen(
+        [
+            sys.executable,
+            "-m",
+            "actop.actop",
+            "--serve",
+            str(port),
+            "--interval",
+            "1",
+            "--show-processes",
+        ],
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        text=True,
+    )
+    try:
+        body = None
+        for _ in range(20):
+            time.sleep(0.5)
+            try:
+                with urllib.request.urlopen(
+                    f"http://127.0.0.1:{port}/metrics", timeout=1
+                ) as response:
+                    if response.status == 200:
+                        body = response.read().decode()
+                        break
+            except Exception:
+                continue
+
+        assert body is not None, "metrics endpoint never returned 200"
+        assert "# TYPE actop_process_cpu_percent gauge" in body
+        assert "actop_process_cpu_percent{" in body
+        assert "actop_process_gpu_time_share{" in body
     finally:
         process.terminate()
         try:

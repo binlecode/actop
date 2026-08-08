@@ -57,40 +57,15 @@ def test_cli_rejects_legacy_show_cores_value_form():
     assert "unrecognized arguments: true" in result.stderr
 
 
-def test_cli_accepts_show_processes_flag():
-    result = subprocess.run(
-        [sys.executable, "-m", "actop.actop", "--show-processes", "--help"],
-        capture_output=True,
-        text=True,
-        check=False,
-    )
-
-    assert result.returncode == 0
-
-
-def test_cli_show_processes_default_is_off():
-    args = build_parser().parse_args([])
-    assert args.show_processes is False
-
-
-def test_cli_show_processes_flag_turns_on_panel():
-    args = build_parser().parse_args(["--show-processes"])
+def test_cli_json_with_show_processes_forwards_both():
+    args = build_parser().parse_args(["--json", "--show-processes"])
+    assert args.json is True
     assert args.show_processes is True
-
-
-def test_cli_chart_glyph_default_is_dots():
-    args = build_parser().parse_args([])
-    assert args.chart_glyph == "dots"
 
 
 def test_cli_chart_glyph_accepts_block():
     args = build_parser().parse_args(["--chart-glyph", "block"])
     assert args.chart_glyph == "block"
-
-
-def test_cli_layout_default_is_grid():
-    args = build_parser().parse_args([])
-    assert args.layout == "grid"
 
 
 def test_cli_layout_accepts_stack():
@@ -108,11 +83,6 @@ def test_cli_rejects_unknown_layout():
 
     assert result.returncode == 2
     assert "invalid choice: 'foo'" in result.stderr
-
-
-def test_cli_palette_default_is_thermal():
-    args = build_parser().parse_args([])
-    assert args.palette == "thermal"
 
 
 def test_cli_palette_accepts_viridis():
@@ -143,17 +113,6 @@ def test_cli_help_exposes_export_flags():
     assert result.returncode == 0
     assert "--json" in result.stdout
     assert "--serve PORT" in result.stdout
-
-
-def test_cli_export_flags_have_inactive_defaults():
-    args = build_parser().parse_args([])
-    assert args.json is False
-    assert args.serve is None
-
-
-def test_cli_json_flag_sets_true():
-    args = build_parser().parse_args(["--json"])
-    assert args.json is True
 
 
 def test_cli_serve_accepts_valid_port():

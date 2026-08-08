@@ -219,11 +219,26 @@ def _run_export(args):
 
     interval_s = max(1, int(args.interval))
     subsamples = max(1, int(args.subsamples))
+    include_processes = bool(getattr(args, "show_processes", False))
+    proc_filter = str(getattr(args, "proc_filter", "") or "")
+    if not include_processes and proc_filter:
+        include_processes = True
     try:
         if args.serve is not None:
-            export.serve_prometheus(args.serve, interval_s, subsamples)
+            export.serve_prometheus(
+                args.serve,
+                interval_s,
+                subsamples,
+                include_processes=include_processes,
+                proc_filter=proc_filter,
+            )
         else:
-            export.run_json_stream(interval_s, subsamples)
+            export.run_json_stream(
+                interval_s,
+                subsamples,
+                include_processes=include_processes,
+                proc_filter=proc_filter,
+            )
         return 0
     except KeyboardInterrupt:
         return 130

@@ -94,6 +94,39 @@ def snapshot_to_prometheus(snapshot: SystemSnapshot) -> str:
             lines.append(
                 f"actop_core_frequency_mhz{{{labels}}} {_fmt_number(float(core.freq_mhz))}"
             )
+
+    # Per-process gauges (emitted only when the caller opts in via
+    # Monitor(include_processes=True)). Labelled by pid and command so a
+    # Prometheus dashboard can join on pid across metrics.
+    if snapshot.processes:
+        lines.append("# TYPE actop_process_cpu_percent gauge")
+        lines.append("# TYPE actop_process_cpu_time_share gauge")
+        lines.append("# TYPE actop_process_gpu_time_share gauge")
+        lines.append("# TYPE actop_process_attributed_watts gauge")
+        lines.append("# TYPE actop_process_rss_bytes gauge")
+        lines.append("# TYPE actop_process_num_threads gauge")
+        for proc in snapshot.processes:
+            cmd = proc.command.replace('"', '\\"')
+            labels = f'pid="{proc.pid}",command="{cmd}"'
+            lines.append(
+                f"actop_process_cpu_percent{{{labels}}} {_fmt_number(float(proc.cpu_percent))}"
+            )
+            cts = proc.cpu_time_share
+            lines.append(
+                f"actop_process_cpu_time_share{{{labels}}} {_fmt_number(cts) if cts is not None else 'NaN'}"
+            )
+            gts = proc.gpu_time_share
+            lines.append(
+                f"actop_process_gpu_time_share{{{labels}}} {_fmt_number(gts) if gts is not None else 'NaN'}"
+            )
+            aw = proc.attributed_w
+            lines.append(
+                f"actop_process_attributed_watts{{{labels}}} {_fmt_number(aw) if aw is not None else 'NaN'}"
+            )
+            lines.append(
+                f"actop_process_rss_bytes{{{labels}}} {_fmt_number(float(proc.rss_bytes))}"
+            )
+            lines.append(f"actop_process_num_threads{{{labels}}} {proc.num_threads}")
     return "\n".join(lines) + "\n"
 
 
@@ -105,7 +138,13 @@ def _fmt_number(value: float) -> str:
 
 
 def run_json_stream(
-    interval_s: int, subsamples: int, out=None, max_samples: int = 0
+    interval_s: int,
+    subsamples: int,
+    out=None,
+    max_samples: int = 0,
+    *,
+    include_processes: bool = False,
+    proc_filter: str = "",
 ) -> int:
     """Stream NDJSON snapshots to `out` (default stdout) until interrupted.
 
@@ -115,7 +154,12 @@ def run_json_stream(
     from actop.api import Monitor
 
     stream = out if out is not None else sys.stdout
-    monitor = Monitor(interval_s, subsamples)
+    monitor = Monitor(
+        interval_s,
+        subsamples,
+        include_processes=include_processes,
+        process_filter=proc_filter or None,
+    )
     emitted = 0
     try:
         while True:
@@ -156,7 +200,13 @@ def _make_prometheus_handler(read_latest):
 
 
 def serve_prometheus(
-    port: int, interval_s: int, subsamples: int, host: str = "0.0.0.0"
+    port: int,
+    interval_s: int,
+    subsamples: int,
+    host: str = "0.0.0.0",
+    *,
+    include_processes: bool = False,
+    proc_filter: str = "",
 ) -> None:
     """Serve Prometheus metrics on http://host:port/metrics until interrupted.
 
@@ -165,7 +215,12 @@ def serve_prometheus(
     """
     from actop.api import Monitor
 
-    monitor = Monitor(interval_s, subsamples)
+    monitor = Monitor(
+        interval_s,
+        subsamples,
+        include_processes=include_processes,
+        process_filter=proc_filter or None,
+    )
     state = {"snapshot": None}
     lock = threading.Lock()
     stop = threading.Event()
