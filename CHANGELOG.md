@@ -6,6 +6,13 @@ This project follows a Keep a Changelog-style format and uses version tags for r
 
 ## [Unreleased]
 
+### Added
+- **GPU% column in the TUI process table** — `gpu_time_share` from the Monitor
+  was always collected but never rendered. The process table now shows a `GPU%`
+  column (between CPU% and PWR) displaying the per-process share of total GPU
+  time as a percent. `–` when the first GPU delta is still pending. The `s` sort
+  cycle now includes GPU% (CPU% → GPU% → PWR → RSS → PID).
+
 ## [1.6.2] - 2026-08-08
 
 ### Fixed

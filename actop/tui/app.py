@@ -20,17 +20,19 @@ from actop.utils import get_soc_info
 _SPINNER_FRAMES = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"]
 
 SORT_CPU = "cpu"
+SORT_GPU = "gpu"
 SORT_POWER = "power"
 SORT_MEMORY = "memory"
 SORT_PID = "pid"
 SORT_LABELS = {
     SORT_CPU: "CPU%",
+    SORT_GPU: "GPU%",
     SORT_POWER: "PWR",
     SORT_MEMORY: "RSS",
     SORT_PID: "PID",
 }
 
-_SORT_CYCLE = [SORT_CPU, SORT_POWER, SORT_MEMORY, SORT_PID]
+_SORT_CYCLE = [SORT_CPU, SORT_GPU, SORT_POWER, SORT_MEMORY, SORT_PID]
 
 
 def sort_processes(processes, sort_mode, limit):
@@ -49,6 +51,12 @@ def sort_processes(processes, sort_mode, limit):
         return sorted(processes, key=lambda p: p.attributed_w or 0.0, reverse=True)[
             :limit
         ]
+    elif sort_mode == SORT_GPU:
+        return sorted(
+            processes,
+            key=lambda p: p.gpu_time_share or 0.0,
+            reverse=True,
+        )[:limit]
     else:
         # Default: CPU sort (snapshot list already CPU-sorted from L2).
         return list(processes)[:limit]
@@ -84,7 +92,7 @@ HELP_TEXT = """\
 
   q          Quit
   p          Pause / resume sampling
-  s          Cycle process sort (CPU% → PWR → RSS → PID)
+  s          Cycle process sort (CPU% → GPU% → PWR → RSS → PID)
   g          Toggle chart glyph (braille dots / blocks)
   l          Cycle layout preset (grid ⇄ stack)
   c          Toggle per-core panels (hidden by default)
@@ -122,6 +130,9 @@ HELP_TEXT = """\
 [b]Process table[/b]
 
   CPU%       Per-process CPU utilization (Δ CPU-time over the interval)
+  GPU%       Per-process GPU utilization (share of total GPU time over the
+             interval, from Metal command-queue usage via AGXDeviceUserClient).
+             "–" means no GPU reading yet (first sample after launch or resume).
   PWR        Estimated per-process CPU+GPU power: the process's share of
              total CPU-time × package CPU watts, plus its share of total
              GPU-time (from Metal command-queue usage) × package GPU watts.
@@ -475,15 +486,17 @@ class ActopApp(App):
         if self._sort_mode != self._last_sort_mode:
             self._last_sort_mode = self._sort_mode
             table.clear(columns=True)
-            cols = ["PID", "Command", "CPU%", "PWR", "MEM (MiB)", "Threads"]
+            cols = ["PID", "Command", "CPU%", "GPU%", "PWR", "MEM (MiB)", "Threads"]
             if self._sort_mode == SORT_PID:
                 cols[0] = "*PID"
             elif self._sort_mode == SORT_CPU:
                 cols[2] = "*CPU%"
+            elif self._sort_mode == SORT_GPU:
+                cols[3] = "*GPU%"
             elif self._sort_mode == SORT_POWER:
-                cols[3] = "*PWR"
+                cols[4] = "*PWR"
             elif self._sort_mode == SORT_MEMORY:
-                cols[4] = "*MEM (MiB)"
+                cols[5] = "*MEM (MiB)"
             table.add_columns(*cols)
         else:
             table.clear()
@@ -510,10 +523,13 @@ class ActopApp(App):
             else:
                 shown_pwr += attributed_w
                 pwr_cell = f"{attributed_w:.2f}W"
+            gts = proc.gpu_time_share
+            gpu_cell = "–" if gts is None else f"{gts * 100:.1f}"
             table.add_row(
                 str(proc.pid),
                 _process_display_name(proc.command, max_len=28),
                 f"{proc.cpu_percent or 0.0:.1f}",
+                gpu_cell,
                 pwr_cell,
                 # MiB from the exact byte count; the column header says MiB.
                 f"{(proc.rss_bytes or 0) / 1024 / 1024:.1f}",
