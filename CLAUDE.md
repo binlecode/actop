@@ -67,26 +67,85 @@ The `docs/` directory contains essential system reviews, research, and operation
 - Prefer small, incremental changes in existing files over large refactors.
 - No formatter/linter config is checked in; match surrounding code style when editing.
 
-## Testing Guidelines
+## Testing Guidelines (HARD RULE — enforced at review)
+
 - All tests are located in the `tests/` folder.
 - Run `.venv/bin/pytest -q` for all code changes.
 - Run a single test file: `.venv/bin/pytest tests/test_cli_contract.py -q`
 - Run a single test function: `.venv/bin/pytest tests/test_cli_contract.py::test_name -q`
-- **Functional tests only (enforced).** Every test MUST validate behavior through a public or runtime entrypoint, and MUST exercise a production-relevant failure mode, regression risk, or external contract. This rule binds to *all* tests, not just new ones: when touching the suite, delete or rewrite any existing test that violates it rather than leaving it in place.
-- **Reject a test (it is structural — do not add it; remove it if present) when it:**
-  - calls an underscore-prefixed (private) function or method as the unit under test (e.g. `_avg_max`, `_inline_spark`, `_format_core_entry`);
-  - reads or writes private attributes to arrange or assert state (e.g. `dash._sample_count = 5`, `dash._core_hist`, `dash._chart_glyph`);
-  - asserts internal implementation details, helper math constants, or a private function's output in isolation;
-  - uses a mock, fake, monkeypatch, or a synthetic subclass/harness that overrides real behavior to fake layout, I/O, or data;
-  - exists only to raise coverage;
-  - asserts only shape/bounds on real public data (e.g. "returns a non-negative dict", "values partition to ≤ 1.0") with no real workload behind it, when a behavioral test already exercises the same code path — the bounds/invariant becomes an assertion *inside* that behavioral test, not a standalone test of its own.
-- **Accept a test (it is functional) when it drives a public surface:** CLI invocation (`subprocess` / `build_parser().parse_args`), the public API (`Monitor` / `Profiler`), the real config merge (`create_dashboard_config`), documented public module functions (e.g. `power_to_percent`, `get_soc_profile`), real export/format contracts (NDJSON / Prometheus), real hardware/file I/O paths, or a real widget rendered through its public path (`BrailleChart.render()` via the `data` setter, or a `HardwareDashboard` mounted with Textual `App.run_test()` and fed real `SystemSnapshot`s through `update_metrics`).
-- A minimal Textual host `App` used solely to mount a real widget is allowed (it is a mount point, not a fake); faking the data or the logic under test is not.
-- Minimum checks before opening a PR:
-  - `.venv/bin/python -m actop.actop --help`
-  - `.venv/bin/pytest -q`
-  - Run `actop` on Apple Silicon and confirm gauges/charts update without crashes.
-- For parser or metric changes, include a reproducible sample input/output note in the PR description.
+
+### The functional-only mandate
+
+**Every test MUST answer "what production failure mode or regression risk does this
+test catch that no other test catches?"** If you cannot give a concrete answer
+(broken export format, wrong flag forwarding, missing process data, etc.), the test
+is structural — do not add it; delete it if present. This rule binds to *all*
+tests, not just new ones.
+
+### Reject a test (it is structural — do not add it; remove it if present) when it:
+
+- calls an underscore-prefixed (private) function or method as the unit under test
+  (e.g. `_avg_max`, `_inline_spark`, `_format_core_entry`);
+- reads or writes private attributes to arrange or assert state (e.g.
+  `dash._sample_count = 5`, `dash._core_hist`, `dash._chart_glyph`);
+- asserts internal implementation details, helper math constants, or a private
+  function's output in isolation;
+- uses a mock, fake, monkeypatch, or a synthetic subclass/harness that overrides
+  real behavior to fake layout, I/O, or data;
+- exists only to raise coverage;
+- **is a standalone default-value assertion** (e.g.
+  `parse_args([]).some_flag is False`) — what would break if this test were
+  deleted? A behavioral test that uses a different value or exercises the same
+  code path already guards that regression. Default-value checks are redundant,
+  not load-bearing;
+- **is a standalone `parse_args` "this flag accepts value X" test** when a
+  behavioral test already drives that flag with that value — e.g.
+  `parse_args(["--flag"]).flag is True` is redundant when
+  `parse_args(["--json", "--flag"]).flag is True` exists and catches both
+  the parsing and the forwarding;
+- asserts only shape/bounds on real public data (e.g. "returns a non-negative
+  dict", "values partition to ≤ 1.0") with no real workload behind it, when a
+  behavioral test already exercises the same code path — the bounds/invariant
+  becomes an assertion *inside* that behavioral test, not a standalone test of
+  its own;
+- **runs an identical subprocess call as another test** just to assert different
+  substrings from the same stdout — consolidate the assertions into one test
+  rather than paying the fork cost twice.
+
+### Accept a test (it is functional) when it drives a public surface:
+
+CLI invocation (`subprocess` / `build_parser().parse_args`), the public API
+(`Monitor` / `Profiler`), the real config merge (`create_dashboard_config`),
+documented public module functions (e.g. `power_to_percent`, `get_soc_profile`),
+real export/format contracts (NDJSON / Prometheus), real hardware/file I/O paths,
+or a real widget rendered through its public path (`BrailleChart.render()` via the
+`data` setter, or a `HardwareDashboard` mounted with Textual `App.run_test()` and
+fed real `SystemSnapshot`s through `update_metrics`).
+
+A minimal Textual host `App` used solely to mount a real widget is allowed (it is
+a mount point, not a fake); faking the data or the logic under test is not.
+
+### Before writing a test, apply this litmus:
+
+1. **Can I name the production failure this test will catch?** If the answer is
+   "it protects against argparse breaking" for a default-value assertion, or
+   "it catches a regression in the flag's boolean default," that failure mode is
+   already covered by every behavioral test that parses the flag with a non-default
+   value — skip it.
+2. **Does another test already drive the same code path?** Two tests that both
+   call `parse_args(["---flag"])` and both assert the flag is `True` are one
+   too many. Keep the one that also asserts the flag's downstream effect.
+3. **Is the assertion independently load-bearing?** If you can delete the
+   assertion and no behavioral test would fail, it is cosmetic — inline it into
+   a behavioral test or drop it.
+
+### Minimum checks before opening a PR:
+
+- `.venv/bin/python -m actop.actop --help`
+- `.venv/bin/pytest -q`
+- Run `actop` on Apple Silicon and confirm gauges/charts update without crashes.
+- For parser or metric changes, include a reproducible sample input/output note
+  in the PR description.
 
 ## Commit & Pull Request Guidelines
 - **Branch from `main`; PR strictly into `main`.** Every branch forks from `main` and targets `main`. **Never fork a feature branch off another feature branch** (no stacked PRs): if you need work that is still on an unmerged branch, wait for it to merge and re-branch from `main`. This holds especially for CI/CD and release changes — they land via a single PR into `main`, never a chained branch.

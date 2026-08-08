@@ -6,6 +6,25 @@ This project follows a Keep a Changelog-style format and uses version tags for r
 
 ## [Unreleased]
 
+## [1.6.2] - 2026-08-08
+
+### Fixed
+- **Export modes (`--json` / `--serve`) now honor `--show-processes` and
+  `--proc-filter`** — they were silently ignored, so every NDJSON record carried
+  `"processes":[]` even when the TUI (`t` key) showed populated per-process data.
+  The CLI routing (`_run_export`) now forwards both flags to the NDJSON and
+  Prometheus backends; `run_json_stream` and `serve_prometheus` pass them through
+  to `Monitor(include_processes=True, process_filter=...)`. `--proc-filter`
+  without `--show-processes` implies it, matching the Monitor's opt-in cost model
+  where process collection stays off by default.
+- **Per-process Prometheus gauges** (`actop_process_cpu_percent`,
+  `actop_process_cpu_time_share`, `actop_process_gpu_time_share`,
+  `actop_process_attributed_watts`, `actop_process_rss_bytes`,
+  `actop_process_num_threads`): labelled by `pid` and `command`, emitted only
+  when `include_processes=True`. The NDJSON path needs no format change —
+  `dataclasses.asdict` already serialised processes when they were collected;
+  the gap was purely that collection was never enabled.
+
 ## [1.6.1] - 2026-07-29
 
 Docs only — no code change.
