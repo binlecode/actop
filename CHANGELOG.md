@@ -6,6 +6,8 @@ This project follows a Keep a Changelog-style format and uses version tags for r
 
 ## [Unreleased]
 
+## [1.6.3] - 2026-08-08
+
 ### Added
 - **GPU% column in the TUI process table** — `gpu_time_share` from the Monitor
   was always collected but never rendered. The process table now shows a `GPU%`
