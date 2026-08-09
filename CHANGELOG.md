@@ -6,6 +6,16 @@ This project follows a Keep a Changelog-style format and uses version tags for r
 
 ## [Unreleased]
 
+### Changed
+- **README hero GIF re-recorded** (`images/actop-demo.gif`) — refreshed after the
+  GPU% process-table column landed; recorded under a live llama.cpp workload
+  (OpenAI wire protocol on the llamacpp router, original `qwen3.6-35b-a3b`
+  weights) instead of the ollama-router. `record-tui-gif` skill moved from
+  `.claude/skills/` to `.agents/skills/`; `record.sh` now defaults to the
+  llama.cpp router (`API=openai`), with the ollama-router preserved as a
+  documented fallback (`API=ollama` + native `/api/generate`). Cover
+  (`cover/`) re-deployed with the new GIF.
+
 ## [1.6.5] - 2026-08-09
 
 ### Added

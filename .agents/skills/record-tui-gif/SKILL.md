@@ -1,6 +1,6 @@
 ---
 name: record-tui-gif
-description: Record the actop TUI as an animated GIF with vhs, optionally under a real GPU workload so the gauges move (for the README hero / launch demos). Covers the vhs tape (sizing, off-camera warm-up so the first frame is already live, on-camera glyph/layout/process toggles), the ollama-router GPU driver that lights up GPU/ANE/bandwidth/power, and the record.sh orchestrator that starts the workload, records, and always stops it. Use when refreshing the hero GIF after a TUI/layout change or producing a launch capture. For a *still* ASCII diagram in the docs use capture-tui-diagram instead.
+description: Record the actop TUI as an animated GIF with vhs, optionally under a real GPU workload so the gauges move (for the README hero / launch demos). Covers the vhs tape (sizing, off-camera warm-up so the first frame is already live, on-camera glyph/layout/process toggles), the llama.cpp / ollama GPU driver that lights up GPU/ANE/bandwidth/power, and the record.sh orchestrator that starts the workload, records, and always stops it. Use when refreshing the hero GIF after a TUI/layout change or producing a launch capture. For a *still* ASCII diagram in the docs use capture-tui-diagram instead.
 ---
 
 # record-tui-gif
@@ -30,10 +30,11 @@ tape. actop monitors the whole system, so that's fine.
 From anywhere in the repo:
 
 ```bash
-bash .claude/skills/record-tui-gif/record.sh
+bash .agents/skills/record-tui-gif/record.sh
 ```
 
-This drives a GPU workload against the ollama-router, records the bundled
+This drives a GPU workload against the llama.cpp router (llamacpp-first default;
+the ollama-router is the fully supported fallback), records the bundled
 `actop-demo.tape` → `images/actop-demo.gif`, and **always stops the workload** on
 exit (EXIT/INT/TERM trap — verified no orphans). Useful env overrides:
 
@@ -41,8 +42,9 @@ exit (EXIT/INT/TERM trap — verified no orphans). Useful env overrides:
 |---|---|---|
 | `TAPES` | bundled `actop-demo.tape` | space-separated tapes to record in one session |
 | `SKIP_WORKLOAD` | `0` | `1` = record with idle gauges (no router needed) |
-| `ROUTER_URL` | `http://localhost:11433` | ollama-router base URL |
-| `MODEL` | `qwen3.6:35b-a3b-agentic` | model to drive |
+| `ROUTER_URL` | `http://localhost:9040` | llamacpp router base URL (`:9040`); ollama fallback `:11433` |
+| `MODEL` | `qwen3.6:35b-a3b` | model to drive (llamacpp serves the original weights) |
+| `API` | `openai` | wire protocol — llama.cpp needs `openai`; ollama uses native `ollama` |
 | `CONCURRENCY` | `2` | parallel streams — match the router's backend count |
 | `NUM_PREDICT` | `4096` | tokens/request; long = sustained load |
 | `RAMP_SECONDS` | `8` | GPU spin-up wait before recording |
@@ -50,26 +52,40 @@ exit (EXIT/INT/TERM trap — verified no orphans). Useful env overrides:
 Examples:
 
 ```bash
+# Default: llama.cpp router, OpenAI protocol, original qwen model:
+bash .agents/skills/record-tui-gif/record.sh
 # Heavier load, longer generations:
-CONCURRENCY=3 NUM_PREDICT=8192 bash .claude/skills/record-tui-gif/record.sh
+CONCURRENCY=3 NUM_PREDICT=8192 bash .agents/skills/record-tui-gif/record.sh
+# Ollama fallback (native /api/generate, agentic profile):
+ROUTER_URL=http://localhost:11433 MODEL=qwen3.6:35b-a3b-agentic API=ollama \
+  bash .agents/skills/record-tui-gif/record.sh
 # Record a custom tape with idle gauges (e.g. a quick layout check):
-SKIP_WORKLOAD=1 TAPES=tmp/mytape.tape bash .claude/skills/record-tui-gif/record.sh
+SKIP_WORKLOAD=1 TAPES=tmp/mytape.tape bash .agents/skills/record-tui-gif/record.sh
 ```
 
 ## The GPU workload driver
 
-`gpu_workload.py` (bundled) drives an Ollama-compatible endpoint to keep the GPU
-busy. Stdlib-only (urllib), so no venv installs. It streams long generations
-across N concurrent workers until Ctrl-C or `--duration`.
+`gpu_workload.py` (bundled) drives an Ollama- or OpenAI-compatible endpoint to
+keep the GPU busy. Stdlib-only (urllib), so no venv installs. It streams long
+generations across N concurrent workers until Ctrl-C or `--duration`.
 
 ```bash
-.venv/bin/python .claude/skills/record-tui-gif/gpu_workload.py \
+# llama.cpp (default): OpenAI protocol against the llamacpp router
+.venv/bin/python .agents/skills/record-tui-gif/gpu_workload.py \
+    --url http://localhost:9040 --model qwen3.6:35b-a3b \
+    --api openai --concurrency 2 --num-predict 4096
+# ollama fallback: native /api/generate (llama.cpp 404s on this path)
+.venv/bin/python .agents/skills/record-tui-gif/gpu_workload.py \
     --url http://localhost:11433 --model qwen3.6:35b-a3b-agentic \
-    --concurrency 2 --num-predict 4096
+    --api ollama --concurrency 2 --num-predict 4096
 ```
 
 Notes:
-- **Check the router first**: `(cd ~/workspace_genai/snippets-genai && .venv/bin/python llm_ollama/ollama_router.py status)` — the router fans across backends on 11434/11435, so `--concurrency 2` lights up both.
+- **Check the router first**: llamacpp — `./router.sh status` in
+  `~/workspace_genai/snippets-genai/llm_llamacpp`; ollama —
+  `.venv/bin/python llm_ollama/ollama_router.py status`. llama.cpp only serves
+  the original `qwen3.6-35b-a3b` weights (sampling tuned to the agentic profile);
+  the ollama router additionally exposes the `-agentic` model tag.
 - With large `--num-predict`, the stats line can read `requests=0` for the whole
   window — that's expected: each generation runs longer than the capture, so both
   workers stay mid-generation (GPU pegged the entire time). `errors=0` is the
