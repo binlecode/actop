@@ -73,6 +73,54 @@ def test_native_processes_include_current_process():
     assert me["num_threads"] >= 1
 
 
+def test_cpu_time_ns_is_nanoseconds_not_mach_ticks():
+    # proc_pidinfo reports per-process CPU time in mach ticks, not nanoseconds
+    # (Apple Silicon timebase 125/3, so ticks are ~41.7x smaller -- see Apple
+    # openradar FB9546856). A unit regression reads ~1/41.7 of real CPU time
+    # here, which the share-based test in test_per_process_power.py cannot see
+    # (its numerator and denominator shrink together). Burning CPU and
+    # comparing the raw cpu_time_ns delta against getrusage is the only way
+    # the unit surfaces.
+    import resource
+    import time
+
+    def native_cpu_ns():
+        procs = get_native_processes()
+        me = next(p for p in procs if p["pid"] == os.getpid())
+        return me["cpu_time_ns"]
+
+    def getrusage_ns():
+        ru = resource.getrusage(resource.RUSAGE_SELF)
+        ut = (
+            ru.ru_utime
+            if isinstance(ru.ru_utime, float)
+            else (ru.ru_utime[0] + ru.ru_utime[1] / 1e6)
+        )
+        st = (
+            ru.ru_stime
+            if isinstance(ru.ru_stime, float)
+            else (ru.ru_stime[0] + ru.ru_stime[1] / 1e6)
+        )
+        return int((ut + st) * 1e9)
+
+    get_native_processes()  # warm the code path
+    base_native, base_ru = native_cpu_ns(), getrusage_ns()
+    end = time.time() + 1.2
+    x = 0
+    while time.time() < end:
+        x += 1
+    measured = native_cpu_ns() - base_native
+    real = getrusage_ns() - base_ru
+
+    assert real > 0
+    # Mach ticks are ~2.4% of ns on Apple Silicon, so a unit regression puts
+    # measured at ~2.4% of real. Requiring 60% tolerates scheduling noise.
+    assert measured >= real * 0.6, (
+        f"cpu_time_ns grew {measured / 1e9:.3f}s vs {real / 1e9:.3f}s of real CPU "
+        f"({measured / real * 100:.1f}%) -- mach-tick unit regression in get_native_processes"
+    )
+
+
 def test_dvfs_tables_classify_into_plausible_buckets():
     tables = get_dvfs_tables_native()
 
