@@ -166,6 +166,10 @@ if _DARWIN:
     ]
     _host_statistics64.restype = ctypes.c_int
 
+    _mach_timebase_info = _libc.mach_timebase_info
+    _mach_timebase_info.argtypes = [ctypes.c_void_p]
+    _mach_timebase_info.restype = ctypes.c_int
+
     _proc_listpids = _libc.proc_listpids
     _proc_listpids.argtypes = [
         ctypes.c_uint32,
@@ -198,6 +202,36 @@ if _DARWIN:
 
 
 _THERMAL_STATES = {0: "Nominal", 1: "Fair", 2: "Serious", 3: "Critical"}
+
+# mach_timebase_info ratio: on Apple Silicon numer/denom = 125/3, so one mach
+# tick is 41.667 ns; on Intel it is 1/1. `proc_pidinfo` reports per-process
+# CPU time (pti_total_user/pti_total_system) in these mach ticks, NOT
+# nanoseconds -- converting raw values with the ratio is required to get ns.
+# See Apple openradar FB9546856 ("incorrect value for values reported by
+# libproc") and htop's Platform_machTicksToNanoseconds. The ratio is read once
+# at import; it never changes for a running kernel.
+if _DARWIN:
+
+    class _Timebase(ctypes.Structure):
+        _fields_ = [("numer", ctypes.c_uint32), ("denom", ctypes.c_uint32)]
+
+    _timebase = _Timebase()
+    _mach_timebase_info(ctypes.byref(_timebase))
+    _TIMEBASE_NUMER = _timebase.numer or 1
+    _TIMEBASE_DENOM = _timebase.denom or 1
+else:
+    _TIMEBASE_NUMER = 1
+    _TIMEBASE_DENOM = 1
+
+
+def _mach_ticks_to_ns(ticks):
+    """Convert proc_pidinfo mach-tick CPU times to nanoseconds.
+
+    Integer math, so the conversion is exact for any value a real process
+    accumulates (tens of milliseconds to tens of hours of CPU time stay well
+    inside u64). No float rounding.
+    """
+    return ticks * _TIMEBASE_NUMER // _TIMEBASE_DENOM
 
 
 # ---------------------------------------------------------------------------
@@ -583,14 +617,16 @@ def get_process_cmdline(pid: int) -> str:
 
 
 # proc_taskallinfo byte layout (proc_bsdinfo + proc_taskinfo), arm64.
-# Verified on macOS Sonoma (14) / Sequoia (15). Version-sensitive: a kernel
-# struct change shifts these and must be re-verified, not assumed.
+# Verified on macOS Sonoma (14) / Sequoia (15) / Tahoe (26). Version-sensitive:
+# a kernel struct change shifts these and must be re-verified, not assumed.
+# The two CPU-time fields (pti_total_user/pti_total_system at 152/160) are
+# mach ticks, not nanoseconds -- convert via _mach_ticks_to_ns.
 _PROC_PIDTASKALLINFO = 2
 _PTAI_SIZE = 232  # sizeof(struct proc_taskallinfo)
 _OFF_COMM = 48  # char p_comm[16]  (fallback name)
 _OFF_NAME = 64  # char proc_name[32]
 _OFF_START_TVSEC = 120  # uint64 pbi_start_tvsec (process start, seconds)
-_OFF_PROC_METRICS = 136  # uint64 x4: vms, rss, user_time, sys_time
+_OFF_PROC_METRICS = 136  # uint64 x4: vms, rss, user_time(tick), sys_time(tick)
 _OFF_THREADS = 220  # uint32 pti_threadnum
 
 
@@ -633,7 +669,7 @@ def get_native_processes() -> list:
                         .strip()
                     )
 
-                _vms_bytes, rss_bytes, user_ns, sys_ns = struct.unpack_from(
+                _vms_bytes, rss_bytes, user_ticks, sys_ticks = struct.unpack_from(
                     "<QQQQ", raw, _OFF_PROC_METRICS
                 )
                 (threads_count,) = struct.unpack_from("<I", raw, _OFF_THREADS)
@@ -647,7 +683,7 @@ def get_native_processes() -> list:
                         "name": name,
                         "rss_bytes": rss_bytes,
                         "num_threads": threads_count,
-                        "cpu_time_ns": user_ns + sys_ns,
+                        "cpu_time_ns": _mach_ticks_to_ns(user_ticks + sys_ticks),
                         "start_tvsec": start_tvsec,
                     }
                 )

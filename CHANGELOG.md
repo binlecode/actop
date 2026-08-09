@@ -6,6 +6,21 @@ This project follows a Keep a Changelog-style format and uses version tags for r
 
 ## [Unreleased]
 
+## [1.6.4] - 2026-08-09
+
+### Fixed
+- **Process CPU% was understated ~41.7x on every Apple Silicon machine.** The
+  two CPU-time fields in `proc_pidinfo` (`pti_total_user` / `pti_total_system`)
+  are mach absolute-clock ticks, not nanoseconds — on Apple Silicon the
+  timebase is 125/3 (1 tick = 41.667 ns). `get_native_processes()` returned
+  those raw ticks as `cpu_time_ns`, so every process's CPU% read ~2.4% of its
+  real value (e.g. 1.2 s of burned CPU appeared as 0.03 s). `proc_pidinfo`'
+  actually reports nanoseconds only by coincidence on Intel (timebase 1/1),
+  which is why the offset-verified offsets never surfaced the unit. The module
+  now reads `mach_timebase_info` once at import and converts via integer math
+  (`_mach_ticks_to_ns`). Per-process `cpu_time_share` and watt attribution are
+  ratio-based, so they were never affected. See Apple openradar FB9546856.
+
 ## [1.6.3] - 2026-08-08
 
 ### Added
