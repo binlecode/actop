@@ -6,6 +6,17 @@ This project follows a Keep a Changelog-style format and uses version tags for r
 
 ## [Unreleased]
 
+## [1.6.5] - 2026-08-09
+
+### Added
+- **`--json --samples N` — bounded NDJSON emission for agent/script one-shots.**
+  `--json` previously streamed until interrupted, forcing an agent or script to
+  kill the process after reading its record. `--samples N` (with `--json`) now
+  emits exactly `N` snapshot records then exits 0; `--samples 0` (default)
+  keeps the streaming behavior. The first record already carries real deltas
+  (the `Monitor` primes the baseline at construction), so `--json --samples 1`
+  is a clean single-snapshot tool call.
+
 ## [1.6.4] - 2026-08-09
 
 ### Fixed
@@ -492,7 +503,7 @@ Reading-plane audit remediation (`docs/TODO-reading-plane-audit-2026-07-29.md`
   (`capture-tui-diagram`, `record-tui-gif`).
 
 ### Chore
-- Add the `record-tui-gif` Claude Code skill (`.claude/skills/record-tui-gif/`):
+- Add the `record-tui-gif` Claude Code skill (`.agents/skills/record-tui-gif/`):
   reproducible hero-GIF recording via `vhs` driven by a live GPU workload, so the
   capture can be refreshed after any TUI/layout change.
 
@@ -726,7 +737,7 @@ Reading-plane audit remediation (`docs/TODO-reading-plane-audit-2026-07-29.md`
   New must-have items (fan RPM via SMC, net/disk I/O via native ctypes) and a
   deferred low-priority item (menu bar mode, explicitly after first
   market-promo push per `docs/RUNBOOK-launch-and-growth.md`).
-- `.claude/skills/run-actop`: documents driving the TUI via tmux send-keys/
+- `.agents/skills/run-actop`: documents driving the TUI via tmux send-keys/
   capture-pane for manual verification (Homebrew binary and local `.venv` dev
   build), including the sampler-init ready marker and how to confirm live
   updates vs. a static frame.

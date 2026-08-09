@@ -399,6 +399,38 @@ def test_json_stream_proc_filter_implies_show_processes():
 
 
 @pytest.mark.local
+def test_json_samples_limits_records_and_exits_zero():
+    # Agent-facing contract: `--json --samples N` must emit exactly N NDJSON
+    # records and exit 0 on its own — an agent's one-shot tool call must not
+    # hang (infinite stream) nor report failure (130) on natural completion.
+    # Without the flag wired through _run_export the process streams forever
+    # and this test's timeout trips; with max_samples>0 run_json_stream breaks
+    # the loop and _run_export returns 0.
+    process = subprocess.run(
+        [
+            sys.executable,
+            "-m",
+            "actop.actop",
+            "--json",
+            "--samples",
+            "2",
+            "--interval",
+            "1",
+        ],
+        capture_output=True,
+        text=True,
+        timeout=20,
+    )
+
+    lines = [ln for ln in process.stdout.splitlines() if ln.strip()]
+    assert process.returncode == 0, process.stderr
+    assert len(lines) == 2, f"expected exactly 2 records, got {len(lines)}"
+    record = json.loads(lines[0])
+    assert "cpu_watts" in record
+    assert "p_cores" in record
+
+
+@pytest.mark.local
 def test_serve_prometheus_includes_process_gauges_with_show_processes():
     import urllib.request
 
