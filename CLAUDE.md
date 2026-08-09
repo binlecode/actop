@@ -15,7 +15,7 @@ This file is the single source of truth for repository guidelines, used by Claud
 - Do not run `python`, `pip`, or `pytest` from the global environment for this repo.
 
 ## Build, Test, and Development Commands
-- `git config core.hooksPath .githooks`: **run once per clone** to activate the local hooks (`pre-commit` secret redaction + `pre-push` `main` guard). Fresh clones have no hooks until this is set.
+- `git config core.hooksPath .githooks`: **run once per clone** to activate the local hooks (`pre-commit` secret redaction + `pre-push` `main` guard + `pre-push` bare-tag nudge). Fresh clones have no hooks until this is set.
 - `.venv/bin/python -m pip install -e ".[dev]"`: install editable + dev deps (ruff).
 - `.venv/bin/python -m actop.actop --help`: validate CLI parsing and flags.
 - `.venv/bin/python -m actop.actop --interval 2 --avg 30`: run the tool locally.
@@ -47,7 +47,7 @@ This file is the single source of truth for repository guidelines, used by Claud
 
 ## Release Process
 
-`main` is **PR-only** (branch protection + `.githooks/pre-commit` redaction check and `.githooks/pre-push` guard; run `git config core.hooksPath .githooks` once). The Homebrew formula lives in the separate tap repo `binlecode/homebrew-actop` (not this repo); CI syncs it on tag and publishes to PyPI via OIDC. CI/CD mechanics are owned by the workflow files themselves (`.github/workflows/main-ci.yml`, `release-formula.yml`, `publish-pypi.yml`) — each carries its one-time setup inline.
+`main` is **PR-only** (branch protection + `.githooks/pre-commit` redaction check and `.githooks/pre-push` guard; run `git config core.hooksPath .githooks` once). The Homebrew formula lives in the separate tap repo `binlecode/homebrew-actop` (not this repo); CI syncs it on tag and publishes to PyPI via OIDC. CI/CD mechanics are owned by the workflow files themselves (`.github/workflows/main-ci.yml`, `release-formula.yml`, `publish-pypi.yml`, `guard-release.yml`) — each carries its one-time setup inline. `guard-release.yml` is the post-push integrity gate: every tag push triggers a scan that verifies every `v*` tag has a corresponding GitHub Release object, catching the "silent link breakage" that caused the v0.8.7–v1.6.6 release-object gap.
 
 **RULE — cutting a release REQUIRES a GitHub Release, not just a tag.** A release is cut with `scripts/tag_release.sh`, which pushes the git tag **and** creates the GitHub Release for it via `gh release create` (release notes pulled from the matching `CHANGELOG.md` section). A bare `git tag` + push is **not** a release: it never surfaces on the `/releases` page or as `Latest`, and leaves the Releases history silently behind the code. Never cut a release by hand-tagging alone — if the `gh release create` step fails, finish it manually (see playbooks below) before calling the release cut done.
 

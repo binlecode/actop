@@ -3,11 +3,16 @@
 # branch + pull request. This mirrors the server-side branch protection on
 # binlecode/actop and fails fast locally before a push is rejected by GitHub.
 #
+# Also nudges when a v* tag is being pushed directly (bare `git push origin
+# vX.Y.Z`) — use scripts/tag_release.sh instead; it creates the required
+# GitHub Release object alongside the tag.
+#
 # Enabled via:  git config core.hooksPath .githooks
 set -euo pipefail
 
 protected_branch="main"
 remote="${1:-}"
+warn_tag=0
 
 while read -r local_ref local_sha remote_ref remote_sha; do
   if [[ "$remote_ref" == "refs/heads/${protected_branch}" ]]; then
@@ -19,6 +24,19 @@ while read -r local_ref local_sha remote_ref remote_sha; do
     echo "" >&2
     exit 1
   fi
+  if [[ "$remote_ref" =~ ^refs/tags/v ]]; then
+    warn_tag=1
+  fi
 done
+
+if [[ $warn_tag -eq 1 ]]; then
+  echo "" >&2
+  echo "WARNING: you are pushing a v* tag directly." >&2
+  echo "Use scripts/tag_release.sh instead — it creates the required GitHub Release" >&2
+  echo "object alongside the tag. A bare tag push creates no release and leaves the" >&2
+  echo "project's /releases page incomplete." >&2
+  echo "" >&2
+  echo "Push anyway?  Proceeding…" >&2
+fi
 
 exit 0

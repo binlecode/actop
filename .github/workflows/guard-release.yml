@@ -1,0 +1,54 @@
+name: guard-release
+run-name: "guard-release | ${{ github.ref_name }}"
+
+# Post-push integrity guard: every tag push triggers a scan of all v* tags.
+# If any tag lacks a GitHub Release object the job fails — catching the
+# "silent link breakage" pattern where tags are pushed but release creation
+# never happens (e.g. bare `git tag` + push without `tag_release.sh`).
+
+on:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: read
+
+jobs:
+  guard:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check all v* tags have a release object
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+
+          TAGS="$(gh api "repos/${GH_REPO}/git/refs/tags" --jq '.[].ref | ltrimstr("refs/tags/")' | grep '^v' | sort -V)"
+          RELEASES="$(gh api "repos/${GH_REPO}/releases" --jq '.[].tag_name' | sort -V | uniq)"
+
+          missing=()
+          while IFS= read -r tag; do
+            [[ -z "$tag" ]] && continue
+            # Normalise: strip ^{} deref suffix and skip non-annotated deref lines.
+            tag="${tag%^\{\}}"
+            [[ "$tag" =~ \^\{ ]] && continue
+            if ! printf '%s\n' "$RELEASES" | grep -qxF "$tag"; then
+              missing+=("$tag")
+            fi
+          done <<< "$TAGS"
+
+          if [[ ${#missing[@]} -gt 0 ]]; then
+            echo "" >&2
+            echo "GUARD FAILED: ${#missing[@]} tag(s) have no GitHub Release object:" >&2
+            printf '  - %s\n' "${missing[@]}" >&2
+            echo "" >&2
+            echo "Every v* tag must have a corresponding release. Create them with:" >&2
+            echo "  scripts/tag_release.sh" >&2
+            echo "Or backfill an existing tag:" >&2
+            echo "  gh release create <tag> --title \"actop <ver>\" --notes-from-tag" >&2
+            exit 1
+          fi
+
+          echo "All $(echo "$TAGS" | wc -l | tr -d ' ') v* tags have a release object."
