@@ -178,6 +178,12 @@ async def _drive(snapshots, config=None):
             "gpu_rt_row_display": dash.query_one("#gpu-rt-row", Static).display,
             "status": app.last_status,
         }
+        # Raw renderables (not str) for the styled-span assertions in the
+        # coloring tests — the str form strips the severity tint the span tests
+        # need to see.
+        state["pcpu_row"] = dash.query_one("#pcpu-summary-row", Static).render()
+        state["ecpu_row"] = dash.query_one("#ecpu-summary-row", Static).render()
+        state["fan_label_content"] = dash.query_one("#fan-label", Static).render()
         residency_ids = (
             "pcpu-residency-row",
             "ecpu-residency-row",
@@ -294,6 +300,91 @@ def test_gpu_label_marks_driver_provenance_and_drops_meaningless_freq():
     residency = asyncio.run(_drive([_snapshot(120.0, True, gpu_freq_mhz=900)]))
     assert "GPU 30% @900MHz" in residency["gpu_label"]
     assert "(drv)" not in residency["gpu_label"]
+
+
+_FAN_SPINNER_CHARS = "⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏"
+
+
+def _styled_segment(content, predicate):
+    """Style string of the first span matching `predicate`, or None.
+
+    The rendered `Content` carries a `spans`/`plain` pair (Textual's wrapper
+    over Rich's styled Text); the plain string the rest of the suite asserts on
+    is the same text with the severity tint stripped.
+    """
+    for span in content.spans:
+        if predicate(content.plain[span.start : span.end]):
+            return str(span.style)
+    return None
+
+
+def _fan_glyph_style(content):
+    return _styled_segment(
+        content, lambda s: re.fullmatch(rf"[{_FAN_SPINNER_CHARS}]", s) is not None
+    )
+
+
+def test_util_percent_wears_chart_color_high_vs_low():
+    # The % readout must wear the chart's severity color for that value (the
+    # number and its tracer agree), so a hot reading reads red-hot and an idle
+    # one stays cool. A regression back to a plain string leaves every span
+    # unstyled and this test fails — the substring assertions elsewhere would
+    # keep passing.
+    state = asyncio.run(_drive([_snapshot(0.0, False, pcpu_util_pct=90.0)]))
+    pcpu_style = _styled_segment(state["pcpu_row"], lambda s: s.strip() == "90%")
+    ecpu_style = _styled_segment(state["ecpu_row"], lambda s: s.strip() == "10%")
+    assert pcpu_style  # colored, not the empty plain-text style
+    assert ecpu_style
+    assert pcpu_style != ecpu_style  # high/low read different colors
+
+
+def test_fan_spinner_glyph_wears_utilization_color():
+    # The fan spinner glyph tints by fan load the same way the % readouts do:
+    # a fan near its max spins in the hot color, a nearly-idle fan in the cool
+    # one. max-less fans stay untinted (there is no utilization to colour by).
+    high = asyncio.run(
+        _drive(
+            [
+                _snapshot(
+                    0.0,
+                    False,
+                    fans=[FanReading(5400.0, 6000.0)],
+                    fan_available=True,
+                )
+            ]
+        )
+    )
+    low = asyncio.run(
+        _drive(
+            [
+                _snapshot(
+                    0.0,
+                    False,
+                    fans=[FanReading(1200.0, 6000.0)],
+                    fan_available=True,
+                )
+            ]
+        )
+    )
+    no_max = asyncio.run(
+        _drive(
+            [
+                _snapshot(
+                    0.0,
+                    False,
+                    fans=[FanReading(5400.0, None)],
+                    fan_available=True,
+                )
+            ]
+        )
+    )
+    high_style = _fan_glyph_style(high["fan_label_content"])
+    low_style = _fan_glyph_style(low["fan_label_content"])
+    no_max_style = _fan_glyph_style(no_max["fan_label_content"])
+    assert high_style
+    assert low_style
+    assert high_style != low_style
+    assert no_max_style is None  # no max key -> no invented severity
 
 
 def test_fan_row_shows_current_and_max_when_available():

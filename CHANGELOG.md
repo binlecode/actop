@@ -7,6 +7,28 @@ This project follows a Keep a Changelog-style format and uses version tags for r
 ## [Unreleased]
 
 ### Changed
+- **% readouts and the fan spinner tint by utilization color.** The headline %
+  in each metric row (and the fan-glyph) now wears the same severity color as
+  the sparkline that traces it — a 90% reading reads red, an idle 5% stays cool.
+  NO_COLOR / dumb terminals degrade to untinted, matching the charts.
+- **README badge row** — PyPI version + supported Python versions, License,
+  and CI badges at the top.
+- **Docs reorg**: skills consolidated under `.agents/skills/`
+  (`capture-tui-diagram`, `run-actop`, `record-tui-gif`, plus new
+  `publish-cover` for the landing-page cover); `docs/DESIGN-system.md` renamed
+  to `docs/SPEC-system.md`; the CI/CD + release runbook folded from the deleted
+  `docs/DESIGN-sdlc-cicd.md` into `CLAUDE.md` → Release Process; README /
+  CONTRIBUTING / SECURITY release references updated; SECURITY gains a
+  `HOMEBREW_TAP_TOKEN` handling section; `.gitignore` covers the
+  `dist-cover/` landing-page build output.
+
+### Added
+- Tests covering `domain_throttling` on an unknown DVFS ceiling (never
+  throttling) and the die-temp fallback when the thermal state is nominal.
+
+## [1.6.6] - 2026-08-09
+
+### Changed
 - **README hero GIF re-recorded** (`images/actop-demo.gif`) — refreshed after the
   GPU% process-table column landed; recorded under a live llama.cpp workload
   (OpenAI wire protocol on the llamacpp router, original `qwen3.6-35b-a3b`

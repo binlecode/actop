@@ -1,5 +1,10 @@
 # actop
 
+[![PyPI version](https://img.shields.io/pypi/v/actop.svg)](https://pypi.org/project/actop/)
+[![Python versions](https://img.shields.io/pypi/pyversions/actop.svg)](https://pypi.org/project/actop/)
+[![License: MIT](https://img.shields.io/github/license/binlecode/actop.svg)](LICENSE)
+[![CI](https://github.com/binlecode/actop/actions/workflows/main-ci.yml/badge.svg)](https://github.com/binlecode/actop/actions/workflows/main-ci.yml)
+
 **Watch your Apple Silicon Mac the way it actually works — and profile your own workloads from Python.**
 
 `actop` is a sudoless, in-process performance monitor for M1–M4 Macs: a real-time
@@ -377,7 +382,7 @@ and the functional-tests-only policy (`CLAUDE.md` is the full source of truth).
 
 ## Release
 
-See `GUIDE-release-operations.md` for the full runbook.
+See `CLAUDE.md` → Release Process for the full runbook (versioning, tag flow, failure playbooks).
 
 ```bash
 # 1. Bump version and changelog

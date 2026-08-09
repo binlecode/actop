@@ -1,6 +1,6 @@
 ---
 name: capture-tui-diagram
-description: Capture live actop TUI frames via tmux and embed them as faithful ASCII diagrams in the docs (DESIGN-system.md §5, README). Covers picking a width/preset for each view (grid / stack / process+filter), the poll-cycle wait that avoids stale frames, cleaning a raw capture with clean_capture.py, and splicing it into a doc via a Python replace instead of hand-transcribing braille. Use when a doc's terminal mockup is stale after a TUI/layout change.
+description: Capture live actop TUI frames via tmux and embed them as faithful ASCII diagrams in the docs (SPEC-system.md §5, README). Covers picking a width/preset for each view (grid / stack / process+filter), the poll-cycle wait that avoids stale frames, cleaning a raw capture with clean_capture.py, and splicing it into a doc via a Python replace instead of hand-transcribing braille. Use when a doc's terminal mockup is stale after a TUI/layout change.
 ---
 
 # capture-tui-diagram
@@ -16,7 +16,7 @@ focuses on capture → clean → splice.
 
 ## When to use
 
-- After a TUI or layout change makes a doc diagram stale (e.g. DESIGN-system.md
+- After a TUI or layout change makes a doc diagram stale (e.g. SPEC-system.md
   §5, README hero block).
 - When you need side-by-side "here's preset A vs preset B" captures.
 
@@ -71,14 +71,14 @@ sleep 6                            # let the next poll apply it, THEN capture
 lines, trailing pad whitespace, and scrollbar thumb artifacts:
 
 ```bash
-python .claude/skills/capture-tui-diagram/clean_capture.py tmp/raw.txt > tmp/grid.txt
+python .agents/skills/capture-tui-diagram/clean_capture.py tmp/raw.txt > tmp/grid.txt
 ```
 
 For a **single-column** capture (the `stack` preset) add `--compress` to collapse
 runs of blank chart rows so a ~47-row frame fits a doc:
 
 ```bash
-python .claude/skills/capture-tui-diagram/clean_capture.py tmp/stack_raw.txt --compress > tmp/stack.txt
+python .agents/skills/capture-tui-diagram/clean_capture.py tmp/stack_raw.txt --compress > tmp/stack.txt
 ```
 
 **Never `--compress` a side-by-side frame** (grid, or dashboard+table): the two
@@ -93,7 +93,7 @@ Replace the region between two stable markers with a small Python edit:
 ```bash
 python - <<'PY'
 import pathlib
-DOC = pathlib.Path("docs/DESIGN-system.md")
+DOC = pathlib.Path("docs/SPEC-system.md")
 grid  = pathlib.Path("tmp/grid.txt").read_text().rstrip("\n")
 stack = pathlib.Path("tmp/stack.txt").read_text().rstrip("\n")
 proc  = pathlib.Path("tmp/proc.txt").read_text().rstrip("\n")
@@ -108,8 +108,8 @@ PY
 Then sanity-check the fences are balanced and headings survived:
 
 ```bash
-grep -c '^```' docs/DESIGN-system.md         # must be even
-grep -n '^## \|^### ' docs/DESIGN-system.md   # headings intact
+grep -c '^```' docs/SPEC-system.md         # must be even
+grep -n '^## \|^### ' docs/SPEC-system.md   # headings intact
 ```
 
 ## Gotchas

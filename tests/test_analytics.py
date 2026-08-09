@@ -8,7 +8,7 @@ contracts on the returned `AlertFrame`s. No mocks, no private access: `feed()`
 is the public entrypoint and `AlertFrame` fields are the public output.
 """
 
-from actop.analytics import AlertEngine, AlertFrame
+from actop.analytics import AlertEngine, AlertFrame, domain_throttling
 from actop.models import SystemSnapshot
 
 _IDLE_RESIDENCY = {"idle": 100, "low": 0, "mid": 0, "high": 0}
@@ -76,6 +76,33 @@ def _engine(**overrides) -> AlertEngine:
     }
     kwargs.update(overrides)
     return AlertEngine(**kwargs)
+
+
+def test_domain_throttling_ceiling_unknown_is_never_throttling():
+    # When the DVFS ceiling is unknown (max_freq <= 0) the slow-freq ratio is
+    # uncomputable, so the domain must never be reported as throttling — even
+    # busy + slow + hot. A regression here would fire a false THROTTLING token
+    # on a machine whose pmgr voltage-states table failed to classify.
+    assert (
+        domain_throttling(95.0, 1200, 0, 100.0, "Serious", freq_percent=90.0) is False
+    )
+
+
+def test_domain_throttling_uses_die_temp_fallback_when_thermal_nominal():
+    # The thermal-state string is the primary "hot" test, but a machine whose
+    # SMC temps read 0 (or that reports Nominal during a spike) must still
+    # throttle via the die-temp gate. Dropping that fallback would hide
+    # throttling on such machines.
+    assert (
+        domain_throttling(95.0, 1200, 3200, 95.0, "Nominal", freq_percent=90.0) is True
+    )
+    # A cool die under a Nominal/Unknown state stays quiet.
+    assert (
+        domain_throttling(95.0, 1200, 3200, 50.0, "Nominal", freq_percent=90.0) is False
+    )
+    assert (
+        domain_throttling(95.0, 1200, 3200, 50.0, "Unknown", freq_percent=90.0) is False
+    )
 
 
 def test_throttle_alert_fires_only_after_sustain_threshold():

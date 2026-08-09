@@ -30,8 +30,8 @@ This file is the single source of truth for repository guidelines, used by Claud
 | `actop/sampler.py` | `IOReportSampler`: subscription lifecycle, delta computation, `SampleResult` conversion, DVFS table discovery via native ctypes |
 | `actop/ioreport.py` | ctypes bindings to `libIOReport.dylib` and CoreFoundation (`IOReportSubscription`, `cfstr`, `cf_release`) |
 | `actop/smc.py` | SMC temperature reader: IOKit ctypes bindings to `AppleSMC`, key discovery, CPU/GPU die temperature reads |
-| `actop/gpu_registry.py` | GPU accelerator registry reads via IOKit ctypes bindings: `get_gpu_time_by_pid()` sums `accumulatedGPUTime` off each `AGXDeviceUserClient`; `get_gpu_perf_stats()` reads device-level Device/Renderer/Tiler utilization % off the accelerator's own `PerformanceStatistics` dict (driver point reads — a fallback for `gpu_util_pct` plus the compute-vs-geometry breakdown IOReport cannot express; see `docs/DESIGN-system.md` §3.8) |
-| `actop/utils.py` | L1 acquisition + platform discovery: native `ctypes` RAM/swap metrics and per-process CPU/GPU time collection (via `native_sys.py`), `sysctl`/`system_profiler` SoC info. Byte quantities cross layer seams as **raw bytes** (exact, prefix-free, Prometheus base-unit convention); GiB/MiB formatting is presentation and lives in `tui/`, and bandwidth stays decimal `GB/s` because that is Apple's unit for the bus — see `docs/DESIGN-system.md` §2.1. The `*_GB` keys and `rss_mb` are deprecated rounded views removed in 2.0.0. Holds no derived domain math |
+| `actop/gpu_registry.py` | GPU accelerator registry reads via IOKit ctypes bindings: `get_gpu_time_by_pid()` sums `accumulatedGPUTime` off each `AGXDeviceUserClient`; `get_gpu_perf_stats()` reads device-level Device/Renderer/Tiler utilization % off the accelerator's own `PerformanceStatistics` dict (driver point reads — a fallback for `gpu_util_pct` plus the compute-vs-geometry breakdown IOReport cannot express; see `docs/SPEC-system.md` §3.8) |
+| `actop/utils.py` | L1 acquisition + platform discovery: native `ctypes` RAM/swap metrics and per-process CPU/GPU time collection (via `native_sys.py`), `sysctl`/`system_profiler` SoC info. Byte quantities cross layer seams as **raw bytes** (exact, prefix-free, Prometheus base-unit convention); GiB/MiB formatting is presentation and lives in `tui/`, and bandwidth stays decimal `GB/s` because that is Apple's unit for the bus — see `docs/SPEC-system.md` §2.1. The `*_GB` keys and `rss_mb` are deprecated rounded views removed in 2.0.0. Holds no derived domain math |
 | `actop/analytics.py` | L2 domain analytics over acquired data points (imports only `models`/`power_scaling`, never `tui/*`): per-process power attribution (`attribute_power`), throttle detection (`domain_throttling`), bandwidth/package-power normalization, and the stateful `AlertEngine` (sustain-counted alerts + session-energy integral → `AlertFrame`) |
 | `actop/soc_profiles.py` | 16 built-in M1–M4 SoC profiles with power/bandwidth reference values; tier fallbacks for unknown chips |
 | `actop/power_scaling.py` | Power chart scaling: `auto` mode (rolling peak x1.25) vs `profile` mode (SoC reference wattage) |
@@ -47,15 +47,82 @@ This file is the single source of truth for repository guidelines, used by Claud
 
 ## Release Process
 
-`main` is **PR-only** (branch protection + `.githooks/pre-commit` redaction check and `.githooks/pre-push` guard; run `git config core.hooksPath .githooks` once). Bump the version + CHANGELOG via a PR, merge, then tag with `scripts/tag_release.sh [version]`. The Homebrew formula lives in the separate tap repo `binlecode/homebrew-actop` (not this repo); CI syncs it on tag and publishes to PyPI via OIDC. See `docs/DESIGN-sdlc-cicd.md` for the full runbook.
+`main` is **PR-only** (branch protection + `.githooks/pre-commit` redaction check and `.githooks/pre-push` guard; run `git config core.hooksPath .githooks` once). The Homebrew formula lives in the separate tap repo `binlecode/homebrew-actop` (not this repo); CI syncs it on tag and publishes to PyPI via OIDC. CI/CD mechanics are owned by the workflow files themselves (`.github/workflows/main-ci.yml`, `release-formula.yml`, `publish-pypi.yml`) — each carries its one-time setup inline.
+
+### Release steps
+
+```bash
+# 1. Bump version and changelog via a PR (never commit the bump to main)
+git switch -c release-vX.Y.Z
+# edit pyproject.toml ([project].version) and CHANGELOG.md (move Unreleased -> new version + date)
+git commit -am "Release vX.Y.Z" && git push -u origin release-vX.Y.Z
+gh pr create --base main --fill
+
+# 2. Run checks (locally and/or on the PR)
+.venv/bin/python -m ruff check --fix .
+.venv/bin/python -m ruff format .
+.venv/bin/python -m actop.actop --help
+.venv/bin/pytest -q
+
+# 3. Merge and sync
+gh pr merge --merge --delete-branch
+git checkout main && git pull --ff-only
+
+# 4. Tag the release (after the bump PR merges)
+scripts/tag_release.sh "X.Y.Z"
+
+# 5. Monitor CI — wait for release-formula and publish-pypi to pass
+gh run list -R binlecode/actop --limit 10
+
+# 6. Verify
+pipx install actop && actop --version                # PyPI
+brew update && brew upgrade binlecode/actop/actop    # Homebrew (tap repo synced)
+```
+
+### Failure playbooks
+
+- **`tag_release.sh` fails — local `main` behind/diverged:** the bump PR may not be merged/pulled yet.
+  ```bash
+  git fetch origin && git checkout main && git pull --ff-only origin main
+  scripts/tag_release.sh "X.Y.Z"
+  ```
+- **`release-formula` fails with tag/version mismatch:** tag `vX.Y.Z` doesn't match `pyproject.toml` in the tag commit. Fix in a new PR, merge, then create a **new** tag (never reuse the old tag).
+- **`release-formula` fails at tap checkout/push:** missing or under-scoped `HOMEBREW_TAP_TOKEN`. Confirm the secret exists on `binlecode/actop` and the PAT has **Contents: Read/write** on `binlecode/homebrew-actop`. Re-run the failed job.
+- **`publish-pypi` fails with OIDC / trusted-publisher error:** verify the trusted publisher on pypi.org matches repo `binlecode/actop`, workflow `publish-pypi.yml`, environment `pypi`; confirm the run is from a `v*` tag (the `pypi` environment's deploy policy is tag-only). `skip-existing` makes re-runs safe. **Break-glass:** publish that version manually with the token-driven Flow B (`twine upload --skip-existing`), then restore OIDC for subsequent releases.
+- **Emergency rerun without resource refresh:** `workflow_dispatch` on `release-formula` with `refresh_resources=false` as a temporary workaround; follow up with a normal run (`refresh_resources=true`).
+
+### PyPI publishing — two flows
+
+OIDC Trusted Publishing is the default (no stored secret; the `pypi` environment on `binlecode/actop` is tag-only, and the workflow file documents the one-time publisher registration). The token-driven flow is the fallback / bootstrap and the only place a long-lived PyPI credential appears:
+
+```bash
+python -m build                       # produces dist/*.tar.gz and dist/*.whl
+python -m twine upload --skip-existing dist/*
+# username: __token__   password: <PyPI project-scoped API token from ~/env-secrets/>
+```
+
+Prefer `TWINE_USERNAME=__token__` + `TWINE_PASSWORD` env vars (or `~/.pypirc`) so the token never hits shell history. **Hygiene:** once OIDC is confirmed on a release, delete the project-scoped token from pypi.org and `~/env-secrets/api_keys/` so no long-lived PyPI credential remains; regenerate only to bootstrap or break glass.
+
+### Homebrew Core submission (optional)
+
+To make `actop` natively trusted without users running `brew tap`, meet Homebrew Core's popularity bar (75+ stars, notable usage), run `brew audit --new-formula actop`, and open a PR to [homebrew-core](https://github.com/Homebrew/homebrew-core).
+
+### Quick reference
+
+```bash
+gh run list -R binlecode/actop --limit 12
+gh run view -R binlecode/actop <RUN_ID> --log-failed
+git ls-remote --tags origin "v*"
+gh secret list -R binlecode/actop                 # confirm HOMEBREW_TAP_TOKEN
+gh api /repos/binlecode/actop/environments/pypi/deployment-branch-policies
+```
 
 ## SDLC & Architectural Documentation
 
 The `docs/` directory contains essential system reviews, research, and operations guides:
-- `docs/DESIGN-system.md`: Detailed system design reference — native bindings, sampling layer, SoC profile fallback, TUI rendering, testing contract. Kept in sync with the code on every PR that touches architecture.
+- `docs/SPEC-system.md`: Detailed system design reference — native bindings, sampling layer, SoC profile fallback, TUI rendering, testing contract. Kept in sync with the code on every PR that touches architecture.
 - `docs/REVIEW-architecture-comparison.md`: Performance and architectural comparison between `actop` (Python) and `mactop` (Go).
 - `docs/REVIEW-tui-frameworks.md`: Analysis of modern Python TUI frameworks and selection of Textual.
-- `docs/DESIGN-sdlc-cicd.md`: CI/CD bottling and tap release operational runbook.
 - `docs/TODO-architecture-roadmap.md`: Open hardware/metric-coverage gaps and their priority.
 
 **Conformance auditing:** the `/audit-conformance` skill (`.claude/skills/audit-conformance/`) periodically judgment-scans the whole tree against 12 coding rules (layering, dead code, DRY, naming, swallowed errors) — the whole-codebase counterpart to diff-scoped `/code-review`. It writes an actionable `docs/TODO-conformance-YYYY-MM-DD.md` and never proposes structural/guard tests (they would violate the functional-tests-only mandate).
@@ -149,7 +216,7 @@ a mount point, not a fake); faking the data or the logic under test is not.
 
 ## Commit & Pull Request Guidelines
 - **Branch from `main`; PR strictly into `main`.** Every branch forks from `main` and targets `main`. **Never fork a feature branch off another feature branch** (no stacked PRs): if you need work that is still on an unmerged branch, wait for it to merge and re-branch from `main`. This holds especially for CI/CD and release changes — they land via a single PR into `main`, never a chained branch.
-- **Bump the version in every PR.** Each PR updates `pyproject.toml` version + moves `CHANGELOG.md` `[Unreleased]` into a new dated section, in the same PR: **patch bump by default, minor only for a milestone PR** (major reserved for breaking API/CLI changes). Tagging (`scripts/tag_release.sh`) is a separate step after merge and is what publishes — see `docs/DESIGN-sdlc-cicd.md`.
+- **Bump the version in every PR.** Each PR updates `pyproject.toml` version + moves `CHANGELOG.md` `[Unreleased]` into a new dated section, in the same PR: **patch bump by default, minor only for a milestone PR** (major reserved for breaking API/CLI changes). Tagging (`scripts/tag_release.sh`) is a separate step after merge and is what publishes — see the Release Process section above.
 - Use concise, imperative commit subjects (as seen in history), e.g. `Add support for M1 Ultra` or `actop/utils.py: add bandwidth of M2`.
 - Keep commits scoped to one logical change.
 - Before every commit and before every push, always run:

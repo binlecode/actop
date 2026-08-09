@@ -8,7 +8,7 @@ import time
 
 import pytest
 
-from actop import Monitor, Profiler, SystemSnapshot
+from actop import AsyncMonitor, Monitor, Profiler, SystemSnapshot
 from actop.native_sys import get_sysctl_int
 
 pytestmark = pytest.mark.local
@@ -143,6 +143,24 @@ def test_monitor_get_snapshot_returns_valid_snapshot():
     # Timestamp must be a recent Unix timestamp
     assert snapshot.timestamp > 0
     assert math.isfinite(snapshot.timestamp)
+
+
+def test_async_monitor_get_snapshot_async_returns_snapshot():
+    # AsyncMonitor is the documented async surface of the public API; a broken
+    # thread-pool wrapper (e.g. never awaiting the executor) would surface as a
+    # missing/broken snapshot here, not in any sync test.
+    import asyncio
+
+    async def _run():
+        with AsyncMonitor(interval_s=1) as mon:
+            snap = await mon.get_snapshot_async()
+        return snap
+
+    snapshot = asyncio.run(_run())
+    assert isinstance(snapshot, SystemSnapshot)
+    assert snapshot.cpu_watts >= 0
+    assert snapshot.package_watts >= 0
+    assert snapshot.timestamp > 0
 
 
 def test_profiler_collects_samples_and_summarizes():

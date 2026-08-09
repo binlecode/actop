@@ -1,7 +1,7 @@
 # Dependabot keeps Python dependencies and pinned GitHub Actions current.
 # Free on public repos; update runs execute on GitHub's Dependabot infrastructure
 # and do NOT consume this repo's Actions minutes. PRs it opens go through the normal
-# PR-only flow and are validated by main-ci. See docs/DESIGN-sdlc-cicd.md.
+# PR-only flow and are validated by main-ci.
 version: 2
 updates:
   # Python runtime + dev dependencies (declared in pyproject.toml).
