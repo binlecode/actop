@@ -29,7 +29,7 @@ _HOT_RGB = (240, 70, 64)  # red
 # gradient byte-for-byte; `viridis` is a colorblind-safe perceptual ramp; `mono`
 # is grayscale intensity for a monochrome / high-contrast preference. Dict
 # insertion order is the order a future runtime cycle keybind would advance
-# through (deliberately deferred — see docs/DESIGN-system.md §5.2).
+# through (deliberately deferred — see docs/SPEC-system.md §5.2).
 _PALETTES = {
     "thermal": [_COOL_RGB, _HOT_RGB],
     "viridis": [
@@ -569,6 +569,10 @@ class HardwareDashboard(Widget):
         # Gradient palette, fixed for the session (--palette). Passed eagerly to
         # every chart at compose time, exactly like _chart_glyph.
         self._palette = getattr(cfg, "palette", _DEFAULT_PALETTE)
+        # Color tier for the %-readout and fan-glyph tinting. None => resolve
+        # lazily from the running app's console once mounted (like BrailleChart),
+        # falling back to environment detection before then.
+        self._color_mode = None
 
         requested = getattr(cfg, "layout", "grid")
         if requested not in self._VALID_PRESETS:
@@ -635,6 +639,24 @@ class HardwareDashboard(Widget):
 
     def on_mount(self) -> None:
         self.set_interval(_FAN_SPINNER_TICK_SECONDS, self._tick_fan_spinners)
+        if self._color_mode is None:
+            self._color_mode = resolve_color_mode(getattr(self.app, "console", None))
+
+    def _active_color_mode(self) -> str:
+        if self._color_mode is not None:
+            return self._color_mode
+        return resolve_color_mode()
+
+    def _util_color(self, pct: float) -> str:
+        """Chart color for a percent, for the readout text that names that value.
+
+        The headline % in each metric row (and the fan spinner glyph) wears the
+        same color as the sparkline that traces it — the chart paints the
+        hottest sample's color, so a 90% reading shows the same red the chart
+        does for that column, and an idle 5% stays at the cool end. NO_COLOR /
+        dumb terminals degrade to an empty style (no tint), like the charts.
+        """
+        return _pct_to_color(pct, self._active_color_mode(), self._palette)
 
     def _tick_fan_spinners(self) -> None:
         if not self._last_fans:
@@ -654,21 +676,46 @@ class HardwareDashboard(Widget):
         if advanced:
             self._render_fan_label()
 
+    def _fan_util_percent(self) -> float | None:
+        """Average fan speed as a percent of max across fans that report a max.
+
+        Fans without a max-RPM key contribute nothing (a lone unknown-max fan
+        must not floor the colour to 0). None when no fan exposes a max — the
+        glyph then renders untinted rather than inventing a severity.
+        """
+        ratios = [
+            fan.current / fan.max for fan in self._last_fans if fan.max and fan.max > 0
+        ]
+        if not ratios:
+            return None
+        return sum(ratios) / len(ratios) * 100.0
+
     def _render_fan_label(self) -> None:
         frames = _FAN_SPINNER_FRAMES
+        util = self._fan_util_percent()
+        glyph_style = self._util_color(util) if util is not None else ""
         if self._last_fans:
-            rpm_text = " · ".join(
-                "{} {}".format(
-                    frames[self._fan_spin_idx[i] % len(frames)],
-                    f"{fan.current:.0f}/{fan.max:.0f}"
-                    if fan.max
-                    else f"{fan.current:.0f}",
+            rpm_text = Text()
+            for i, fan in enumerate(self._last_fans):
+                if i:
+                    rpm_text.append(" · ")
+                # The spinner glyph wears the chart's color for the fan's
+                # utilization (high RPM = red, idle = cool), matching the % and
+                # sparkline treatment; the RPM figures stay plain.
+                rpm_text.append(
+                    frames[self._fan_spin_idx[i] % len(frames)], style=glyph_style
                 )
-                for i, fan in enumerate(self._last_fans)
-            )
+                rpm_text.append(
+                    f" {fan.current:.0f}/{fan.max:.0f}"
+                    if fan.max
+                    else f" {fan.current:.0f}"
+                )
         else:
-            rpm_text = "0"
-        self.query_one("#fan-label", Static).update(f"Fan {rpm_text} RPM")
+            rpm_text = Text("0")
+        line = Text("Fan ")
+        line.append_text(rpm_text)
+        line.append(" RPM")
+        self.query_one("#fan-label", Static).update(line)
 
     def compose(self) -> ComposeResult:
         cfg = self._config
@@ -1012,13 +1059,14 @@ class HardwareDashboard(Widget):
         # rather than IOReport residency: in that case the GPU DVFS table could
         # not be classified, so there is no trustworthy frequency to print and
         # the percent's provenance differs from every other gauge here.
+        gpu_label = Text("GPU ")
+        gpu_label.append(f"{gpu}%", style=self._util_color(gpu))
         if s.gpu_util_source == "ioaccelerator":
-            gpu_reading = f"GPU {gpu}% (drv)"
+            gpu_label.append(" (drv)")
         else:
-            gpu_reading = f"GPU {gpu}% @{s.gpu_freq_mhz}MHz"
-        self.query_one("#gpu-label", Static).update(
-            f"{gpu_reading}{gpu_temp}{self._pct_stats_suffix(self._gpu_hist)}"
-        )
+            gpu_label.append(f" @{s.gpu_freq_mhz}MHz")
+        gpu_label.append(f"{gpu_temp}{self._pct_stats_suffix(self._gpu_hist)}")
+        self.query_one("#gpu-label", Static).update(gpu_label)
         if cfg.show_residency:
             self.query_one("#gpu-residency-row", Static).update(
                 _format_residency_row("GPU", s.gpu_residency_pct)
@@ -1035,9 +1083,12 @@ class HardwareDashboard(Widget):
                 f"Rend {clamp_percent(s.gpu_renderer_pct)}%"
                 f" · Tiler {clamp_percent(s.gpu_tiler_pct)}%"
             )
-        self.query_one("#ane-label", Static).update(
-            f"ANE {ane_pct}% ({s.ane_watts:.1f}W){self._pct_stats_suffix(self._ane_hist)}"
+        ane_label = Text("ANE ")
+        ane_label.append(f"{ane_pct}%", style=self._util_color(ane_pct))
+        ane_label.append(
+            f" ({s.ane_watts:.1f}W){self._pct_stats_suffix(self._ane_hist)}"
         )
+        self.query_one("#ane-label", Static).update(ane_label)
 
         # The snapshot carries raw bytes; formatting into GiB is presentation, so
         # it happens here. GiB (not GB) because these are 2^30 divisions — the
@@ -1166,8 +1217,15 @@ class HardwareDashboard(Widget):
         """Render one full-width cluster summary line."""
         widget = self.query_one(widget_id, Static)
         avail = max(widget.size.width, 1)
-        line = f"{label} {util_pct:3d}% @{freq_mhz}MHz{cpu_temp}{stats_suffix}"
-        widget.update(line[:avail].ljust(avail))
+        line = Text(f"{label} ")
+        # The % wears the chart's color for that value (see _util_color) so the
+        # readout and its tracer agree at a glance; the MHz/temp/avg/max context
+        # stays muted plain text.
+        line.append(f"{util_pct:3d}%", style=self._util_color(util_pct))
+        line.append(f" @{freq_mhz}MHz{cpu_temp}{stats_suffix}")
+        line = line[:avail]
+        line.pad_right(max(0, avail - line.cell_len))
+        widget.update(line)
 
     # Inline power spark bounds: keep the spark legible (>= 8 chars) but never
     # let a wide terminal turn a one-line row into a full chart (cap 24), the
