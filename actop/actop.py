@@ -137,6 +137,14 @@ def build_parser():
         metavar="PORT",
         help="Serve Prometheus metrics on http://0.0.0.0:PORT/metrics (no TUI)",
     )
+    parser.add_argument(
+        "--samples",
+        type=_validate_samples,
+        default=0,
+        metavar="N",
+        help="With --json: emit N snapshot records then exit (0 = stream "
+        "indefinitely until interrupted)",
+    )
     return parser
 
 
@@ -183,6 +191,16 @@ def _validate_sustain_samples(value):
         ) from error
     if samples < 1:
         raise argparse.ArgumentTypeError("sustain samples must be >= 1")
+    return samples
+
+
+def _validate_samples(value):
+    try:
+        samples = int(value)
+    except (TypeError, ValueError) as error:
+        raise argparse.ArgumentTypeError("samples must be an integer") from error
+    if samples < 0:
+        raise argparse.ArgumentTypeError("samples must be >= 0")
     return samples
 
 
@@ -236,6 +254,7 @@ def _run_export(args):
             export.run_json_stream(
                 interval_s,
                 subsamples,
+                max_samples=max(0, int(getattr(args, "samples", 0) or 0)),
                 include_processes=include_processes,
                 proc_filter=proc_filter,
             )
