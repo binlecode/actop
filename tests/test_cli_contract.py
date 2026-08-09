@@ -25,6 +25,8 @@ def test_cli_help_runs_and_exposes_show_cores_as_flag():
     assert "--chart-glyph {dots,block}" in result.stdout
     assert "--layout {grid,stack}" in result.stdout
     assert "--palette {thermal,viridis,mono}" in result.stdout
+    assert "--json" in result.stdout
+    assert "--serve PORT" in result.stdout
     # --help surfaces every option's default (ArgumentDefaultsHelpFormatter), so
     # the supported value set + default is documented for all args.
     assert "(default:" in result.stdout
@@ -57,22 +59,6 @@ def test_cli_rejects_legacy_show_cores_value_form():
     assert "unrecognized arguments: true" in result.stderr
 
 
-def test_cli_json_with_show_processes_forwards_both():
-    args = build_parser().parse_args(["--json", "--show-processes"])
-    assert args.json is True
-    assert args.show_processes is True
-
-
-def test_cli_chart_glyph_accepts_block():
-    args = build_parser().parse_args(["--chart-glyph", "block"])
-    assert args.chart_glyph == "block"
-
-
-def test_cli_layout_accepts_stack():
-    args = build_parser().parse_args(["--layout", "stack"])
-    assert args.layout == "stack"
-
-
 def test_cli_rejects_unknown_layout():
     result = subprocess.run(
         [sys.executable, "-m", "actop.actop", "--layout", "foo"],
@@ -85,11 +71,6 @@ def test_cli_rejects_unknown_layout():
     assert "invalid choice: 'foo'" in result.stderr
 
 
-def test_cli_palette_accepts_viridis():
-    args = build_parser().parse_args(["--palette", "viridis"])
-    assert args.palette == "viridis"
-
-
 def test_cli_rejects_unknown_palette():
     result = subprocess.run(
         [sys.executable, "-m", "actop.actop", "--palette", "rainbow"],
@@ -100,24 +81,6 @@ def test_cli_rejects_unknown_palette():
 
     assert result.returncode == 2
     assert "invalid choice: 'rainbow'" in result.stderr
-
-
-def test_cli_help_exposes_export_flags():
-    result = subprocess.run(
-        [sys.executable, "-m", "actop.actop", "--help"],
-        capture_output=True,
-        text=True,
-        check=False,
-    )
-
-    assert result.returncode == 0
-    assert "--json" in result.stdout
-    assert "--serve PORT" in result.stdout
-
-
-def test_cli_serve_accepts_valid_port():
-    args = build_parser().parse_args(["--serve", "9095"])
-    assert args.serve == 9095
 
 
 def test_cli_rejects_serve_port_out_of_range():

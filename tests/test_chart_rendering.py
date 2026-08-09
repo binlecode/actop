@@ -37,17 +37,19 @@ def test_dumb_and_unknown_terminals_get_no_color():
 
 
 def test_console_color_system_is_preferred_when_present():
-    class _Console:
-        color_system = "256"
+    from rich.console import Console
 
     # A detected console color system wins over env heuristics...
-    assert resolve_color_mode(_Console(), env={"COLORTERM": "truecolor"}) == "256"
+    assert (
+        resolve_color_mode(Console(color_system="256"), env={"COLORTERM": "truecolor"})
+        == "256"
+    )
 
     # ...but NO_COLOR still overrides even a truecolor console.
-    class _TrueConsole:
-        color_system = "truecolor"
-
-    assert resolve_color_mode(_TrueConsole(), env={"NO_COLOR": "1"}) == "none"
+    assert (
+        resolve_color_mode(Console(color_system="truecolor"), env={"NO_COLOR": "1"})
+        == "none"
+    )
 
 
 # --- the resolved tier actually shapes rendered output -----------------------
