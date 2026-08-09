@@ -6,6 +6,20 @@ This project follows a Keep a Changelog-style format and uses version tags for r
 
 ## [Unreleased]
 
+## [1.6.9] - 2026-08-09
+
+### Added
+- **Guard-release CI workflow** (`guard-release.yml`): every `v*` tag push verifies
+  all tags have a corresponding GitHub Release object, failing the run if any are
+  missing — catches the silent link breakage that caused the v0.8.7–v1.6.6
+  release-object gap.
+- **Pre-push githook tag nudge**: warns when a bare `git push` of a `v*` tag is
+  detected, reminding to use `scripts/tag_release.sh` instead.
+
+### Changed
+- README badge row gains a Website badge linking to the Cloudflare Pages coverpage
+  (`actop.pages.dev`).
+
 ## [1.6.8] - 2026-08-09
 
 ### Changed
