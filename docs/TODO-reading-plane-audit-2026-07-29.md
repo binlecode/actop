@@ -259,7 +259,7 @@ convert_to_GB = convert_to_GiB  # deprecated misnomer; removed in 2.0.0
    Check width: `GiB` is one char wider per occurrence (two occurrences + two swap = +4
    chars). The `stack`/`grid` presets auto-degrade below ~96 cols
    (`widgets.py` `set_layout_preset`) — re-capture at 80, 96 and 200 cols and confirm no
-   truncation. Use the `capture-tui-diagram` skill to refresh `docs/DESIGN-system.md` §5 and
+   truncation. Use the `capture-tui-diagram` skill to refresh `docs/SPEC-system.md` §5 and
    the README if the frame changes.
 
 7. **Docs** — update `CLAUDE.md` module table row for `utils.py` and `README.md` where memory
@@ -549,7 +549,7 @@ sampling monitor. Adopt it as **fallback + breakdown** only (§8).
 
 ## 8. Adopt `IOAccelerator` PerformanceStatistics — fallback + Renderer/Tiler breakdown
 
-**Status: SHIPPED in v1.6.0.** As-built design is documented in `docs/DESIGN-system.md` §3.8;
+**Status: SHIPPED in v1.6.0.** As-built design is documented in `docs/SPEC-system.md` §3.8;
 the plan below is retained as the originating spec. Two deviations from it, both deliberate:
 
 * **No service caching.** §8.3 called for caching the matched `io_object_t` the way `SMCReader`
@@ -675,7 +675,7 @@ the `io_object_t` and only re-enumerate on read failure.
   user knows the number's provenance changed.
 - **`CLAUDE.md`** — update the `gpu_registry.py` module-table row (currently "Per-process GPU
   time via IOKit") to cover device-level perf stats, and extend the data-flow paragraph.
-- **`docs/DESIGN-system.md`** — document the dual GPU source and the fallback rule.
+- **`docs/SPEC-system.md`** — document the dual GPU source and the fallback rule.
 
 ### 8.5 Verification
 

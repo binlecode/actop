@@ -108,7 +108,7 @@ class SystemSnapshot:
     # than a render-time derivation.
     ane_util_pct: float = 0.0
     # GPU utilization from IOAccelerator PerformanceStatistics (driver point
-    # reads, no interval integration — see docs/DESIGN-system.md §3.8).
+    # reads, no interval integration — see docs/SPEC-system.md §3.8).
     # gpu_util_pct above remains the interval-integrated primary metric.
     # Renderer vs Tiler separates shader/compute work from geometry work: an
     # MLX/CoreML compute frame shows Renderer high with Tiler near zero.

@@ -53,9 +53,8 @@ full accept/reject rules.
 ## Where to look
 
 - `CLAUDE.md` — full contributor guidelines and coding conventions.
-- `docs/DESIGN-system.md` — architecture: native bindings, sampling, SoC
+- `docs/SPEC-system.md` — architecture: native bindings, sampling, SoC
   profiles, TUI rendering, testing contract.
-- `docs/DESIGN-sdlc-cicd.md` — CI/CD and release runbook (maintainers).
 
 By contributing, you agree that your contributions are licensed under the
 project's [MIT License](LICENSE).

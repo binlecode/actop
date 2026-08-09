@@ -259,7 +259,7 @@ an analytics engine — strictly less churn than either order reversed.
 
 ## 6. Docs to sync (with the PR that changes each fact)
 
-- `docs/DESIGN-system.md`: data-flow section — snapshot as sole frame
+- `docs/SPEC-system.md`: data-flow section — snapshot as sole frame
   contract, `analytics.py` layer, opt-in process collection.
 - `CLAUDE.md` + `README.md`: module tables (add `analytics.py`), data-flow
   paragraph, Python-API snippet if it gains `include_processes`.

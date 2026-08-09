@@ -124,5 +124,5 @@ concurrent, interactive terminal dashboard. The shipped UI favors a single-view,
 keyboard-first layout over the originally-proposed tabbed design, and uses a custom
 braille chart widget in place of Textual's stock `Sparkline` — both choices made
 during implementation to better fit a live hardware monitor. See
-`docs/DESIGN-system.md` for the TUI rendering contract and `docs/REVIEW-architecture-comparison.md`
+`docs/SPEC-system.md` for the TUI rendering contract and `docs/REVIEW-architecture-comparison.md`
 for the current `actop`-vs-`mactop` comparison.

@@ -16,7 +16,7 @@ originally-guessed network MIB (`net.link.generic.system.stats`) and disk orderi
 
 **Constraint (non-negotiable):** built via **native `ctypes`**, matching `native_sys.py`'s
 existing pattern — **not** by reintroducing `psutil`. This is the condition under which the
-roadmap overrides `DESIGN-system.md` §3.6's non-goal framing.
+roadmap overrides `SPEC-system.md` §3.6's non-goal framing.
 
 This is a **planning doc, not shipped code.** Implement as a normal PR (patch bump,
 `[Unreleased]` → dated section, `ruff check --fix .` + `ruff format .`, functional tests
@@ -124,7 +124,7 @@ read/write; keep packet/op counts if cheap.
     `Monitor().get_snapshot()` carries the rates; `--json` and `--serve` both surface them.
 -   **T5 — TUI rows.** Net + Disk rows/sparklines with the hide-row pattern for unavailable
     hosts. `done_when`: rows update live under load and hide cleanly when unavailable.
--   **T6 — Docs + version.** Replace `DESIGN-system.md` §3.6's non-goal bullet with the
+-   **T6 — Docs + version.** Replace `SPEC-system.md` §3.6's non-goal bullet with the
     as-built design; check off the roadmap item; update `README.md` metric list and the
     comparison doc (§3 table "Network / Disk I/O" row → ✅). Patch bump + CHANGELOG.
 
