@@ -1,0 +1,274 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>actop — Apple Silicon performance monitor</title>
+<meta name="description" content="actop is a sudoless, in-process performance monitor for M1–M4 Macs: CPU/GPU/ANE utilization, per-core frequency, memory bandwidth, power, and thermals — plus a Python API for profiling your own LLM / MLX / CoreML workloads.">
+<style>
+  :root {
+    --bg: #0d1117;
+    --bg-soft: #161b22;
+    --bg-code: #010409;
+    --border: #30363d;
+    --text: #e6edf3;
+    --muted: #8b949e;
+    --accent: #58a6ff;
+    --accent-dim: #1f6feb;
+    --green: #3fb950;
+    --amber: #d29922;
+    --red: #f85149;
+    --radius: 8px;
+    --maxw: 960px;
+  }
+
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+
+  html { scroll-behavior: smooth; }
+
+  body {
+    background: var(--bg);
+    color: var(--text);
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+    line-height: 1.6;
+    -webkit-font-smoothing: antialiased;
+  }
+
+  a { color: var(--accent); text-decoration: none; }
+  a:hover { text-decoration: underline; }
+
+  .wrap { max-width: var(--maxw); margin: 0 auto; padding: 0 24px; }
+
+  header {
+    border-bottom: 1px solid var(--border);
+    background: var(--bg-soft);
+    position: sticky; top: 0; z-index: 10;
+  }
+  nav {
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 14px 0;
+  }
+  nav .brand { font-weight: 700; font-size: 1.05rem; letter-spacing: 0.5px; }
+  nav .brand span { color: var(--accent); }
+  nav ul { display: flex; gap: 24px; list-style: none; }
+  nav a { color: var(--muted); font-size: 0.9rem; }
+  nav a:hover { color: var(--text); }
+
+  .hero { padding: 72px 0 48px; text-align: center; }
+  .hero .badge {
+    display: inline-block; font-size: 0.75rem; font-weight: 600;
+    color: var(--accent); border: 1px solid var(--accent-dim);
+    border-radius: 999px; padding: 3px 12px; margin-bottom: 20px;
+    letter-spacing: 0.4px;
+  }
+  .hero h1 { font-size: 3rem; font-weight: 800; letter-spacing: -1px; }
+  .hero h1 span { color: var(--accent); }
+  .hero p.tagline {
+    max-width: 640px; margin: 20px auto 0; font-size: 1.2rem; color: var(--muted);
+  }
+  .hero p.tagline strong { color: var(--text); }
+
+  .demo {
+    margin: 24px 0 0;
+    background: var(--bg-soft); border: 1px solid var(--border);
+    border-radius: var(--radius); overflow: hidden;
+  }
+  .demo img { display: block; width: 100%; height: auto; }
+  .demo .caption { padding: 12px 16px; font-size: 0.85rem; color: var(--muted); border-top: 1px solid var(--border); }
+
+  section { padding: 56px 0; }
+  section h2 {
+    font-size: 1.5rem; font-weight: 700; margin-bottom: 8px; letter-spacing: -0.3px;
+  }
+  section .sub { color: var(--muted); margin-bottom: 32px; max-width: 700px; }
+
+  .features { display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 16px; }
+  .feature {
+    background: var(--bg-soft); border: 1px solid var(--border);
+    border-radius: var(--radius); padding: 20px;
+  }
+  .feature h3 { font-size: 1rem; margin-bottom: 8px; }
+  .feature h3 .ic { color: var(--green); margin-right: 6px; }
+  .feature p { font-size: 0.9rem; color: var(--muted); }
+
+  .install { display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 16px; }
+  .method { background: var(--bg-soft); border: 1px solid var(--border); border-radius: var(--radius); padding: 20px; }
+  .method h3 { font-size: 0.95rem; margin-bottom: 12px; }
+  .method h3 .tag {
+    font-size: 0.7rem; font-weight: 600; color: var(--green);
+    border: 1px solid var(--green); border-radius: 999px; padding: 1px 8px;
+    margin-left: 6px; vertical-align: middle;
+  }
+  .method .tag.nohome { color: var(--muted); border-color: var(--border); }
+
+  pre {
+    background: var(--bg-code); border: 1px solid var(--border);
+    border-radius: 6px; padding: 12px 14px; overflow-x: auto;
+    font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, "Cascadia Mono", monospace;
+    font-size: 0.82rem; line-height: 1.5;
+  }
+  pre code { background: none; }
+  code {
+    background: var(--bg-code); border: 1px solid var(--border);
+    border-radius: 4px; padding: 1px 5px;
+    font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, "Cascadia Mono", monospace;
+    font-size: 0.85em;
+  }
+
+  .api pre { margin-top: 12px; }
+  .api .prompt { color: var(--accent); }
+  .api .kw { color: var(--red); }
+  .api .str { color: var(--green); }
+  .api .cmt { color: var(--muted); font-style: italic; }
+
+  .cta { text-align: center; padding: 48px 0 72px; }
+  .cta h2 { margin-bottom: 12px; }
+  .cta p { color: var(--muted); margin-bottom: 24px; }
+  .btn {
+    display: inline-block; background: var(--accent-dim); color: #fff;
+    border-radius: 6px; padding: 10px 22px; font-weight: 600; font-size: 0.95rem;
+    transition: background 0.15s;
+  }
+  .btn:hover { background: var(--accent); text-decoration: none; }
+  .btn.gh {
+    margin-left: 10px; background: transparent; border: 1px solid var(--border); color: var(--text);
+  }
+  .btn.gh:hover { border-color: var(--muted); }
+
+  footer {
+    border-top: 1px solid var(--border); padding: 24px 0 48px;
+    text-align: center; color: var(--muted); font-size: 0.85rem;
+  }
+
+  @media (max-width: 600px) {
+    nav ul { display: none; }
+    .hero h1 { font-size: 2.2rem; }
+    .hero { padding-top: 48px; }
+  }
+</style>
+</head>
+<body>
+
+<header>
+  <div class="wrap">
+    <nav>
+      <div class="brand">actop<span>.</span></div>
+      <ul>
+        <li><a href="#features">Features</a></li>
+        <li><a href="#install">Install</a></li>
+        <li><a href="#api">Python API</a></li>
+        <li><a href="https://github.com/binlecode/actop">GitHub</a></li>
+      </ul>
+    </nav>
+  </div>
+</header>
+
+<section class="hero">
+  <div class="wrap">
+    <span class="badge">v{{VERSION}}</span>
+    <h1>actop<span>.</span></h1>
+    <p class="tagline">
+      Watch your Apple Silicon Mac the way it actually works — <strong>sudoless</strong>,
+      in-process, for M1–M4.
+    </p>
+    <div class="demo">
+      <img src="actop-demo.gif" alt="actop live during a llama.cpp inference run: E-CPU/P-CPU/GPU/ANE utilization, per-core frequency, memory bandwidth, and power charts on Apple Silicon">
+      <div class="caption">Live under a local llama.cpp run — the stack layout with braille then block sparklines, then the process panel with its watt-attributed PWR column.</div>
+    </div>
+  </div>
+</section>
+
+<section id="features">
+  <div class="wrap">
+    <h2>Whole-chip telemetry, no sudo</h2>
+    <p class="sub">
+      actop reads Apple Silicon power, frequency, and residency metrics directly from
+      IOReport via Python ctypes — the same library <code>powermetrics</code> uses,
+      minus the <code>sudo</code>, subprocesses, and temp files.
+    </p>
+    <div class="features">
+      <div class="feature">
+        <h3><span class="ic">▮</span>CPU · GPU · ANE</h3>
+        <p>Per-cluster and per-core utilization, DVFS P-state frequency, and power for the P-CPU, E-CPU, GPU, and Neural Engine.</p>
+      </div>
+      <div class="feature">
+        <h3><span class="ic">▮</span>Memory bandwidth</h3>
+        <p>Live GB/s against the SoC's peak, with a bandwidth-saturation alert and a MEM-BOUND indicator.</p>
+      </div>
+      <div class="feature">
+        <h3><span class="ic">▮</span>Thermals & throttling</h3>
+        <p>CPU/GPU die temperatures from the Apple SMC and the macOS thermal state, with a THROTTLING indicator.</p>
+      </div>
+      <div class="feature">
+        <h3><span class="ic">▮</span>Per-process power</h3>
+        <p>A watt-attributed PWR column — per-process power and energy attribution, unique among the sudoless *top tools.</p>
+      </div>
+      <div class="feature">
+        <h3><span class="ic">▮</span>Programmable API</h3>
+        <p><code>Monitor</code> / <code>Profiler</code> with <code>to_pandas()</code> — instrument your own LLM / MLX / CoreML runs from Python.</p>
+      </div>
+      <div class="feature">
+        <h3><span class="ic">▮</span>SoC-aware scaling</h3>
+        <p>16 built-in M1–M4 profiles with reference wattage and bandwidth for stable, cross-session chart scaling.</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section id="install">
+  <div class="wrap">
+    <h2>Install in one line</h2>
+    <p class="sub">Then run <code>actop</code>.</p>
+    <div class="install">
+      <div class="method">
+        <h3>Homebrew <span class="tag">recommended</span></h3>
+        <pre><code>brew tap binlecode/actop
+brew install binlecode/actop/actop</code></pre>
+      </div>
+      <div class="method">
+        <h3>uv <span class="tag nohome">non-Homebrew</span></h3>
+        <pre><code>uv tool install \
+  git+https://github.com/binlecode/actop.git</code></pre>
+      </div>
+      <div class="method">
+        <h3>pip</h3>
+        <pre><code>pip install \
+  git+https://github.com/binlecode/actop.git</code></pre>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section id="api" class="api">
+  <div class="wrap">
+    <h2>Profile your own workloads</h2>
+    <p class="sub">
+      Wrap any workload to get a pandas frame of power, frequency, residency, and
+      cumulative session energy — no TUI needed.
+    </p>
+    <pre><code><span class="kw">from</span> actop <span class="kw">import</span> Profiler
+
+<span class="kw">with</span> Profiler() <span class="kw">as</span> p:
+    run_my_inference()          <span class="cmt"># your workload</span>
+
+df = p.to_pandas()  <span class="cmt"># rows = samples; cols = power/freq/residency/energy</span></code></pre>
+  </div>
+</section>
+
+<section class="cta">
+  <div class="wrap">
+    <h2>actop — Apple <span style="color: var(--accent);">C</span>hip top</h2>
+    <p>Follows the Unix <code>*top</code> lineage: the sudoless, programmable, Python-native monitor for Apple Silicon.</p>
+    <a class="btn" href="https://github.com/binlecode/actop">View on GitHub</a>
+    <a class="btn gh" href="https://github.com/binlecode/actop/releases">Releases</a>
+  </div>
+</section>
+
+<footer>
+  <div class="wrap">
+    <p>actop v{{VERSION}} · an independent project inspired by <a href="https://github.com/tlkh/asitop">asitop</a> · MIT licensed</p>
+  </div>
+</footer>
+
+</body>
+</html>

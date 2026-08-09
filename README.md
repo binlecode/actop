@@ -8,7 +8,7 @@ and thermals — plus a **Python API** (`Monitor` / `Profiler`, `to_pandas()`) s
 can instrument your *own* local LLM / MLX / CoreML inference and training runs with
 SoC-accurate power and energy context.
 
-![actop live during an Ollama inference run: the single-column stack layout switching chart glyphs and revealing the process panel, with live E-CPU/P-CPU/GPU/ANE utilization, per-core frequency, memory bandwidth, power charts, and a watt-attributed PWR column on Apple Silicon](images/actop-demo.gif)
+![actop live during a llama.cpp inference run: the single-column stack layout switching chart glyphs and revealing the process panel, with live E-CPU/P-CPU/GPU/ANE utilization, per-core frequency, memory bandwidth, power charts, and a watt-attributed PWR column on Apple Silicon](images/actop-demo.gif)
 
 *Above: actop live under a local LLM run — the `stack` layout with braille then block sparklines, then the process panel (`t`) with its watt-attributed `PWR` column. Below: the default two-column `grid` layout (`l` cycles between them).*
 
