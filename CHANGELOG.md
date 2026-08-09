@@ -6,7 +6,17 @@ This project follows a Keep a Changelog-style format and uses version tags for r
 
 ## [Unreleased]
 
+## [1.6.8] - 2026-08-09
+
 ### Changed
+- **Cutting a release REQUIRES a GitHub Release (`gh release create`), not just
+  a git tag.** `scripts/tag_release.sh` now creates both — it pushes the tag and
+  then creates the GitHub Release with the notes from the matching
+  `CHANGELOG.md` section (falling back to generated notes if the section is
+  missing). A bare `git tag` + push never surfaces on `/releases` or as `Latest`,
+  so a hand-tag-only release cut is now an explicit rule violation — codified in
+  `CLAUDE.md` → Release Process, with a manual-recovery playbook for when the
+  `gh release create` step fails.
 - **% readouts and the fan spinner tint by utilization color.** The headline %
   in each metric row (and the fan-glyph) now wears the same severity color as
   the sparkline that traces it — a 90% reading reads red, an idle 5% stays cool.
