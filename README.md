@@ -4,6 +4,7 @@
 [![Python versions](https://img.shields.io/pypi/pyversions/actop.svg)](https://pypi.org/project/actop/)
 [![License: MIT](https://img.shields.io/github/license/binlecode/actop.svg)](LICENSE)
 [![CI](https://github.com/binlecode/actop/actions/workflows/main-ci.yml/badge.svg)](https://github.com/binlecode/actop/actions/workflows/main-ci.yml)
+[![Website](https://img.shields.io/badge/website-actop.pages.dev-58a6ff)](https://actop.pages.dev)
 
 **Watch your Apple Silicon Mac the way it actually works — and profile your own workloads from Python.**
 
