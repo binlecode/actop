@@ -49,6 +49,8 @@ This file is the single source of truth for repository guidelines, used by Claud
 
 `main` is **PR-only** (branch protection + `.githooks/pre-commit` redaction check and `.githooks/pre-push` guard; run `git config core.hooksPath .githooks` once). The Homebrew formula lives in the separate tap repo `binlecode/homebrew-actop` (not this repo); CI syncs it on tag and publishes to PyPI via OIDC. CI/CD mechanics are owned by the workflow files themselves (`.github/workflows/main-ci.yml`, `release-formula.yml`, `publish-pypi.yml`) — each carries its one-time setup inline.
 
+**RULE — cutting a release REQUIRES a GitHub Release, not just a tag.** A release is cut with `scripts/tag_release.sh`, which pushes the git tag **and** creates the GitHub Release for it via `gh release create` (release notes pulled from the matching `CHANGELOG.md` section). A bare `git tag` + push is **not** a release: it never surfaces on the `/releases` page or as `Latest`, and leaves the Releases history silently behind the code. Never cut a release by hand-tagging alone — if the `gh release create` step fails, finish it manually (see playbooks below) before calling the release cut done.
+
 ### Release steps
 
 ```bash
@@ -68,7 +70,7 @@ gh pr create --base main --fill
 gh pr merge --merge --delete-branch
 git checkout main && git pull --ff-only
 
-# 4. Tag the release (after the bump PR merges)
+# 4. Cut the release — tag + GitHub Release (RULE: tag alone is not a release)
 scripts/tag_release.sh "X.Y.Z"
 
 # 5. Monitor CI — wait for release-formula and publish-pypi to pass
@@ -86,6 +88,11 @@ brew update && brew upgrade binlecode/actop/actop    # Homebrew (tap repo synced
   git fetch origin && git checkout main && git pull --ff-only origin main
   scripts/tag_release.sh "X.Y.Z"
   ```
+- **`gh release create` fails or is skipped (auth/permissions):** the tag may be pushed but **no GitHub Release exists** — the release cut is not done until it does. Confirm `gh auth status` and re-run just the release step against the existing tag:
+  ```bash
+  gh release create "vX.Y.Z" --title "actop X.Y.Z" --notes "$(awk '/^## \['"X.Y.Z"'\]/ {f=1; next} f && /^## \[/ {exit} f' CHANGELOG.md)"
+  ```
+  Never leave a release cut as a bare tag — verify it appears on `/releases` before moving on.
 - **`release-formula` fails with tag/version mismatch:** tag `vX.Y.Z` doesn't match `pyproject.toml` in the tag commit. Fix in a new PR, merge, then create a **new** tag (never reuse the old tag).
 - **`release-formula` fails at tap checkout/push:** missing or under-scoped `HOMEBREW_TAP_TOKEN`. Confirm the secret exists on `binlecode/actop` and the PAT has **Contents: Read/write** on `binlecode/homebrew-actop`. Re-run the failed job.
 - **`publish-pypi` fails with OIDC / trusted-publisher error:** verify the trusted publisher on pypi.org matches repo `binlecode/actop`, workflow `publish-pypi.yml`, environment `pypi`; confirm the run is from a `v*` tag (the `pypi` environment's deploy policy is tag-only). `skip-existing` makes re-runs safe. **Break-glass:** publish that version manually with the token-driven Flow B (`twine upload --skip-existing`), then restore OIDC for subsequent releases.

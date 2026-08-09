@@ -24,6 +24,13 @@ Behavior:
   - Verifies tag does not already exist locally/remotely
   - Verifies local main is in sync with origin/main (no-op push)
   - Creates and pushes tag vX.Y.Z
+  - Creates the GitHub Release for vX.Y.Z (gh release create) with the notes
+    from the matching CHANGELOG.md section
+
+RULE: a release cut REQUIRES the GitHub Release, not just the git tag. This
+script always creates both; a bare `git tag` + push is NOT a release (it never
+surfaces on /releases or as Latest). If the gh step fails, fix auth and finish
+the release manually before moving on.
 
 This tag push triggers release-formula.yml (syncs the formula in the tap repo
 binlecode/homebrew-actop) and publish-pypi.yml (publishes to PyPI via OIDC).
@@ -122,5 +129,26 @@ git tag "${TAG}"
 echo "Pushing tag ${TAG}..."
 git push origin "${TAG}"
 
-echo "Done. Tag ${TAG} pushed."
+echo "Creating GitHub Release ${TAG}..."
+if ! command -v gh >/dev/null 2>&1; then
+  echo "Error: gh CLI not found — the GitHub Release (required for a release cut) was not created." >&2
+  echo "The tag was pushed, but the release is incomplete. Install gh and run:" >&2
+  echo "  gh release create \"${TAG}\" --title \"actop ${VERSION}\" --notes \"\$(awk '/^## \\[${VERSION}\\]/ {f=1; next} f && /^## \\[/ {exit} f' CHANGELOG.md)\"" >&2
+  exit 1
+fi
+
+RELEASE_NOTES="$(awk -v ver="${VERSION}" '
+  $0 ~ "^## \\[" ver "\\]( -.*)?$" { f=1; next }
+  f && /^## \[/ { exit }
+  f { print }
+' CHANGELOG.md)"
+
+if [[ -z "$RELEASE_NOTES" ]]; then
+  echo "No CHANGELOG.md section found for ${VERSION}; using generated notes."
+  gh release create "${TAG}" --generate-notes
+else
+  gh release create "${TAG}" --title "actop ${VERSION}" --notes "${RELEASE_NOTES}"
+fi
+
+echo "Done. Tag ${TAG} pushed and GitHub Release created."
 echo "Release formula workflow should start from this tag push."
