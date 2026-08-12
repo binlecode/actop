@@ -13,6 +13,7 @@ import time
 from .gpu_registry import get_gpu_time_by_pid
 from .native_sys import (
     get_gpu_cores_native,
+    get_hw_memsize,
     get_native_processes,
     get_native_ram,
     get_native_swap,
@@ -26,17 +27,10 @@ from .soc_profiles import get_soc_profile
 def convert_to_GiB(value):
     """Bytes → GiB (2^30), rounded to 0.1 — a **display** convenience only.
 
-    Byte quantities cross layer seams as raw bytes (see `get_ram_metrics_dict`);
-    this exists for the TUI and for the deprecated `*_GB` keys. Never compute on
-    the result: rounding to 0.1 GiB quantizes to ±50 MiB.
-    See docs/TODO-reading-plane-audit-2026-07-29.md §3.
+    Byte quantities cross layer seams as raw bytes (see `get_ram_metrics_dict`).
+    Never compute on the result: rounding to 0.1 GiB quantizes to ±50 MiB.
     """
     return round(value / 1024 / 1024 / 1024, 1)
-
-
-# Deprecated misnomer: this always divided by 2^30, i.e. returned GiB while
-# naming it GB. Kept as an alias for one release; removed in 2.0.0.
-convert_to_GB = convert_to_GiB
 
 
 def get_ram_metrics_dict():
@@ -56,9 +50,7 @@ def get_ram_metrics_dict():
 
     # Bytes are the canonical unit across every layer seam: exact, prefix-free,
     # and the base unit Prometheus/OpenMetrics naming expects. Formatting into
-    # GiB/MiB is a presentation concern and happens in the TUI. The *_GB keys
-    # are a deprecated misnomer — they always held GiB — kept as equal-valued
-    # aliases for one release and removed in 2.0.0.
+    # GiB/MiB is a presentation concern and happens in the TUI.
     return {
         "total_bytes": total_bytes,
         "free_bytes": free_bytes,
@@ -68,12 +60,6 @@ def get_ram_metrics_dict():
         "swap_used_bytes": swap.used,
         "swap_free_bytes": swap.total - swap.used,
         "swap_used_percent": swap_used_percent,
-        "total_GB": convert_to_GiB(total_bytes),  # deprecated
-        "free_GB": convert_to_GiB(free_bytes),  # deprecated
-        "used_GB": convert_to_GiB(used_bytes),  # deprecated
-        "swap_total_GB": convert_to_GiB(swap.total),  # deprecated
-        "swap_used_GB": convert_to_GiB(swap.used),  # deprecated
-        "swap_free_GB": convert_to_GiB(swap.total - swap.used),  # deprecated
     }
 
 
@@ -120,18 +106,23 @@ def get_soc_info():
     if p_core_count == 0 and core_count > 0:
         p_core_count = core_count
 
+    gpu_core_count = get_gpu_cores()
+    ane_max_w = profile.ane_max_w
     soc_info = {
         "name": profile.name,
         "core_count": core_count,
         "cpu_chart_ref_w": profile.cpu_chart_ref_w,
         "gpu_chart_ref_w": profile.gpu_chart_ref_w,
-        "cpu_max_power": profile.cpu_chart_ref_w,
-        "gpu_max_power": profile.gpu_chart_ref_w,
         "max_mem_bw": profile.max_mem_bw,
-        "ane_max_w": profile.ane_max_w,
+        "ane_max_w": ane_max_w,
+        # Derived — single source of truth for all consumers.
+        "package_ref_w": max(
+            profile.cpu_chart_ref_w + profile.gpu_chart_ref_w + ane_max_w, 1.0
+        ),
+        "max_total_bw": max(float(profile.max_mem_bw), 1.0),
         "e_core_count": e_core_count,
         "p_core_count": p_core_count,
-        "gpu_core_count": get_gpu_cores(),
+        "gpu_core_count": gpu_core_count,
     }
     return soc_info
 
@@ -170,7 +161,7 @@ def get_top_processes(limit=3, proc_filter=None):
             pattern = re.compile(str(proc_filter), re.IGNORECASE)
 
     current_time = time.time()
-    total_ram = get_sysctl_int("hw.memsize") or (16 * 1024 * 1024 * 1024)
+    total_ram = get_hw_memsize() or (16 * 1024 * 1024 * 1024)
 
     native_procs = get_native_processes()
 
@@ -278,8 +269,6 @@ def get_top_processes(limit=3, proc_filter=None):
                 "cpu_time_share": cpu_time_share,
                 "gpu_time_share": gpu_time_share,
                 "rss_bytes": rss_bytes,
-                # Deprecated misnomer: always held MiB (2^20). Removed in 2.0.0.
-                "rss_mb": round(rss_bytes / 1024 / 1024, 1),
                 "memory_percent": round(memory_percent, 1),
                 "num_threads": proc["num_threads"],
             }

@@ -52,9 +52,9 @@ def create_dashboard_config(args, soc_info_dict):
 
     cpu_chart_ref_w = soc_info_dict["cpu_chart_ref_w"]
     gpu_chart_ref_w = soc_info_dict["gpu_chart_ref_w"]
-    ane_max_power = float(soc_info_dict.get("ane_max_w", 8.0))
-    package_ref_w = max(cpu_chart_ref_w + gpu_chart_ref_w + ane_max_power, 1.0)
-    max_mem_bw = max(float(soc_info_dict.get("max_mem_bw", 0.0)), 1.0)
+    ane_max_power = float(soc_info_dict["ane_max_w"])
+    package_ref_w = float(soc_info_dict["package_ref_w"])
+    max_mem_bw = float(soc_info_dict["max_total_bw"])
 
     chip_name = soc_info_dict.get("name", "Apple Silicon")
     e_core_count = max(0, int(soc_info_dict["e_core_count"]))

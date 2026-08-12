@@ -11,33 +11,30 @@
 utilization, per-core frequency, memory/bandwidth, thermal state, fan RPM, per-process GPU
 time, SMC die temperatures; NDJSON/Prometheus export; Textual dashboard with sparklines;
 public Python API (`Monitor`, `Profiler`, `AsyncMonitor`); Homebrew + PyPI distribution;
-16 built-in M1–M4 SoC profiles; accessibility palettes (`--palette`). No net/disk I/O,
-no menu-bar mode, no in-app update notice.
+16 built-in M1–M4 SoC profiles; accessibility palettes (`--palette`). Net/disk I/O
+shipped v1.8.0. No menu-bar mode, no in-app update notice.
 
 ## State — 2026-08
 
-- **Shipped:** v1.7.2 — **export parity (E track):** AlertEngine integrated into
-  `--json`/`--serve`, `--json-processes`/`--serve-processes` flags, alerts/throttle/
-  session energy reach both backends; v1.7.1 — `--theme` flag + live theme cycling;
-  layering cleanup LC-1→LC-3; fan RPM, per-process GPU, accessibility palettes,
-  GPU Renderer/Tiler via `IOAccelerator`, reading-plane audit. → `CHANGELOG.md`
-  `[1.2.x]`–`[1.7.x]`
-- **Board:** two open tracks — **N** net/disk I/O (feasibility spike done, not shipped),
-  **S** sudo elevation for per-process GPU/energy attribution. **First move is
-  still N1:** implement net/disk I/O via native ctypes per the spike plan
-  (`docs/TODO-net-disk-io-2026-07-02.md`). **E** (export parity) shipped v1.7.2;
+- **Shipped:** v1.8.0 — **net/disk I/O (N track):** getifaddrs/if_data network +
+  IOKit AppleAPFSVolume disk rates, surfaced in TUI/NDJSON/Prometheus; plus the
+  **reading-plane audit closes (F track):** deprecated `*_gb`/`*_GB`/`rss_mb`/
+  `*_gigabytes` aliases and the `--alert-swap-rise-gb` CLI alias removed;
+  v1.7.2 — **export parity (E track):** AlertEngine integrated into
+  `--json`/`--serve`, `--json-processes`/`--serve-processes` flags,
+  alerts/throttle/session energy reach both backends; v1.7.1 — `--theme` flag +
+  live theme cycling; layering cleanup LC-1→LC-3; fan RPM, per-process GPU,
+  accessibility palettes, GPU Renderer/Tiler via `IOAccelerator`, reading-plane
+  audit. → `CHANGELOG.md` `[1.2.x]`–`[1.8.0]`
+- **Board:** one open track — **S** sudo elevation for per-process GPU/energy
+  attribution. **First move is S1:** the `--sudo` re-exec + `u`-key password
+  modal per `docs/TODO-sudo-mode.md`. **E** (export parity) shipped v1.7.2;
   **L** (LC-4 rolling stats) dropped 2026-08-11.
 
 ## Tracks
 
 ### Open
 
-- **N — Net / disk I/O via native ctypes.** Feasibility spike complete (2026-07-02):
-  network via `getifaddrs()`/`AF_LINK`/`if_data`; disk via IOKit `AppleAPFSVolume`
-  `Statistics`; aggregated as delta-over-interval. Single-peer breadth (mactop only;
-  macmon omits it), not a converged expectation — a conscious bet on narrowing the gap
-  to the breadth leader. Post-launch, no launch gate.
-  → `docs/TODO-net-disk-io-2026-07-02.md`
 - **S — Sudo elevation for per-process GPU/energy attribution.** Without root,
   `gpu_time_share` and `attributed_w` read `0.0`/`None` — the underlying
   `powermetrics` process-attribution path needs elevated access. Two paths: `--sudo`
@@ -54,12 +51,6 @@ no menu-bar mode, no in-app update notice.
   path (background thread, short timeout, fail-silent); opt-out via `--no-update-check`
   + env var; cached with ~24h TTL. Nice-to-have, not a launch gate.
   → `docs/TODO-version-check-2026-08-09.md` (plan to be written)
-- **F — Remove deprecated `*_gb` fields (2.0.0 cleanup).** The v1.6.4 reading-plane
-  audit added correct `*_gib`/`*_bytes` fields alongside the misnamed `*_gb` ones.
-  Remove the deprecated aliases in the next major: `convert_to_GB` alias,
-  `*_GB` dict keys, `*_gb` snapshot fields, `*_gigabytes` Prometheus gauges.
-  Requires a major bump — rides 2.0.0, not a standalone PR.
-  → `docs/TODO-reading-plane-audit-2026-07-29.md`
 
 ### Deliberately not doing (decision records)
 

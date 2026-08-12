@@ -29,7 +29,7 @@ while read -r local_ref local_sha remote_ref remote_sha; do
   fi
 done
 
-if [[ $warn_tag -eq 1 ]]; then
+if [[ $warn_tag -eq 1 && -z "${ACTOP_TAG_RELEASE:-}" ]]; then
   echo "" >&2
   echo "WARNING: you are pushing a v* tag directly." >&2
   echo "Use scripts/tag_release.sh instead — it creates the required GitHub Release" >&2

@@ -41,18 +41,19 @@ _PROM_GAUGES = (
     ("gpu_freq_mhz", "gpu_frequency_mhz"),
     # Byte counts are exported in the base unit, per Prometheus/OpenMetrics
     # naming convention ("use base units" — bytes, not megabytes; let the
-    # dashboard format). This is also exact, unlike the rounded *_gb fields.
+    # dashboard format).
     ("ram_used_bytes", "ram_used_bytes"),
     ("ram_total_bytes", "ram_total_bytes"),
     ("swap_used_bytes", "swap_used_bytes"),
     ("swap_total_bytes", "swap_total_bytes"),
-    # Deprecated: these carry rounded GiB values under a decimal-GB name. Kept
-    # for one release so existing dashboards keep scraping; removed in 2.0.0.
-    ("ram_used_gb", "ram_used_gigabytes"),
-    ("swap_used_gb", "swap_used_gigabytes"),
     # Bandwidth stays decimal GB/s: that is Apple's own unit for the bus (546
     # GB/s on M4 Max) and the DCS bucket labels are literally "32GB/s".
     ("bandwidth_gbps", "memory_bandwidth_gbps"),
+    # Network / disk I/O rates in bytes/s (canonical base unit).
+    ("net_rx_bps", "network_receive_bytes_per_second"),
+    ("net_tx_bps", "network_transmit_bytes_per_second"),
+    ("disk_read_bps", "disk_read_bytes_per_second"),
+    ("disk_write_bps", "disk_write_bytes_per_second"),
 )
 
 

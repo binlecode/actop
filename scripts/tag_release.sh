@@ -127,6 +127,7 @@ echo "Creating tag ${TAG}..."
 git tag "${TAG}"
 
 echo "Pushing tag ${TAG}..."
+export ACTOP_TAG_RELEASE=1
 git push origin "${TAG}"
 
 echo "Creating GitHub Release ${TAG}..."

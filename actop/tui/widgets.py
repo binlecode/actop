@@ -173,6 +173,22 @@ def _to_gib(byte_count) -> float:
     return round((byte_count or 0) / 1024 / 1024 / 1024, 1)
 
 
+def _format_bps(bps: float) -> str:
+    """Bytes/s → human-readable (B/s, KB/s, MB/s, GB/s) at 1 decimal.
+
+    Uses decimal prefixes (1 KB = 1000 B) consistently with how network and
+    disk tools report throughput (ifconfig, iostat, Activity Monitor).
+    """
+    bps = max(0.0, bps)
+    if bps < 1000:
+        return f"{bps:.0f} B/s"
+    if bps < 1_000_000:
+        return f"{bps / 1_000:.1f} KB/s"
+    if bps < 1_000_000_000:
+        return f"{bps / 1_000_000:.1f} MB/s"
+    return f"{bps / 1_000_000_000:.2f} GB/s"
+
+
 def _format_window_span(seconds: float) -> str:
     """Format a chart's visible time span (e.g. `45s`, `2m08s`, `1h05m`)."""
     seconds = int(max(0, seconds))
@@ -606,6 +622,10 @@ class HardwareDashboard(Widget):
         self._gpu_w_hist: deque = deque([0] * maxlen, maxlen=maxlen)
         self._pkg_w_hist: deque = deque([0] * maxlen, maxlen=maxlen)
         self._bw_gbps_hist: deque = deque([0] * maxlen, maxlen=maxlen)
+        self._net_rx_hist: deque = deque([0] * maxlen, maxlen=maxlen)
+        self._net_tx_hist: deque = deque([0] * maxlen, maxlen=maxlen)
+        self._disk_read_hist: deque = deque([0] * maxlen, maxlen=maxlen)
+        self._disk_write_hist: deque = deque([0] * maxlen, maxlen=maxlen)
 
         # Count of real samples appended; histories are zero-padded for chart
         # right-alignment, so avg/max must ignore the leading padding.
@@ -815,6 +835,12 @@ class HardwareDashboard(Widget):
                 id="bw-chart",
                 classes="metric-chart",
             )
+            # Network / disk I/O rates (bytes/s). Hidden when unavailable
+            # (non-Darwin or no usable counters), gated per-snapshot via
+            # SystemSnapshot.net_available / disk_available — same hide-row
+            # pattern as Mem BW / Fan below.
+            yield Static("Net 0 B/s", id="net-label", classes="metric-label")
+            yield Static("Disk 0 B/s", id="disk-label", classes="metric-label")
 
         with Vertical(id="section-power", classes="dash-section") as pwr_sec:
             pwr_sec.border_title = "Power"
@@ -1015,6 +1041,10 @@ class HardwareDashboard(Widget):
             bw_pct = 1  # nudge a tiny-but-nonzero draw off the floor for the chart
         self._bw_hist.append(bw_pct)
         self._bw_gbps_hist.append(s.bandwidth_gbps if s.bandwidth_available else 0.0)
+        self._net_rx_hist.append(s.net_rx_bps if s.net_available else 0.0)
+        self._net_tx_hist.append(s.net_tx_bps if s.net_available else 0.0)
+        self._disk_read_hist.append(s.disk_read_bps if s.disk_available else 0.0)
+        self._disk_write_hist.append(s.disk_write_bps if s.disk_available else 0.0)
 
         # Update charts
         chart_data = (
@@ -1093,7 +1123,7 @@ class HardwareDashboard(Widget):
         # The snapshot carries raw bytes; formatting into GiB is presentation, so
         # it happens here. GiB (not GB) because these are 2^30 divisions — the
         # Mem BW row below stays decimal GB/s, which is Apple's own unit for the
-        # bus (§3 of docs/TODO-reading-plane-audit-2026-07-29.md).
+        # bus (§2.1 of docs/SPEC-system.md).
         used_gib = _to_gib(s.ram_used_bytes)
         total_gib = _to_gib(s.ram_total_bytes)
         swap_used = _to_gib(s.swap_used_bytes)
@@ -1121,6 +1151,27 @@ class HardwareDashboard(Widget):
         if s.bandwidth_available:
             bw_label.update(
                 f"Mem BW {s.bandwidth_gbps:.1f} GB/s{self._gbps_stats_suffix(self._bw_gbps_hist)}"
+            )
+
+        # Network I/O: hide the row when getifaddrs returns no usable counters.
+        # Rates are bytes/s; displayed as human-readable with rolling context.
+        net_label = self.query_one("#net-label", Static)
+        if net_label.display != s.net_available:
+            net_label.display = s.net_available
+        if s.net_available:
+            net_label.update(
+                f"Net ↓ {_format_bps(s.net_rx_bps)} ↑ {_format_bps(s.net_tx_bps)}"
+                f"{self._bps_stats_suffix(self._net_rx_hist, self._net_tx_hist)}"
+            )
+
+        # Disk I/O: hide the row when no volume/driver exposes Statistics.
+        disk_label = self.query_one("#disk-label", Static)
+        if disk_label.display != s.disk_available:
+            disk_label.display = s.disk_available
+        if s.disk_available:
+            disk_label.update(
+                f"Disk R {_format_bps(s.disk_read_bps)} W {_format_bps(s.disk_write_bps)}"
+                f"{self._bps_stats_suffix(self._disk_read_hist, self._disk_write_hist)}"
             )
 
         # Fan RPM: hide the row entirely on fanless Macs (no SMC fan keys),
@@ -1204,6 +1255,17 @@ class HardwareDashboard(Widget):
         """`  avg N.N · max N.N GB/s` context string for a bandwidth history."""
         avg, mx = self._avg_max(hist)
         return f"  avg {avg:.1f} · max {mx:.1f} GB/s"
+
+    def _bps_stats_suffix(self, rx_hist, tx_hist) -> str:
+        """`  avg ↓ N · ↑ N` context for network/disk byte-rate histories.
+
+        Shows the combined rx+tx average and peak in human-readable form.
+        The suffix is shorter than the per-metric versions because the label
+        already carries two readings (↓/↑ or R/W).
+        """
+        rx_avg, _ = self._avg_max(rx_hist)
+        tx_avg, _ = self._avg_max(tx_hist)
+        return f"  avg ↓{_format_bps(rx_avg)} ↑{_format_bps(tx_avg)}"
 
     def _update_cluster_summary_row(
         self,

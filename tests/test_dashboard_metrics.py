@@ -86,6 +86,12 @@ def _snapshot(
     gpu_tiler_pct: float = 0.0,
     gpu_perf_stats_available: bool = False,
     gpu_util_source: str = "residency",
+    net_rx_bps: float = 0.0,
+    net_tx_bps: float = 0.0,
+    net_available: bool = False,
+    disk_read_bps: float = 0.0,
+    disk_write_bps: float = 0.0,
+    disk_available: bool = False,
 ) -> SystemSnapshot:
     fans = [] if fans is None else fans
     idle_residency = {"idle": 100, "low": 0, "mid": 0, "high": 0}
@@ -103,17 +109,13 @@ def _snapshot(
         ecpu_freq_mhz=1200,
         pcpu_freq_mhz=pcpu_freq_mhz,
         gpu_freq_mhz=gpu_freq_mhz,
-        # Both sets, mirroring what api.py populates: bytes are canonical (the
-        # TUI formats GiB from these), *_gb the deprecated rounded view.
+        # Bytes are canonical, mirroring what api.py populates; the TUI formats
+        # GiB from these at render time.
         ram_used_bytes=18 * 1024**3,
         ram_total_bytes=32 * 1024**3,
         swap_used_bytes=0,
         swap_total_bytes=0,
-        ram_used_gb=18.0,
-        swap_used_gb=0.0,
-        ram_total_gb=32.0,
         ram_used_percent=56.0,
-        swap_total_gb=0.0,
         thermal_state=thermal_state,
         bandwidth_gbps=bandwidth_gbps,
         bandwidth_available=bandwidth_available,
@@ -132,6 +134,12 @@ def _snapshot(
         gpu_tiler_pct=gpu_tiler_pct,
         gpu_perf_stats_available=gpu_perf_stats_available,
         gpu_util_source=gpu_util_source,
+        net_rx_bps=net_rx_bps,
+        net_tx_bps=net_tx_bps,
+        net_available=net_available,
+        disk_read_bps=disk_read_bps,
+        disk_write_bps=disk_write_bps,
+        disk_available=disk_available,
     )
 
 
@@ -172,6 +180,10 @@ async def _drive(snapshots, config=None):
             "bw_label": str(dash.query_one("#bw-label", Static).render()),
             "bw_label_display": dash.query_one("#bw-label", Static).display,
             "bw_chart_display": dash.query_one("#bw-chart", BrailleChart).display,
+            "net_label": str(dash.query_one("#net-label", Static).render()),
+            "net_label_display": dash.query_one("#net-label", Static).display,
+            "disk_label": str(dash.query_one("#disk-label", Static).render()),
+            "disk_label_display": dash.query_one("#disk-label", Static).display,
             "fan_label": str(dash.query_one("#fan-label", Static).render()),
             "fan_label_display": dash.query_one("#fan-label", Static).display,
             "gpu_label": str(dash.query_one("#gpu-label", Static).render()),
@@ -243,6 +255,40 @@ def test_mem_bw_row_hidden_when_bandwidth_unavailable():
     state = asyncio.run(_drive([_snapshot(0.0, False)]))
     assert state["bw_label_display"] is False
     assert state["bw_chart_display"] is False
+
+
+def test_net_disk_rows_show_rates_when_available():
+    # Net/disk ride the same snapshot contract as Mem BW: byte rates surfaced
+    # as human-readable decimal throughput (↓/↑, R/W), rows visible only when
+    # the underlying readers reported usable counters.
+    state = asyncio.run(
+        _drive(
+            [
+                _snapshot(
+                    120.0,
+                    True,
+                    net_rx_bps=1_500_000,  # 1.5 MB/s
+                    net_tx_bps=750_000,  # 750 KB/s
+                    net_available=True,
+                    disk_read_bps=25_000_000,  # 25 MB/s
+                    disk_write_bps=500_000,  # 500 KB/s
+                    disk_available=True,
+                )
+            ]
+        )
+    )
+    assert state["net_label_display"] is True
+    assert "Net ↓ 1.5 MB/s ↑ 750.0 KB/s" in state["net_label"]
+    assert state["disk_label_display"] is True
+    assert "Disk R 25.0 MB/s W 500.0 KB/s" in state["disk_label"]
+
+
+def test_net_disk_rows_hidden_when_unavailable():
+    # No usable counters: hide the rows rather than show a phantom 0 B/s,
+    # the same hide-row contract the Mem BW / Fan rows honour.
+    state = asyncio.run(_drive([_snapshot(120.0, True)]))
+    assert state["net_label_display"] is False
+    assert state["disk_label_display"] is False
 
 
 def test_renderer_tiler_row_shows_driver_split_when_available():

@@ -48,7 +48,7 @@ from actop.tui.app import (
 from actop.tui.widgets import MetricsUpdated
 
 
-def _sample(pid, command, attributed_w, cpu_percent=0.0, rss_mb=100.0):
+def _sample(pid, command, attributed_w, cpu_percent=0.0, rss_bytes=100 * 1024**2):
     """A ProcessSample as L2 would emit it (attributed_w precomputed)."""
     return ProcessSample(
         pid=pid,
@@ -56,9 +56,9 @@ def _sample(pid, command, attributed_w, cpu_percent=0.0, rss_mb=100.0):
         cpu_percent=cpu_percent,
         cpu_time_share=None if attributed_w is None else 0.0,
         gpu_time_share=0.0,
-        rss_mb=rss_mb,
         num_threads=2,
         attributed_w=attributed_w,
+        rss_bytes=rss_bytes,
     )
 
 
@@ -77,8 +77,6 @@ def _snapshot(cpu_watts, gpu_watts=0.0, processes=None):
         ecpu_freq_mhz=0,
         pcpu_freq_mhz=0,
         gpu_freq_mhz=0,
-        ram_used_gb=0.0,
-        swap_used_gb=0.0,
         thermal_state="Nominal",
         bandwidth_gbps=0.0,
         bandwidth_available=False,

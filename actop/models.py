@@ -44,13 +44,10 @@ class ProcessSample:
     cpu_percent: float  # Δ CPU-time over the interval, as a percent
     cpu_time_share: float | None  # fraction of total CPU time, or None
     gpu_time_share: float | None  # fraction of total GPU time, or None
-    rss_mb: float  # deprecated misnomer: holds MiB (2^20) — read rss_bytes below
     num_threads: int
     attributed_w: float | None  # CPU+GPU watts, or None (no CPU delta yet)
-    # Resident set size in raw bytes — the canonical, exact field. rss_mb is a
-    # rounded MiB value under a decimal name and is removed in 2.0.0. Defaulted
-    # so existing ProcessSample(...) call sites stay valid.
-    # See docs/TODO-reading-plane-audit-2026-07-29.md §3.
+    # Resident set size in raw bytes — the canonical, exact field. Defaulted so
+    # existing ProcessSample(...) call sites stay valid.
     rss_bytes: int = 0
 
 
@@ -69,12 +66,6 @@ class SystemSnapshot:
     ecpu_freq_mhz: int
     pcpu_freq_mhz: int
     gpu_freq_mhz: int
-    # Deprecated misnomer: these hold GiB (2^30) rounded to 0.1, not decimal GB.
-    # Read the *_bytes fields below instead — mixing these with the genuinely
-    # decimal bandwidth_gbps picks up a silent 7.4% error, and the rounding
-    # quantizes to ±50 MiB. Removed in 2.0.0.
-    ram_used_gb: float
-    swap_used_gb: float
     thermal_state: str  # "Nominal", "Fair", "Serious", "Critical"
     bandwidth_gbps: float  # Total memory bandwidth (read + write); 0.0 if unavailable
     bandwidth_available: bool
@@ -84,21 +75,17 @@ class SystemSnapshot:
     ecpu_max_freq_mhz: int = 0
     pcpu_max_freq_mhz: int = 0
     gpu_max_freq_mhz: int = 0
-    # RAM/swap totals + used-percent, completing the frame contract so the TUI
+    # RAM/swap used-percent, completing the frame contract so the TUI
     # (and any API consumer) reads memory from the snapshot alone rather than a
     # second get_ram_metrics_dict() call. Defaulted for construction-site
     # compatibility, matching the *_max_freq_mhz precedent above.
-    ram_total_gb: float = 0.0  # deprecated misnomer: holds GiB — see *_bytes below
     ram_used_percent: float = 0.0
-    swap_total_gb: float = 0.0  # deprecated misnomer: holds GiB — see *_bytes below
     # Memory in raw bytes — the canonical, exact fields. Bytes are prefix-free
-    # (no GB-vs-GiB ambiguity), lossless (the *_gb fields round to 0.1 GiB, i.e.
-    # ±50 MiB), and the base unit Prometheus/OpenMetrics naming expects.
-    # Formatting into GiB is a presentation concern and lives in the TUI.
-    # Note bandwidth_gbps above stays genuinely decimal GB/s — that is Apple's
-    # own unit for the bus, not an inconsistency. Defaulted for construction-site
-    # compatibility, matching the *_max_freq_mhz precedent above.
-    # See docs/TODO-reading-plane-audit-2026-07-29.md §3.
+    # (no GB-vs-GiB ambiguity), lossless, and the base unit Prometheus/OpenMetrics
+    # naming expects. Formatting into GiB is a presentation concern and lives in
+    # the TUI. Note bandwidth_gbps above stays genuinely decimal GB/s — that is
+    # Apple's own unit for the bus, not an inconsistency. Defaulted for
+    # construction-site compatibility, matching the *_max_freq_mhz precedent above.
     ram_used_bytes: int = 0
     ram_total_bytes: int = 0
     swap_used_bytes: int = 0
@@ -129,6 +116,18 @@ class SystemSnapshot:
         default_factory=list
     )  # list[float] (== [f.current for f in fans])
     fan_available: bool = False
+    # Network I/O rates (bytes/s), delta-over-interval from getifaddrs()
+    # if_data counters. net_available is False on non-Darwin or when
+    # getifaddrs() returns no usable AF_LINK entries.
+    net_rx_bps: float = 0.0
+    net_tx_bps: float = 0.0
+    net_available: bool = False
+    # Disk I/O rates (bytes/s), delta-over-interval from IOKit
+    # AppleAPFSVolume (primary) or IOBlockStorageDriver (fallback)
+    # Statistics. disk_available is False when no volume exposes counters.
+    disk_read_bps: float = 0.0
+    disk_write_bps: float = 0.0
+    disk_available: bool = False
     e_cores: list = field(default_factory=list)  # list[CoreSample]
     p_cores: list = field(default_factory=list)  # list[CoreSample]
     # Per-process resource use, CPU-sorted; empty unless the caller opted in

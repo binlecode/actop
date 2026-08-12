@@ -64,9 +64,9 @@ How the sudoless, in-process field stacks up:
 | Python API (`Monitor`/`Profiler`, `to_pandas()`) | ✅ | — | — |
 | SoC-accurate power scaling (M1–M4 profiles) | ✅ | rolling peak | rolling peak |
 | Session energy (∫ package power) | ✅ | — | — |
-| Net/disk I/O · fan RPM · menu bar | — | ✅ | fan only |
+| Net/disk I/O · fan RPM · menu bar | net/disk · fan | ✅ | fan only |
 
-For the broadest TUI and DevOps feature set (network/disk I/O, a menu-bar app, more export formats), use **mactop**; for the leanest single Rust binary, **macmon**. Full head-to-head: [docs/REVIEW-architecture-comparison.md](docs/REVIEW-architecture-comparison.md).
+For the broadest TUI and DevOps feature set (a menu-bar app, more export formats), use **mactop**; for the leanest single Rust binary, **macmon**. actop's niche is the programmable Python API, SoC-accurate power scaling, and session-energy profiling — see `docs/SPEC-system.md` §1.1.
 
 ## Roadmap
 
@@ -74,9 +74,9 @@ The gaps above are tracked, not abandoned — see
 [docs/ROADMAP.md](docs/ROADMAP.md) for the open
 items and their reasoning:
 
-- **Net/disk I/O** — the one open must-have for hardware/metric coverage; the
-  feasibility spike is done (verified on-device, unprivileged) and the full
-  implementation-ready design lives in `docs/TODO-net-disk-io-2026-07-02.md`.
+- **Sudo elevation** — the one open track: per-process GPU/energy attribution
+  under root (`--sudo` + `u`-key password modal); unprivileged mode stays the
+  default. Plan: `docs/TODO-sudo-mode.md`.
 - **Menu bar mode** — deliberately deferred post-launch; a second application
   surface (not a feature add), revisited only after the initial launch cycle.
 
@@ -193,7 +193,7 @@ with Monitor(include_processes=True) as m:
 | `--proc-filter REGEX` | Filter process panel by command name | all (applies when panel is enabled) |
 | `--alert-bw-sat-percent` | Bandwidth saturation alert threshold | `85` |
 | `--alert-package-power-percent` | Package power alert threshold (profile-relative) | `85` |
-| `--alert-swap-rise-gib` | Swap growth alert threshold (GiB); `--alert-swap-rise-gb` is a deprecated alias | `0.3` |
+| `--alert-swap-rise-gib` | Swap growth alert threshold (GiB) | `0.3` |
 | `--alert-sustain-samples` | Consecutive samples for sustained alerts | `3` |
 | `--json` | Stream metrics as NDJSON to stdout instead of the TUI | `off` |
 | `--serve PORT` | Serve Prometheus metrics on `http://0.0.0.0:PORT/metrics` instead of the TUI | `off` |
