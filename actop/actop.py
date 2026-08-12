@@ -150,11 +150,23 @@ def build_parser():
         help="Stream metrics as NDJSON to stdout instead of launching the TUI",
     )
     parser.add_argument(
+        "--json-processes",
+        action="store_true",
+        default=False,
+        help="With --json: include per-process rows in each NDJSON record",
+    )
+    parser.add_argument(
         "--serve",
         type=_validate_port,
         default=None,
         metavar="PORT",
         help="Serve Prometheus metrics on http://0.0.0.0:PORT/metrics (no TUI)",
+    )
+    parser.add_argument(
+        "--serve-processes",
+        action="store_true",
+        default=False,
+        help="With --serve: include per-process rows in Prometheus /metrics output",
     )
     parser.add_argument(
         "--samples",
@@ -253,13 +265,39 @@ def _run_dashboard(args, runtime_state):
 def _run_export(args):
     """Route to a non-TUI export backend. Returns an exit code."""
     from actop import export
+    from actop.utils import get_soc_info
 
     interval_s = max(1, int(args.interval))
     subsamples = max(1, int(args.subsamples))
-    include_processes = bool(getattr(args, "show_processes", False))
+    include_processes = (
+        bool(getattr(args, "show_processes", False))
+        or bool(getattr(args, "json_processes", False))
+        or bool(getattr(args, "serve_processes", False))
+    )
     proc_filter = str(getattr(args, "proc_filter", "") or "")
     if not include_processes and proc_filter:
         include_processes = True
+
+    # Resolve the SoC profile for the alert engine — the same path the TUI
+    # takes. `get_soc_info()` is idempotent (cached native calls) so calling
+    # it in the export path is zero-cost when the TUI already resolved it.
+    soc_info = get_soc_info()
+    cpu_chart_ref = float(soc_info.get("cpu_chart_ref_w", 30.0))
+    gpu_chart_ref = float(soc_info.get("gpu_chart_ref_w", 30.0))
+    ane_max_power = float(soc_info.get("ane_max_w", 8.0))
+    max_total_bw = max(float(soc_info.get("max_mem_bw", 0.0)), 1.0)
+    package_ref_w = max(cpu_chart_ref + gpu_chart_ref + ane_max_power, 1.0)
+
+    alert_engine_kwargs = {
+        "bw_sat_percent": int(getattr(args, "alert_bw_sat_percent", 85)),
+        "pkg_power_percent": int(getattr(args, "alert_package_power_percent", 85)),
+        "throttle_freq_percent": int(getattr(args, "alert_throttle_freq_percent", 90)),
+        "swap_rise_gib": float(getattr(args, "alert_swap_rise_gib", 0.3)),
+        "sustain_samples": int(getattr(args, "alert_sustain_samples", 3)),
+        "max_total_bw": max_total_bw,
+        "package_ref_w": package_ref_w,
+    }
+
     try:
         if args.serve is not None:
             export.serve_prometheus(
@@ -268,6 +306,7 @@ def _run_export(args):
                 subsamples,
                 include_processes=include_processes,
                 proc_filter=proc_filter,
+                alert_engine_kwargs=alert_engine_kwargs,
             )
         else:
             export.run_json_stream(
@@ -276,6 +315,7 @@ def _run_export(args):
                 max_samples=max(0, int(getattr(args, "samples", 0) or 0)),
                 include_processes=include_processes,
                 proc_filter=proc_filter,
+                alert_engine_kwargs=alert_engine_kwargs,
             )
         return 0
     except KeyboardInterrupt:

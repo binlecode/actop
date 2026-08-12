@@ -7,6 +7,8 @@ off Apple-Silicon hardware. `Monitor` is imported lazily inside the run loops so
 this module imports cleanly on any platform.
 """
 
+from __future__ import annotations
+
 import dataclasses
 import json
 import sys
@@ -54,18 +56,46 @@ _PROM_GAUGES = (
 )
 
 
-def snapshot_to_dict(snapshot: SystemSnapshot) -> dict:
-    """Full snapshot as a JSON-serializable dict (per-core lists included)."""
-    return dataclasses.asdict(snapshot)
+def snapshot_to_dict(snapshot: SystemSnapshot, *, alert_frame=None) -> dict:
+    """Full snapshot as a JSON-serializable dict (per-core lists included).
+
+    When `alert_frame` (an `analytics.AlertFrame`) is provided, its fields are
+    merged under top-level keys (`alert_thermal`, `session_energy_j`, etc.) so
+    every NDJSON consumer receives alert/throttle/energy judgments without a
+    separate channel. The frame keys never collide with SystemSnapshot fields.
+    """
+    record = dataclasses.asdict(snapshot)
+    if alert_frame is not None:
+        record.update(
+            {
+                "alert_thermal": alert_frame.thermal_alert,
+                "alert_cpu_throttle": alert_frame.cpu_throttle,
+                "alert_gpu_throttle": alert_frame.gpu_throttle,
+                "alert_mem_bound": alert_frame.bw_alert,
+                "alert_package_power": alert_frame.pkg_alert,
+                "alert_swap_rise": alert_frame.swap_alert,
+                "alert_swap_rise_gib": alert_frame.swap_rise_gib,
+                "session_energy_j": alert_frame.session_energy_j,
+                "effective_max_bw_gbps": alert_frame.effective_max_bw,
+                "effective_max_package_w": alert_frame.effective_max_package_w,
+            }
+        )
+    return record
 
 
-def snapshot_to_json(snapshot: SystemSnapshot) -> str:
+def snapshot_to_json(snapshot: SystemSnapshot, *, alert_frame=None) -> str:
     """Compact single-line JSON for one snapshot (NDJSON record)."""
-    return json.dumps(snapshot_to_dict(snapshot), separators=(",", ":"))
+    return json.dumps(
+        snapshot_to_dict(snapshot, alert_frame=alert_frame), separators=(",", ":")
+    )
 
 
-def snapshot_to_prometheus(snapshot: SystemSnapshot) -> str:
-    """Render a snapshot in Prometheus text exposition format (version 0.0.4)."""
+def snapshot_to_prometheus(snapshot: SystemSnapshot, *, alert_frame=None) -> str:
+    """Render a snapshot in Prometheus text exposition format (version 0.0.4).
+
+    When `alert_frame` (an `analytics.AlertFrame`) is provided, alert verdicts
+    and session energy are appended as labelled gauges after the scalar metrics.
+    """
     lines: list[str] = []
     for field, suffix in _PROM_GAUGES:
         name = "actop_" + suffix
@@ -127,6 +157,41 @@ def snapshot_to_prometheus(snapshot: SystemSnapshot) -> str:
                 f"actop_process_rss_bytes{{{labels}}} {_fmt_number(float(proc.rss_bytes))}"
             )
             lines.append(f"actop_process_num_threads{{{labels}}} {proc.num_threads}")
+
+    # Alert verdicts and session energy — emitted only when an AlertFrame is
+    # provided (the caller drives AlertEngine between snapshots). The boolean
+    # alerts are 0/1 gauges; session_energy_j and effective_max_* are scalar
+    # gauges naming the unit in the metric suffix.
+    if alert_frame is not None:
+        lines.append("# TYPE actop_alert_thermal gauge")
+        lines.append(f"actop_alert_thermal {int(alert_frame.thermal_alert)}")
+        lines.append("# TYPE actop_alert_cpu_throttle gauge")
+        lines.append(f"actop_alert_cpu_throttle {int(alert_frame.cpu_throttle)}")
+        lines.append("# TYPE actop_alert_gpu_throttle gauge")
+        lines.append(f"actop_alert_gpu_throttle {int(alert_frame.gpu_throttle)}")
+        lines.append("# TYPE actop_alert_mem_bound gauge")
+        lines.append(f"actop_alert_mem_bound {int(alert_frame.bw_alert)}")
+        lines.append("# TYPE actop_alert_package_power gauge")
+        lines.append(f"actop_alert_package_power {int(alert_frame.pkg_alert)}")
+        lines.append("# TYPE actop_alert_swap_rise gauge")
+        lines.append(f"actop_alert_swap_rise {int(alert_frame.swap_alert)}")
+        lines.append("# TYPE actop_alert_swap_rise_gib gauge")
+        lines.append(
+            f"actop_alert_swap_rise_gib {_fmt_number(alert_frame.swap_rise_gib)}"
+        )
+        lines.append("# TYPE actop_session_energy_joules gauge")
+        lines.append(
+            f"actop_session_energy_joules {_fmt_number(alert_frame.session_energy_j)}"
+        )
+        lines.append("# TYPE actop_effective_max_bw_gbps gauge")
+        lines.append(
+            f"actop_effective_max_bw_gbps {_fmt_number(alert_frame.effective_max_bw)}"
+        )
+        lines.append("# TYPE actop_effective_max_package_w gauge")
+        lines.append(
+            f"actop_effective_max_package_w {_fmt_number(alert_frame.effective_max_package_w)}"
+        )
+
     return "\n".join(lines) + "\n"
 
 
@@ -145,11 +210,17 @@ def run_json_stream(
     *,
     include_processes: bool = False,
     proc_filter: str = "",
+    alert_engine_kwargs: dict | None = None,
 ) -> int:
     """Stream NDJSON snapshots to `out` (default stdout) until interrupted.
 
     `max_samples` > 0 stops after that many records (used by tests); 0 streams
     indefinitely. Returns the number of records emitted.
+
+    When `alert_engine_kwargs` is provided it is unpacked into an
+    `analytics.AlertEngine`; each snapshot is fed through the engine and the
+    resulting `AlertFrame` is merged into the NDJSON record under top-level
+    `alert_*` / `session_energy_j` keys.
     """
     from actop.api import Monitor
 
@@ -160,11 +231,18 @@ def run_json_stream(
         include_processes=include_processes,
         process_filter=proc_filter or None,
     )
+    alert_engine = None
+    if alert_engine_kwargs is not None:
+        from actop.analytics import AlertEngine
+
+        alert_engine = AlertEngine(**alert_engine_kwargs)
+
     emitted = 0
     try:
         while True:
             snapshot = monitor.get_snapshot()
-            stream.write(snapshot_to_json(snapshot) + "\n")
+            frame = alert_engine.feed(snapshot) if alert_engine is not None else None
+            stream.write(snapshot_to_json(snapshot, alert_frame=frame) + "\n")
             stream.flush()
             emitted += 1
             if max_samples and emitted >= max_samples:
@@ -174,8 +252,13 @@ def run_json_stream(
     return emitted
 
 
-def _make_prometheus_handler(read_latest):
-    """Build a BaseHTTPRequestHandler serving the latest snapshot at /metrics."""
+def _make_prometheus_handler(read_latest, read_frame=None):
+    """Build a BaseHTTPRequestHandler serving the latest snapshot at /metrics.
+
+    When `read_frame` is provided it returns an `AlertFrame` (or None) paired
+    with the latest snapshot; the handler passes it into `snapshot_to_prometheus`
+    so alert verdicts and session energy appear in the scrape output.
+    """
 
     class _Handler(BaseHTTPRequestHandler):
         def do_GET(self):
@@ -186,7 +269,8 @@ def _make_prometheus_handler(read_latest):
             if snapshot is None:
                 self.send_error(503, "no sample yet")
                 return
-            body = snapshot_to_prometheus(snapshot).encode("utf-8")
+            frame = read_frame() if read_frame is not None else None
+            body = snapshot_to_prometheus(snapshot, alert_frame=frame).encode("utf-8")
             self.send_response(200)
             self.send_header("Content-Type", "text/plain; version=0.0.4")
             self.send_header("Content-Length", str(len(body)))
@@ -207,11 +291,17 @@ def serve_prometheus(
     *,
     include_processes: bool = False,
     proc_filter: str = "",
+    alert_engine_kwargs: dict | None = None,
 ) -> None:
     """Serve Prometheus metrics on http://host:port/metrics until interrupted.
 
     A background thread keeps the latest snapshot warm so scrapes return
     immediately instead of blocking for a full sample interval.
+
+    When `alert_engine_kwargs` is provided it is unpacked into an
+    `analytics.AlertEngine`; the sample loop feeds each snapshot through it and
+    the resulting `AlertFrame` is paired with the snapshot so every `/metrics`
+    scrape includes alert verdicts and session energy.
     """
     from actop.api import Monitor
 
@@ -221,24 +311,36 @@ def serve_prometheus(
         include_processes=include_processes,
         process_filter=proc_filter or None,
     )
-    state = {"snapshot": None}
+    alert_engine = None
+    if alert_engine_kwargs is not None:
+        from actop.analytics import AlertEngine
+
+        alert_engine = AlertEngine(**alert_engine_kwargs)
+
+    state: dict = {"snapshot": None, "frame": None}
     lock = threading.Lock()
     stop = threading.Event()
 
     def _sample_loop():
         while not stop.is_set():
             snap = monitor.get_snapshot()
+            frame = alert_engine.feed(snap) if alert_engine is not None else None
             with lock:
                 state["snapshot"] = snap
+                state["frame"] = frame
 
     def _read_latest():
         with lock:
             return state["snapshot"]
 
+    def _read_frame():
+        with lock:
+            return state["frame"]
+
     sampler_thread = threading.Thread(target=_sample_loop, daemon=True)
     sampler_thread.start()
 
-    handler = _make_prometheus_handler(_read_latest)
+    handler = _make_prometheus_handler(_read_latest, read_frame=_read_frame)
     server = ThreadingHTTPServer((host, port), handler)
     print(
         f"actop: serving Prometheus metrics on http://{host}:{port}/metrics",

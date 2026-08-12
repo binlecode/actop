@@ -6,6 +6,33 @@ This project follows a Keep a Changelog-style format and uses version tags for r
 
 ## [Unreleased]
 
+## [1.7.2] - 2026-08-11
+
+### Added
+- **Alert/throttle/energy in export backends (`--json` / `--serve`).** Both
+  `run_json_stream` and `serve_prometheus` now construct an `AlertEngine` from
+  the same alert-threshold CLI flags the TUI uses; each snapshot is fed through
+  the engine and the resulting `AlertFrame` (thermal, cpu/gpu throttle, bandwidth
+  saturation, package-power peak, swap rise, cumulative session energy) is merged
+  into every NDJSON record and every Prometheus scrape. An LLM profiling session
+  through `--json` now answers *did the chip throttle?* and *what did the run
+  cost in total energy?* without opening the TUI.
+- **`--json-processes` / `--serve-processes` CLI flags** for explicit per-process
+  rows in export mode. The underlying `include_processes` pipe already existed;
+  these flags close the discoverability gap.
+
+### Changed
+- **Tests restructured to functional-only.** Removed 8 format-contract tests
+  (single-line JSON, TYPE header present, synthetic AlertFrame key assertions);
+  merged fan/process tests; added 2 functional AlertEngine pipeline tests
+  (mock `Monitor` → `AlertEngine` → verify computed alert values match sustain
+  logic). 12 tests now (6 non-local, 6 local), all functional.
+- **Dropped LC-4 (rolling-stats widget cleanup) from roadmap.** 4 deques in
+  `HardwareDashboard` are pure code hygiene, not a user-visible defect, and
+  track E does not depend on them.
+- **CLAUDE.md:** added format-contract/shape-test rejection rule to the
+  functional-only mandate.
+
 ## [1.7.1] - 2026-08-11
 
 ### Changed
