@@ -6,6 +6,21 @@ This project follows a Keep a Changelog-style format and uses version tags for r
 
 ## [Unreleased]
 
+## [1.7.0] - 2026-08-11
+
+### Added
+- **`--theme` flag** to select Textual app theme at launch (UI chrome: header,
+  footer, borders, text colors). 8 curated built-in themes: `textual-dark`
+  (default, unchanged), `textual-light`, `nord`, `dracula`, `tokyo-night`,
+  `monokai`, `gruvbox`, `catppuccin-mocha`. Orthogonal to `--palette` (chart
+  gradient) — any theme works with any palette.
+- **`t` key binding** to cycle through themes live during a session with a toast
+  notification on each change. Wraps around from the last theme back to the first.
+
+### Changed
+- **Process table toggle** moved from `t` → `p` (`p`rocesses).
+- **Pause/resume** moved from `p` → `Space` (universal pause key).
+
 ## [1.6.9] - 2026-08-09
 
 ### Added

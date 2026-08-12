@@ -71,7 +71,7 @@ For the broadest TUI and DevOps feature set (network/disk I/O, a menu-bar app, m
 ## Roadmap
 
 The gaps above are tracked, not abandoned — see
-[docs/TODO-architecture-roadmap.md](docs/TODO-architecture-roadmap.md) for the open
+[docs/ROADMAP.md](docs/ROADMAP.md) for the open
 items and their reasoning:
 
 - **Net/disk I/O** — the one open must-have for hardware/metric coverage; the
@@ -139,11 +139,12 @@ actop --proc-filter "python|ollama|vllm|docker|mlx"  # filter process panel at l
 actop --no-show_cores                               # cluster-level view without per-core panels
 actop --chart-glyph block                           # square block chart glyphs
 actop --layout stack                                # single full-width scrolling column (default is grid)
+actop --theme nord                                   # app chrome theme (cycle live with `t`)
 actop --json                                        # stream NDJSON metrics to stdout (no TUI)
 actop --serve 9095                                  # serve Prometheus metrics at :9095/metrics (no TUI)
 ```
 
-Interactive keys: `p` pause · `s` cycle sort (CPU%→RSS→PID) · `g` toggle chart glyph (`dots`/`block`) · `l` cycle layout (`grid`⇄`stack`) · `c` toggle per-core panels · `t` toggle process panel · `/` filter processes · `?` help overlay · `q` quit
+Interactive keys: `Space` pause · `p` toggle process panel · `s` cycle sort (CPU%→RSS→PID) · `g` toggle chart glyph (`dots`/`block`) · `l` cycle layout (`grid`⇄`stack`) · `c` toggle per-core panels · `t` cycle app theme · `/` filter processes · `?` help overlay · `q` quit
 
 Letter keys also answer uppercase, so Caps Lock — how macOS forces direct ASCII while a Chinese/CJK input source is selected — does not disable them.
 
@@ -187,6 +188,7 @@ with Monitor(include_processes=True) as m:
 | `--power-scale profile\|auto` | Power chart scaling | `profile` |
 | `--chart-glyph dots\|block` | Chart glyph style | `dots` |
 | `--palette thermal\|viridis\|mono` | Chart color palette: `thermal` (blue→red), `viridis` (colorblind-safe), `mono` (grayscale). Applies at truecolor/256 tiers | `thermal` |
+| `--theme textual-dark\|textual-light\|nord\|dracula\|tokyo-night\|monokai\|gruvbox\|catppuccin-mocha` | Textual app theme (UI chrome). Orthogonal to `--palette` (chart gradient). Cycle live with `t` | `textual-dark` |
 | `--layout grid\|stack` | Dashboard layout preset (`grid` auto-degrades to `stack` under ~96 cols; cycle live with `l`) | `grid` |
 | `--proc-filter REGEX` | Filter process panel by command name | all (applies when panel is enabled) |
 | `--alert-bw-sat-percent` | Bandwidth saturation alert threshold | `85` |

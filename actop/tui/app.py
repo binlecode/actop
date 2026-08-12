@@ -34,6 +34,21 @@ SORT_LABELS = {
 
 _SORT_CYCLE = [SORT_CPU, SORT_GPU, SORT_POWER, SORT_MEMORY, SORT_PID]
 
+# Curated theme cycle for the `T` runtime key binding. Same set as
+# --theme choices; order is deterministic (not dict-insertion) and
+# excludes themes that aren't in the CLI curated set. Stored as a
+# class constant so it's testable without instantiating the app.
+_THEME_CYCLE = [
+    "textual-dark",
+    "nord",
+    "dracula",
+    "tokyo-night",
+    "monokai",
+    "gruvbox",
+    "catppuccin-mocha",
+    "textual-light",
+]
+
 
 def sort_processes(processes, sort_mode, limit):
     """Return the top `limit` ProcessSamples ordered for the active sort mode.
@@ -91,12 +106,13 @@ HELP_TEXT = """\
 [b]actop — keybindings[/b]
 
   q          Quit
-  p          Pause / resume sampling
+  Space      Pause / resume sampling
+  p          Toggle the process table
   s          Cycle process sort (CPU% → GPU% → PWR → RSS → PID)
   g          Toggle chart glyph (braille dots / blocks)
   l          Cycle layout preset (grid ⇄ stack)
   c          Toggle per-core panels (hidden by default)
-  t          Toggle the process table
+  t          Cycle app theme (dark → nord → dracula → … → light)
   /          Filter processes by regex (when table shown)
   ?          Show / hide this help
   esc        Cancel filter / close help
@@ -112,6 +128,17 @@ HELP_TEXT = """\
              stack automatically under ~96 cols.
   stack      Single full-width column — longest chart history span; scrolls
              on tall dashboards while the status line stays fixed.
+
+[b]Themes[/b]
+
+  --theme NAME          Set the app theme at launch. Choices: textual-dark
+                        (default), textual-light, nord, dracula, tokyo-night,
+                        monokai, gruvbox, catppuccin-mocha. Press t to cycle
+                        live.
+
+  The --theme flag controls the UI chrome (header, footer, borders, text
+  colors). The --palette flag controls chart gradient colors (thermal,
+  viridis, mono). The two are independent: any theme works with any palette.
 
 [b]Metric labels[/b]
 
@@ -236,15 +263,16 @@ class ActopApp(App):
     # uppercase aliases below are derived from this list so the two can't drift.
     _LETTER_BINDINGS = [
         ("q", "quit", "Quit"),
-        ("p", "toggle_pause", "Pause"),
+        ("p", "toggle_processes", "Processes"),
         ("s", "cycle_sort", "Sort"),
         ("g", "toggle_chart_glyph", "Glyph"),
         ("l", "cycle_layout", "Layout"),
         ("c", "toggle_cores", "Cores"),
-        ("t", "toggle_processes", "Processes"),
+        ("t", "cycle_theme", "Theme"),
     ]
     BINDINGS = [
         *_LETTER_BINDINGS,
+        Binding("space", "toggle_pause", "Pause"),
         ("/", "toggle_filter", "Filter"),
         ("question_mark", "show_help", "Help"),
         Binding("escape", "cancel_filter", "Cancel filter", show=False),
@@ -269,6 +297,7 @@ class ActopApp(App):
         if g:
             topo += f"+{g}GPU"
         self.sub_title = f"v{__version__} · {self._chip_name} · {topo}"
+        self.theme = self._config.theme
         self._stop_polling = threading.Event()
         self._sort_mode = SORT_CPU
         self._filter_regex = self._config.process_filter_pattern
@@ -339,6 +368,8 @@ class ActopApp(App):
         self._stop_polling.set()
 
     def _tick_splash(self) -> None:
+        if self._sampler_ready:
+            return  # splash already dismissed; timer not yet stopped
         self._splash_frame = (self._splash_frame + 1) % len(_SPINNER_FRAMES)
         self.query_one("#loading-splash", Static).update(self._build_splash())
 
@@ -400,6 +431,16 @@ class ActopApp(App):
     def action_toggle_cores(self) -> None:
         dash = self.query_one("#hardware-dash", HardwareDashboard)
         dash.set_show_cores(not dash.show_cores)
+
+    def action_cycle_theme(self) -> None:
+        """Advance to the next app theme. Wraps around the curated cycle."""
+        try:
+            idx = _THEME_CYCLE.index(self.theme)
+        except ValueError:
+            idx = 0
+        next_idx = (idx + 1) % len(_THEME_CYCLE)
+        self.theme = _THEME_CYCLE[next_idx]
+        self.notify(f"Theme: {self.theme}", timeout=2)
 
     def check_action(self, action: str, parameters: tuple[object, ...]) -> bool | None:
         if action == "toggle_filter":

@@ -31,12 +31,11 @@ def test_status_bar_exposes_only_supported_actions():
     keys = {(b[0] if isinstance(b, tuple) else b.key) for b in ActopApp.BINDINGS}
 
     # Kept utilities, including the help overlay and the layout-preset cycle.
-    assert {"q", "p", "s", "g", "l", "t", "/", "question_mark"} <= keys
+    assert {"q", "p", "s", "g", "l", "t", "/", "question_mark", "space"} <= keys
 
-    # Removed utilities: the old `v` view-toggle and `space` dashboard-collapse
-    # no longer exist (the layout cycle now lives on `l`, asserted above).
+    # Removed utilities: the old `v` view-toggle no longer exists
+    # (the layout cycle now lives on `l`, asserted above).
     assert "v" not in keys
-    assert "space" not in keys
 
     # The framework command palette is disabled (no ^p in the status bar).
     assert ActopApp.ENABLE_COMMAND_PALETTE is False
@@ -120,6 +119,65 @@ def test_uppercase_q_still_quits():
     assert asyncio.run(_run()) is False
 
 
+def test_pressing_t_cycles_through_curated_themes():
+    """Pressing t cycles the app theme through the curated cycle and wraps."""
+
+    async def _run():
+        app = ActopApp(build_parser().parse_args(["--theme", "nord"]))
+        async with app.run_test() as pilot:
+            await pilot.pause()
+            app.set_focus(None)
+            assert app.theme == "nord"
+            await pilot.press("t")
+            await pilot.pause()
+            assert app.theme == "dracula"
+            # Wrap from the last theme back to the first
+            app.theme = "textual-light"
+            await pilot.pause()
+            await pilot.press("t")
+            await pilot.pause()
+            assert app.theme == "textual-dark"
+            return True
+
+    assert asyncio.run(_run())
+
+
+def test_theme_defaults_to_textual_dark():
+    """Without --theme, the app starts in textual-dark (current behaviour)."""
+
+    async def _run():
+        app = ActopApp(build_parser().parse_args([]))
+        async with app.run_test() as pilot:
+            await pilot.pause()
+            return app.theme
+
+    theme = asyncio.run(_run())
+    assert theme == "textual-dark"
+
+
+def test_p_toggles_process_table():
+    """Pressing p toggles the process table visibility."""
+
+    async def _run():
+        app = ActopApp(build_parser().parse_args([]))
+        async with app.run_test() as pilot:
+            await pilot.pause()
+            app.set_focus(None)
+            from textual.widgets import DataTable
+
+            table = app.query_one("#process-table", DataTable)
+            assert table.display is False
+            await pilot.press("p")
+            await pilot.pause()
+            assert table.display is True
+            await pilot.press("p")
+            await pilot.pause()
+            assert table.display is False
+            return True
+
+    assert asyncio.run(_run())
+
+
 def test_help_overlay_documents_keys_metrics_and_alert_tokens():
     # Open the real help overlay (via the action the "?" binding is wired to)
     # and read its rendered body, so the in-app docs are validated through the
@@ -150,6 +208,10 @@ def test_help_overlay_documents_keys_metrics_and_alert_tokens():
     # The chart time-window token and color-degradation behavior are documented.
     assert "span" in help_text
     assert "NO_COLOR" in help_text
+
+    # Themes are documented in the help overlay.
+    assert "Theme" in help_text
+    assert "textual-dark" in help_text
 
 
 def test_escape_cancels_filter_edit_and_hides_input():
@@ -191,7 +253,7 @@ def test_filter_unavailable_until_process_table_shown():
             app.action_toggle_filter()  # body guard: should be a no-op
             await pilot.pause()
             hidden_while_off = app.query_one("#filter-input", Input).display
-            app.action_toggle_processes()  # reveal table (the `t` action)
+            app.action_toggle_processes()  # reveal table (the `p` action)
             await pilot.pause()
             on = app.check_action("toggle_filter", ())  # now available
             return off, hidden_while_off, on

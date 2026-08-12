@@ -25,6 +25,8 @@ def test_cli_help_runs_and_exposes_show_cores_as_flag():
     assert "--chart-glyph {dots,block}" in result.stdout
     assert "--layout {grid,stack}" in result.stdout
     assert "--palette {thermal,viridis,mono}" in result.stdout
+    assert "--theme " in result.stdout
+    assert "textual-dark" in result.stdout
     assert "--json" in result.stdout
     assert "--serve PORT" in result.stdout
     # --help surfaces every option's default (ArgumentDefaultsHelpFormatter), so
@@ -81,6 +83,37 @@ def test_cli_rejects_unknown_palette():
 
     assert result.returncode == 2
     assert "invalid choice: 'rainbow'" in result.stderr
+
+
+def test_cli_rejects_unknown_theme():
+    result = subprocess.run(
+        [sys.executable, "-m", "actop.actop", "--theme", "nonexistent"],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+
+    assert result.returncode == 2
+    assert "invalid choice: 'nonexistent'" in result.stderr
+
+
+def test_cli_accepts_known_themes():
+    parser = build_parser()
+    for theme in (
+        "textual-dark",
+        "textual-light",
+        "nord",
+        "dracula",
+        "tokyo-night",
+        "monokai",
+        "gruvbox",
+        "catppuccin-mocha",
+    ):
+        args = parser.parse_args(["--theme", theme])
+        assert args.theme == theme
+    # Default when not specified
+    args = parser.parse_args([])
+    assert args.theme == "textual-dark"
 
 
 def test_cli_rejects_serve_port_out_of_range():

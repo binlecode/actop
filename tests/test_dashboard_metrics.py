@@ -44,6 +44,7 @@ def _config(show_residency: bool = True, show_cores: bool = False) -> DashboardC
         power_scale="profile",
         chart_glyph="dots",
         palette="thermal",
+        theme="textual-dark",
         layout="grid",
         show_cores=show_cores,
         show_residency=show_residency,

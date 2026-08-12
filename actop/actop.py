@@ -76,6 +76,25 @@ def build_parser():
         ),
     )
     parser.add_argument(
+        "--theme",
+        choices=[
+            "textual-dark",
+            "textual-light",
+            "nord",
+            "dracula",
+            "tokyo-night",
+            "monokai",
+            "gruvbox",
+            "catppuccin-mocha",
+        ],
+        default="textual-dark",
+        help=(
+            "Textual app theme for UI chrome (header, footer, borders, "
+            "background). Orthogonal to --palette which controls chart "
+            "gradient colors. Cycle live with the 't' key."
+        ),
+    )
+    parser.add_argument(
         "--proc-filter",
         type=_validate_proc_filter,
         default="",
