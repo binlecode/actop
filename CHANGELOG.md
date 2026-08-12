@@ -6,6 +6,13 @@ This project follows a Keep a Changelog-style format and uses version tags for r
 
 ## [Unreleased]
 
+## [1.7.1] - 2026-08-11
+
+### Changed
+- Updated hero demo GIF and cover page with theme switching, and corrected
+  keybinding references (`t`=theme, `p`=processes, `Space`=pause).
+- Updated vhs tape for GIF recording to reflect new keybindings.
+
 ## [1.7.0] - 2026-08-11
 
 ### Added

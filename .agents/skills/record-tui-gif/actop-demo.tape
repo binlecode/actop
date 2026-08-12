@@ -1,9 +1,10 @@
 # actop hero capture — the README/hero GIF.
 # One continuous, gapless take in the stack layout that tells the whole story:
 #   off-camera:  start actop -> l (stack layout)
-#   on-camera:   stack + braille dots  ->  g (block charts)  ->  t (process table)
-# Layout switch is off-camera (grid would leave a gap at this height); the glyph
-# and process toggles are on-camera and stay full because stack fills the height.
+#   on-camera:   stack + braille dots  ->  g (block charts)  ->  p (process table)
+#                ->  t (cycle theme, several times) -> t back to dark
+# Layout switch is off-camera (grid would leave a gap at this height); the glyph,
+# process, and theme toggles are on-camera and stay full because stack fills the height.
 # Render from the repo root:  vhs .claude/skills/record-tui-gif/actop-demo.tape
 # (or via record.sh, which drives a GPU workload so the gauges move).
 
@@ -38,8 +39,27 @@ Type "g"
 Sleep 5s
 
 # --- 3) turn on the process table (needs a poll cycle to populate) ---
-Type "t"
+Type "p"
 Sleep 8s
+
+# --- 4) cycle through themes live ---
+Type "t"
+Sleep 2s
+Type "t"
+Sleep 2s
+Type "t"
+Sleep 2s
+Type "t"
+Sleep 2s
+Type "t"
+Sleep 2s
+Type "t"
+Sleep 2s
+Type "t"
+Sleep 2s
+# Back to textual-dark (default)
+Type "t"
+Sleep 3s
 
 # --- Clean exit, off-camera ---
 Hide
