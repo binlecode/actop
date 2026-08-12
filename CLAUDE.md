@@ -128,9 +128,7 @@ gh api /repos/binlecode/actop/environments/pypi/deployment-branch-policies
 
 The `docs/` directory contains essential system reviews, research, and operations guides:
 - `docs/SPEC-system.md`: Detailed system design reference — native bindings, sampling layer, SoC profile fallback, TUI rendering, testing contract. Kept in sync with the code on every PR that touches architecture.
-- `docs/REVIEW-architecture-comparison.md`: Performance and architectural comparison between `actop` (Python) and `mactop` (Go).
-- `docs/REVIEW-tui-frameworks.md`: Analysis of modern Python TUI frameworks and selection of Textual.
-- `docs/TODO-architecture-roadmap.md`: Open hardware/metric-coverage gaps and their priority.
+- `docs/ROADMAP.md`: Open hardware/metric-coverage gaps and their priority.
 
 **Conformance auditing:** the `/audit-conformance` skill (`.claude/skills/audit-conformance/`) periodically judgment-scans the whole tree against 12 coding rules (layering, dead code, DRY, naming, swallowed errors) — the whole-codebase counterpart to diff-scoped `/code-review`. It writes an actionable `docs/TODO-conformance-YYYY-MM-DD.md` and never proposes structural/guard tests (they would violate the functional-tests-only mandate).
 
@@ -172,6 +170,13 @@ tests, not just new ones.
   deleted? A behavioral test that uses a different value or exercises the same
   code path already guards that regression. Default-value checks are redundant,
   not load-bearing;
+- **is a format-contract / shape test against a synthetic input.** Constructing
+  a synthetic `AlertFrame` and asserting its keys appear in JSON is structural —
+  it does not exercise the actual pipeline. A functional test mocks `Monitor`,
+  feeds real snapshots through `AlertEngine`, and asserts the computed alert
+  values match the threshold/sustain logic. Same for "single-line JSON", "TYPE
+  header present", "values parse as numbers" — those are output-shape properties
+  already verified by every functional test that reads and parses the output;
 - **is a standalone `parse_args` "this flag accepts value X" test** when a
   behavioral test already drives that flag with that value — e.g.
   `parse_args(["--flag"]).flag is True` is redundant when

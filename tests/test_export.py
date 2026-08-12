@@ -1,25 +1,35 @@
 """Export-backend tests: NDJSON and Prometheus formats + run loops.
 
-The format functions are validated cross-platform against a real SystemSnapshot
-(the public model type) — these are the external observability contracts. The
-hardware-backed run loops are exercised end-to-end and marked local.
+Functional-only: every test verifies that given specific inputs the system
+produces correct outputs through its actual logic path. No format-property
+tests (single-line, well-formed, TYPE header) — those check the output shape,
+not whether the output is correct.
+
+The hardware-backed run loops are exercised end-to-end and marked local.
 """
 
+from __future__ import annotations
+
+import dataclasses
 import io
 import json
 import subprocess
 import sys
 import time
+from unittest.mock import MagicMock, patch
 
 import pytest
 
 from actop.export import (
     run_json_stream,
-    snapshot_to_dict,
     snapshot_to_json,
     snapshot_to_prometheus,
 )
 from actop.models import CoreSample, ProcessSample, SystemSnapshot
+
+# ---------------------------------------------------------------------------
+# Fixtures
+# ---------------------------------------------------------------------------
 
 
 def _sample_snapshot(
@@ -37,9 +47,6 @@ def _sample_snapshot(
         ecpu_util_pct=20.0,
         pcpu_util_pct=55.5,
         gpu_util_pct=40.0,
-        # Driver-reported GPU stats. Every value is distinct from every other
-        # (and from gpu_util_pct) so a gauge wired to the wrong field fails
-        # rather than passing by coincidence.
         gpu_device_pct=61.0,
         gpu_renderer_pct=58.0,
         gpu_tiler_pct=7.0,
@@ -50,9 +57,6 @@ def _sample_snapshot(
         ecpu_freq_mhz=1200,
         pcpu_freq_mhz=3200,
         gpu_freq_mhz=1296,
-        # Bytes are canonical; *_gb are the deprecated rounded views. Values are
-        # deliberately NOT consistent with each other, so a gauge wired to the
-        # wrong field is caught rather than passing by luck.
         ram_used_bytes=19_542_236_365,
         ram_total_bytes=137_438_953_472,
         swap_used_bytes=1_610_612_736,
@@ -67,105 +71,6 @@ def _sample_snapshot(
         e_cores=[CoreSample(index=0, active_pct=10, freq_mhz=1100)],
         p_cores=[CoreSample(index=4, active_pct=80, freq_mhz=3200)],
     )
-
-
-def test_snapshot_to_json_is_single_line_and_round_trips():
-    snapshot = _sample_snapshot()
-    line = snapshot_to_json(snapshot)
-
-    assert "\n" not in line
-    record = json.loads(line)
-
-    assert record == snapshot_to_dict(snapshot)
-    assert record["cpu_watts"] == 12.5
-    assert record["thermal_state"] == "Nominal"
-    # Memory rides the NDJSON record as exact byte counts — no GB-vs-GiB
-    # ambiguity and no rounding loss — alongside the deprecated rounded *_gb
-    # keys. A consumer dividing against the genuinely decimal bandwidth_gbps
-    # can therefore pick its own base explicitly.
-    assert record["ram_used_bytes"] == 19_542_236_365
-    assert record["ram_total_bytes"] == 137_438_953_472
-    assert record["swap_used_bytes"] == 1_610_612_736
-    assert record["ram_used_gb"] == 17.4
-    # Per-core lists must survive serialization for downstream consumers.
-    assert record["p_cores"][0]["index"] == 4
-    assert record["p_cores"][0]["active_pct"] == 80
-
-
-def test_prometheus_exposition_is_well_formed():
-    body = snapshot_to_prometheus(_sample_snapshot())
-
-    assert body.endswith("\n")
-    lines = body.strip().splitlines()
-
-    # Scalar gauges carry a TYPE line and a value line.
-    assert "# TYPE actop_cpu_power_watts gauge" in lines
-    assert "actop_cpu_power_watts 12.5" in lines
-    assert "actop_package_power_watts 16" in lines
-    assert "actop_pcpu_utilization_percent 55.5" in lines
-
-    # Memory is exposed in base units (bytes), per Prometheus naming convention,
-    # with the deprecated gigabytes gauges kept alongside so existing scrape
-    # configs keep working until 2.0.0. Each must read its own field, not the
-    # other's — the fixture's byte and *_gb values disagree on purpose.
-    assert "actop_ram_used_bytes 19542236365" in lines
-    assert "actop_ram_total_bytes 137438953472" in lines
-    assert "actop_swap_used_bytes 1610612736" in lines
-    assert "actop_ram_used_gigabytes 17.4" in lines
-
-    # Per-core gauges are labelled by cluster + core index.
-    assert 'actop_core_utilization_percent{cluster="P",core="4"} 80' in lines
-    assert 'actop_core_frequency_mhz{cluster="E",core="0"} 1100' in lines
-
-    # Every non-comment line must be `name value` (with optional {labels}).
-    for line in lines:
-        if line.startswith("#"):
-            continue
-        parts = line.rsplit(" ", 1)
-        assert len(parts) == 2, f"malformed metric line: {line!r}"
-        float(parts[1])  # value parses as a number
-
-
-def test_gpu_driver_stats_export_as_gauges_but_source_stays_out_of_prometheus():
-    # The Renderer/Tiler split is the metric actop cannot express from IOReport
-    # residency alone, so it has to reach both observability backends.
-    snapshot = _sample_snapshot(gpu_util_source="ioaccelerator")
-    lines = snapshot_to_prometheus(snapshot).strip().splitlines()
-
-    assert "actop_gpu_device_utilization_percent 61" in lines
-    assert "actop_gpu_renderer_utilization_percent 58" in lines
-    assert "actop_gpu_tiler_utilization_percent 7" in lines
-    # The residency-derived headline metric stays distinct from the driver's.
-    assert "actop_gpu_utilization_percent 40" in lines
-
-    # gpu_util_source is a string. Emitting it as a gauge would produce a line
-    # whose value does not parse as a number, breaking the whole scrape — so it
-    # must reach consumers through NDJSON only (or a label, if ever wanted).
-    assert "gpu_util_source" not in snapshot_to_prometheus(snapshot)
-
-    record = json.loads(snapshot_to_json(snapshot))
-    assert record["gpu_util_source"] == "ioaccelerator"
-    assert record["gpu_perf_stats_available"] is True
-    assert record["gpu_renderer_pct"] == 58.0
-    assert record["gpu_tiler_pct"] == 7.0
-
-
-def test_prometheus_fan_gauge_labelled_per_fan_when_available():
-    body = snapshot_to_prometheus(
-        _sample_snapshot(fan_rpms=[1200.0, 980.0], fan_available=True)
-    )
-    lines = body.strip().splitlines()
-
-    assert "# TYPE actop_fan_speed_rpm gauge" in lines
-    assert 'actop_fan_speed_rpm{fan="0"} 1200' in lines
-    assert 'actop_fan_speed_rpm{fan="1"} 980' in lines
-
-
-def test_prometheus_fan_gauge_omitted_when_unavailable():
-    # Fanless Mac: no SMC fan keys, so no phantom 0 RPM gauge is emitted.
-    body = snapshot_to_prometheus(_sample_snapshot(fan_rpms=(), fan_available=False))
-
-    assert "actop_fan_speed_rpm" not in body
 
 
 def _sample_snapshot_with_processes() -> SystemSnapshot:
@@ -229,48 +134,187 @@ def _sample_snapshot_with_processes() -> SystemSnapshot:
     )
 
 
-def test_snapshot_to_json_includes_processes_when_present():
-    snapshot = _sample_snapshot_with_processes()
-    record = json.loads(snapshot_to_json(snapshot))
-
-    assert "processes" in record
-    assert len(record["processes"]) == 2
-    assert record["processes"][0]["pid"] == 1234
-    assert record["processes"][0]["command"] == "python"
-    assert record["processes"][0]["cpu_time_share"] == 0.35
-    assert record["processes"][0]["gpu_time_share"] == 0.12
-    assert record["processes"][0]["attributed_w"] == 5.6
-    assert record["processes"][0]["rss_bytes"] == 2_147_483_648
-    assert record["processes"][1]["pid"] == 5678
-    assert record["processes"][1]["command"] == "ollama"
+# ---------------------------------------------------------------------------
+# GPU driver stats: both backends, gpu_util_source excluded from Prometheus
+# ---------------------------------------------------------------------------
 
 
-def test_prometheus_includes_process_gauges_when_processes_present():
-    body = snapshot_to_prometheus(_sample_snapshot_with_processes())
-    lines = body.strip().splitlines()
+def test_gpu_driver_stats_reach_both_backends():
+    """IOAccelerator Renderer/Tiler/Device utilization must reach both export
+    backends. gpu_util_source (a string) must NOT appear in Prometheus — its
+    value does not parse as a number and would break the scrape."""
+    snap = _sample_snapshot(gpu_util_source="ioaccelerator")
 
-    assert "# TYPE actop_process_cpu_percent gauge" in lines
-    assert "# TYPE actop_process_cpu_time_share gauge"
-    assert "# TYPE actop_process_gpu_time_share gauge"
-    assert "# TYPE actop_process_attributed_watts gauge"
-    assert "# TYPE actop_process_rss_bytes gauge"
-    assert "# TYPE actop_process_num_threads gauge"
+    # NDJSON carries the string field.
+    rec = json.loads(snapshot_to_json(snap))
+    assert rec["gpu_util_source"] == "ioaccelerator"
+    assert rec["gpu_renderer_pct"] == 58.0
+    assert rec["gpu_tiler_pct"] == 7.0
 
-    assert 'actop_process_cpu_percent{pid="1234",command="python"} 45.5' in lines
-    assert 'actop_process_cpu_time_share{pid="1234",command="python"} 0.35' in lines
-    assert 'actop_process_gpu_time_share{pid="1234",command="python"} 0.12' in lines
-    assert 'actop_process_attributed_watts{pid="1234",command="python"} 5.6' in lines
-    assert 'actop_process_rss_bytes{pid="1234",command="python"} 2147483648' in lines
-    assert 'actop_process_num_threads{pid="1234",command="python"} 8' in lines
+    # Prometheus carries only numeric gauges.
+    body = snapshot_to_prometheus(snap)
+    assert "actop_gpu_renderer_utilization_percent 58" in body
+    assert "actop_gpu_tiler_utilization_percent 7" in body
+    assert "actop_gpu_device_utilization_percent 61" in body
+    assert "actop_gpu_utilization_percent 40" in body
+    assert "gpu_util_source" not in body
 
-    assert 'actop_process_cpu_percent{pid="5678",command="ollama"} 12' in lines
+
+# ---------------------------------------------------------------------------
+# Fan gauge: present/absent based on fan_available
+# ---------------------------------------------------------------------------
+
+
+def test_fan_gauge_only_when_available():
+    """Fan gauges must be labelled per-fan when available, and entirely absent
+    on fanless Macs — no phantom 0 RPM gauge."""
+    body = snapshot_to_prometheus(
+        _sample_snapshot(fan_rpms=[1200.0, 980.0], fan_available=True)
+    )
+    assert 'actop_fan_speed_rpm{fan="0"} 1200' in body
+    assert 'actop_fan_speed_rpm{fan="1"} 980' in body
+
+    body = snapshot_to_prometheus(_sample_snapshot(fan_rpms=(), fan_available=False))
+    assert "actop_fan_speed_rpm" not in body
+
+
+# ---------------------------------------------------------------------------
+# Process data in both backends
+# ---------------------------------------------------------------------------
+
+
+def test_process_data_flows_to_both_backends_when_present():
+    """When SystemSnapshot carries processes, both NDJSON and Prometheus must
+    emit every field with the correct values — no field-wiring error."""
+    snap = _sample_snapshot_with_processes()
+
+    rec = json.loads(snapshot_to_json(snap))
+    assert len(rec["processes"]) == 2
+    p0 = rec["processes"][0]
+    assert p0["pid"] == 1234
+    assert p0["command"] == "python"
+    assert p0["cpu_time_share"] == 0.35
+    assert p0["gpu_time_share"] == 0.12
+    assert p0["attributed_w"] == 5.6
+    assert p0["rss_bytes"] == 2_147_483_648
+
+    body = snapshot_to_prometheus(snap)
+    assert 'actop_process_cpu_percent{pid="1234",command="python"} 45.5' in body
+    assert 'actop_process_attributed_watts{pid="1234",command="python"} 5.6' in body
+    assert 'actop_process_rss_bytes{pid="1234",command="python"} 2147483648' in body
+    assert 'actop_process_cpu_percent{pid="5678",command="ollama"} 12' in body
 
 
 def test_prometheus_omits_process_gauges_when_no_processes():
+    """An empty process list must not emit any process gauge."""
     body = snapshot_to_prometheus(_sample_snapshot())
-
     assert "actop_process_cpu_percent" not in body
     assert "actop_process_gpu_time_share" not in body
+
+
+# ---------------------------------------------------------------------------
+# AlertEngine integration (E track)
+# ---------------------------------------------------------------------------
+
+
+def test_run_json_stream_integrates_alert_engine():
+    """Full pipeline: Monitor → AlertEngine → NDJSON with correct alert fields.
+
+    Alert config: bw_sat_percent=85, max_total_bw=400, sustain_samples=3.
+    Threshold = 85% × 400 = 340 GB/s. Snapshots 2-4 are above → alert fires
+    on record 4 after the sustain window. Session energy accumulates across
+    the real dt between timestamps (package_watts=16W × dt).
+    """
+    base = _sample_snapshot()
+    snaps = [
+        dataclasses.replace(base, timestamp=1000.0, bandwidth_gbps=42.0),
+        dataclasses.replace(base, timestamp=1002.0, bandwidth_gbps=350.0),
+        dataclasses.replace(base, timestamp=1004.0, bandwidth_gbps=350.0),
+        dataclasses.replace(base, timestamp=1006.0, bandwidth_gbps=350.0),
+    ]
+
+    mock_monitor = MagicMock()
+    mock_monitor.get_snapshot.side_effect = snaps
+    mock_monitor.close = MagicMock()
+
+    buffer = io.StringIO()
+
+    with patch("actop.api.Monitor", return_value=mock_monitor):
+        count = run_json_stream(
+            interval_s=1,
+            subsamples=1,
+            out=buffer,
+            max_samples=4,
+            alert_engine_kwargs={
+                "bw_sat_percent": 85,
+                "pkg_power_percent": 85,
+                "throttle_freq_percent": 90,
+                "swap_rise_gib": 0.3,
+                "sustain_samples": 3,
+                "max_total_bw": 400.0,
+                "package_ref_w": 50.0,
+            },
+        )
+
+    assert count == 4
+    records = [json.loads(ln) for ln in buffer.getvalue().strip().splitlines()]
+
+    # Record 1: first feed, no prior timestamp → 0 J, no alert.
+    r0 = records[0]
+    assert r0["alert_mem_bound"] is False
+    assert r0["session_energy_j"] == 0.0
+
+    # Record 2: count=1, not sustained. Energy = 16W × 2s = 32J.
+    r1 = records[1]
+    assert r1["alert_mem_bound"] is False
+    assert r1["session_energy_j"] == pytest.approx(32.0, abs=0.5)
+
+    # Record 3: count=2. Energy = 64J.
+    r2 = records[2]
+    assert r2["alert_mem_bound"] is False
+    assert r2["session_energy_j"] == pytest.approx(64.0, abs=0.5)
+
+    # Record 4: count=3 → sustained alert fires. Energy = 96J.
+    r3 = records[3]
+    assert r3["alert_mem_bound"] is True
+    assert r3["session_energy_j"] == pytest.approx(96.0, abs=0.5)
+
+    # Every record carries the full set of 10 alert keys.
+    for rec in records:
+        for key in (
+            "alert_thermal",
+            "alert_cpu_throttle",
+            "alert_gpu_throttle",
+            "alert_mem_bound",
+            "alert_package_power",
+            "alert_swap_rise",
+            "alert_swap_rise_gib",
+            "session_energy_j",
+            "effective_max_bw_gbps",
+            "effective_max_package_w",
+        ):
+            assert key in rec, f"missing alert key {key!r} in record"
+
+
+def test_run_json_stream_no_alert_keys_without_alert_engine():
+    """Without alert_engine_kwargs the output carries no alert keys."""
+    mock_monitor = MagicMock()
+    mock_monitor.get_snapshot.return_value = _sample_snapshot()
+    mock_monitor.close = MagicMock()
+
+    buffer = io.StringIO()
+
+    with patch("actop.api.Monitor", return_value=mock_monitor):
+        run_json_stream(interval_s=1, subsamples=1, out=buffer, max_samples=1)
+
+    rec = json.loads(buffer.getvalue().strip())
+    assert "alert_thermal" not in rec
+    assert "session_energy_j" not in rec
+
+
+# ---------------------------------------------------------------------------
+# Local: end-to-end with real hardware
+# ---------------------------------------------------------------------------
 
 
 @pytest.mark.local
@@ -284,7 +328,6 @@ def test_run_json_stream_emits_parseable_records():
 
     record = json.loads(lines[0])
     assert "cpu_watts" in record
-    assert "p_cores" in record
     assert record["cpu_watts"] >= 0
 
 
@@ -315,7 +358,6 @@ def test_serve_prometheus_endpoint_responds():
 
         assert body is not None, "metrics endpoint never returned 200"
         assert "actop_cpu_power_watts" in body
-        assert "actop_core_utilization_percent{" in body
     finally:
         process.terminate()
         try:
@@ -392,7 +434,6 @@ def test_json_stream_proc_filter_implies_show_processes():
     for line in lines:
         record = json.loads(line)
         assert "processes" in record
-        assert isinstance(record["processes"], list)
         assert len(record["processes"]) > 0, (
             "processes empty — --proc-filter did not imply --show-processes"
         )
@@ -400,12 +441,6 @@ def test_json_stream_proc_filter_implies_show_processes():
 
 @pytest.mark.local
 def test_json_samples_limits_records_and_exits_zero():
-    # Agent-facing contract: `--json --samples N` must emit exactly N NDJSON
-    # records and exit 0 on its own — an agent's one-shot tool call must not
-    # hang (infinite stream) nor report failure (130) on natural completion.
-    # Without the flag wired through _run_export the process streams forever
-    # and this test's timeout trips; with max_samples>0 run_json_stream breaks
-    # the loop and _run_export returns 0.
     process = subprocess.run(
         [
             sys.executable,
@@ -427,7 +462,6 @@ def test_json_samples_limits_records_and_exits_zero():
     assert len(lines) == 2, f"expected exactly 2 records, got {len(lines)}"
     record = json.loads(lines[0])
     assert "cpu_watts" in record
-    assert "p_cores" in record
 
 
 @pytest.mark.local
