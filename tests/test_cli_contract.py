@@ -35,18 +35,20 @@ def test_cli_help_runs_and_exposes_show_cores_as_flag():
     assert "(default: 2)" in result.stdout  # --interval
 
 
-def test_cli_accepts_deprecated_swap_rise_gb_alias():
-    # --alert-swap-rise-gb was renamed to --alert-swap-rise-gib (the threshold was
-    # always compared against GiB, so the old name was a misnomer, not a different
-    # unit). The old spelling must keep parsing to the same destination until 2.0.0
-    # so existing invocations and scripts do not break.
-    parser = build_parser()
+def test_cli_rejects_removed_swap_rise_gb_alias():
+    # --alert-swap-rise-gb was the deprecated alias for --alert-swap-rise-gib
+    # (the threshold was always compared against GiB, so the old name was a
+    # misnomer, not a different unit). It rode one release cycle as a working
+    # alias and was removed in 1.8.0.
+    result = subprocess.run(
+        [sys.executable, "-m", "actop.actop", "--alert-swap-rise-gb", "1.5"],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
 
-    canonical = parser.parse_args(["--alert-swap-rise-gib", "1.5"])
-    legacy = parser.parse_args(["--alert-swap-rise-gb", "1.5"])
-
-    assert canonical.alert_swap_rise_gib == 1.5
-    assert legacy.alert_swap_rise_gib == 1.5
+    assert result.returncode == 2
+    assert "unrecognized arguments" in result.stderr
 
 
 def test_cli_rejects_legacy_show_cores_value_form():
@@ -154,7 +156,7 @@ def test_cli_rejects_invalid_alert_bw_threshold():
 
 def test_cli_rejects_invalid_alert_swap_rise_value():
     result = subprocess.run(
-        [sys.executable, "-m", "actop.actop", "--alert-swap-rise-gb", "-0.1"],
+        [sys.executable, "-m", "actop.actop", "--alert-swap-rise-gib", "-0.1"],
         capture_output=True,
         text=True,
         check=False,

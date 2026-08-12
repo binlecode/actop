@@ -231,8 +231,8 @@ class AlertEngine:
         gpu_throttle = self._throttle_gpu_counter >= self._sustain_samples
 
         # Swap rise over the sustain window (oldest vs. newest retained sample).
-        # From the exact byte counts, not the rounded *_gb fields: a 0.1 GiB
-        # threshold against values quantized to 0.1 GiB would trip on rounding.
+        # From the exact byte counts: a 0.1 GiB threshold against values
+        # quantized to 0.1 GiB would trip on rounding.
         self._swap_hist.append(max(0.0, (s.swap_used_bytes or 0) / 1024**3))
         swap_rise = (
             max(0.0, self._swap_hist[-1] - self._swap_hist[0])

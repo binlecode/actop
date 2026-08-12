@@ -6,6 +6,61 @@ This project follows a Keep a Changelog-style format and uses version tags for r
 
 ## [Unreleased]
 
+## [1.8.0] - 2026-08-12
+
+### Added
+
+- **Net / disk I/O rates** — the last open must-have on the roadmap (N track,
+  first flagged 2026-07-02 with an on-device feasibility spike), shipped end to
+  end:
+  - **Network** via native `getifaddrs()`/`AF_LINK`/`struct if_data` bindings in
+    `native_sys.py` (`read_network_totals()`) — summed cumulative byte/packet
+    counters across non-loopback interfaces, list freed every call.
+  - **Disk** via IOKit `AppleAPFSVolume` `Statistics` with
+    `IOBlockStorageDriver` fallback (`actop/disk_registry.py`,
+    `read_disk_totals()`) — the same unprivileged traversal pattern as
+    `gpu_registry.py`, no new binding classes.
+  - Sampler deltas both into bytes/s rates (`net_rx_bps` / `net_tx_bps` /
+    `disk_read_bps` / `disk_write_bps`), averaged across sub-samples, on
+    `SystemSnapshot` with `net_available` / `disk_available` flags mirroring
+    `bandwidth_available`.
+  - Surfaced everywhere: TUI `Net ↓/↑` and `Disk R/W` rows (decimal throughput,
+    hide-row pattern when unavailable), NDJSON, and Prometheus gauges
+    (`actop_network_receive_bytes_per_second`, `actop_network_transmit_bytes_per_second`,
+    `actop_disk_read_bytes_per_second`, `actop_disk_write_bytes_per_second`).
+  - Pre-work landed with it: `hw.memsize` / `hw.pagesize` are module-cached
+    instead of re-read via `sysctlbyname` every tick.
+
+### Changed
+
+- Export/config paths read the pre-computed `package_ref_w` / `max_total_bw`
+  straight from `get_soc_info()` (single source of truth) instead of
+  recomputing them from chart references.
+- `scripts/tag_release.sh` sets `ACTOP_TAG_RELEASE` so its own tag push no
+  longer trips the pre-push hook's tag warning.
+- Docs: `SPEC-system.md` compacted and gained the net/disk as-built section
+  (§2.4); completed TODO/REVIEW docs dropped; cover page gained a Net/disk I/O
+  feature card.
+
+### Removed
+
+- **Deprecated `*_gb` aliases** (deferred since the v1.5.0 reading-plane audit —
+  §3.5 of that release's notes). Everything that carried a rounded binary
+  quantity under a decimal name is gone after one full release cycle of
+  deprecation:
+
+  - `SystemSnapshot.ram_used_gb` / `ram_total_gb` / `swap_used_gb` /
+    `swap_total_gb` — read the exact `*_bytes` fields.
+  - `ProcessSample.rss_mb` — read `ProcessSample.rss_bytes`.
+  - `utils.convert_to_GB` alias — use `convert_to_GiB`.
+  - `*_GB` dict keys from `utils.get_ram_metrics_dict()` — use the `*_bytes` keys.
+  - `actop_ram_used_gigabytes` / `actop_swap_used_gigabytes` Prometheus gauges —
+    scrape `actop_ram_used_bytes` / `actop_swap_used_bytes`.
+
+- **`--alert-swap-rise-gb` CLI flag** (deprecated alias for
+  `--alert-swap-rise-gib` since v1.5.0; the threshold was always compared
+  against GiB). The canonical spelling is the only one accepted.
+
 ## [1.7.2] - 2026-08-11
 
 ### Added
@@ -285,7 +340,7 @@ Verified on live hardware (M4 Max / Darwin 25.5.0). As-built design in
 Reading-plane audit remediation (`docs/TODO-reading-plane-audit-2026-07-29.md`
 §§1-6), verified against live hardware on an M4 Max / Darwin 25.5.0. §8
 (`IOAccelerator` Device/Renderer/Tiler utilization) is deferred to its own PR;
-§3.5 (removing the deprecated `*_gb` fields) is breaking and rides 2.0.0.
+§3.5 (removing the deprecated `*_gb` fields) is breaking and rides 1.8.0.
 
 ### Added
 - **Byte quantities are now exported as exact byte counts.** New
@@ -305,9 +360,9 @@ Reading-plane audit remediation (`docs/TODO-reading-plane-audit-2026-07-29.md`
   **Additive and non-breaking.** `ram_used_gb` / `ram_total_gb` / `swap_used_gb` /
   `swap_total_gb` / `rss_mb`, the `*_GB` dict keys, `convert_to_GB` and the
   `*_gigabytes` gauges all remain as rounded views with unchanged values.
-  **They are deprecated and will be removed in 2.0.0.**
+  **They are deprecated and will be removed in 1.8.0.**
 - `--alert-swap-rise-gib` replaces `--alert-swap-rise-gb`, which is kept as a
-  **working alias** (same destination) until 2.0.0. The threshold was always
+  **working alias** (same destination) until 1.8.0. The threshold was always
   compared against GiB values, so the old name was a misnomer rather than a
   different unit. `AlertFrame.swap_rise_gb` is likewise renamed
   `AlertFrame.swap_rise_gib`, and the alert token renders `SWAP+0.3Gi`.

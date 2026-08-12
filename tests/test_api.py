@@ -114,21 +114,34 @@ def test_monitor_get_snapshot_returns_valid_snapshot():
     assert 0 <= snapshot.ram_used_percent <= 100
     assert snapshot.swap_total_bytes >= 0
 
+    # Net/disk I/O — every Apple Silicon Mac has at least one AF_LINK interface
+    # (getifaddrs) and APFS volumes (IOKit Statistics), so both readers must
+    # report available on real hardware; rates are deltas over the interval and
+    # must be finite and non-negative. The unavailable->zero coherence keeps a
+    # hidden row honest: a platform with no counters must not carry phantom
+    # rates (mirrors the bandwidth_available contract above).
+    assert isinstance(snapshot.net_available, bool)
+    assert isinstance(snapshot.disk_available, bool)
+    assert snapshot.net_available is True
+    assert snapshot.disk_available is True
+    for field in (
+        "net_rx_bps",
+        "net_tx_bps",
+        "disk_read_bps",
+        "disk_write_bps",
+    ):
+        value = getattr(snapshot, field)
+        assert math.isfinite(value), f"{field} is not finite"
+        assert value >= 0, f"{field} is negative: {value}"
+
     # Memory crosses the API as exact bytes, so ram_total_bytes must equal
     # hw.memsize outright — no rounding tolerance needed. This is the assertion
-    # that catches a unit regression: the old *_gb fields divided by 2^30 while
-    # naming themselves decimal GB, so anyone dividing memory against the
-    # genuinely decimal bandwidth_gbps silently picked up a 7.4% error.
+    # that catches a unit regression: a quantity divided by 2^30 while naming
+    # itself decimal GB would silently drift 7.4% against the genuinely decimal
+    # bandwidth_gbps.
     memsize_bytes = get_sysctl_int("hw.memsize")
     assert memsize_bytes and memsize_bytes > 0
     assert snapshot.ram_total_bytes == memsize_bytes
-
-    # The *_gb fields are a deprecated rounded-GiB view of the byte fields,
-    # retained until 2.0.0. They must stay consistent with their source to
-    # within the 0.1 GiB rounding step.
-    assert abs(snapshot.ram_used_gb - snapshot.ram_used_bytes / 1024**3) <= 0.05
-    assert abs(snapshot.ram_total_gb - snapshot.ram_total_bytes / 1024**3) <= 0.05
-    assert abs(snapshot.swap_used_gb - snapshot.swap_used_bytes / 1024**3) <= 0.05
 
     # ANE utilization is a data point (L2), computed from ane_watts against the
     # SoC's ANE reference power — consistent with the raw watts it derives from.
@@ -143,6 +156,63 @@ def test_monitor_get_snapshot_returns_valid_snapshot():
     # Timestamp must be a recent Unix timestamp
     assert snapshot.timestamp > 0
     assert math.isfinite(snapshot.timestamp)
+
+
+@pytest.mark.local  # needs AppleAPFSVolume Statistics on real hardware
+def test_disk_write_rate_tracks_real_io():
+    """The disk rate must track real transfers, not just well-shaped fields.
+
+    A background writer paces ~100 MB/s of fsync'd writes while get_snapshot()
+    sleeps through its interval and samples — the APFS volume's cumulative
+    "Bytes written to block device" counter must climb inside that window, so
+    the delta-over-interval surfaces as a disk_write_bps well above idle. This
+    exercises the whole native IOKit read → sampler delta → API path against
+    real, ongoing I/O, per the net/disk TODO's testing contract.
+    """
+    import os
+    import tempfile
+    import threading
+
+    stop = threading.Event()
+    written = []
+
+    def writer():
+        fd, path = tempfile.mkstemp(prefix="actop-disk-io-test-")
+        try:
+            with os.fdopen(fd, "wb") as f:
+                chunk = b"x" * (2 * 1024 * 1024)
+                total = 0
+                while not stop.is_set():
+                    f.write(chunk)
+                    total += len(chunk)
+                    time.sleep(0.02)  # pace ~100 MB/s: in-flight across the window
+                f.flush()
+                os.fsync(f.fileno())
+                written.append(total)
+        finally:
+            try:
+                os.unlink(path)
+            except FileNotFoundError:
+                pass
+
+    with Monitor(interval_s=1) as m:
+        m.get_snapshot()  # prime the delta
+        thread = threading.Thread(target=writer)
+        thread.start()
+        try:
+            snap = m.get_snapshot()  # sleeps interval_s, then samples the window
+        finally:
+            stop.set()
+            thread.join(timeout=30)
+        assert written, "writer thread did not complete"
+
+    assert snap.disk_available, "no disk Statistics counters reported"
+    # The paced writer moves >100 MB inside the ~1 s window; 1 MB/s is a wide
+    # margin above idle noise (~0) while still catching a counter/delta bug
+    # that froze the rate at 0.
+    assert snap.disk_write_bps > 1_000_000, (
+        f"disk_write_bps too low: {snap.disk_write_bps}"
+    )
 
 
 def test_async_monitor_get_snapshot_async_returns_snapshot():

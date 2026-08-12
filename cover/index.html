@@ -4,7 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>actop — Apple Silicon performance monitor</title>
-<meta name="description" content="actop is a sudoless, in-process performance monitor for M1–M4 Macs: CPU/GPU/ANE utilization, per-core frequency, memory bandwidth, power, and thermals — plus a Python API for profiling your own LLM / MLX / CoreML workloads.">
+<meta name="description" content="actop is a sudoless, in-process performance monitor for M1–M4 Macs: CPU/GPU/ANE utilization, per-core frequency, memory bandwidth, network/disk I/O, power, and thermals — plus a Python API for profiling your own LLM / MLX / CoreML workloads.">
 <style>
   :root {
     --bg: #0d1117;
@@ -194,6 +194,10 @@
       <div class="feature">
         <h3><span class="ic">▮</span>Memory bandwidth</h3>
         <p>Live GB/s against the SoC's peak, with a bandwidth-saturation alert and a MEM-BOUND indicator.</p>
+      </div>
+      <div class="feature">
+        <h3><span class="ic">▮</span>Net / disk I/O</h3>
+        <p>Live network ↓/↑ and disk read/write throughput in bytes/s, sourced from native getifaddrs and IOKit counters — no sudo, no subprocesses.</p>
       </div>
       <div class="feature">
         <h3><span class="ic">▮</span>Thermals & throttling</h3>

@@ -5,7 +5,12 @@ import time
 from collections import defaultdict
 from typing import NamedTuple
 
-from .native_sys import get_dvfs_tables_native, get_thermal_pressure
+from .disk_registry import read_disk_totals
+from .native_sys import (
+    get_dvfs_tables_native,
+    get_thermal_pressure,
+    read_network_totals,
+)
 
 
 class SampleResult(NamedTuple):
@@ -18,6 +23,12 @@ class SampleResult(NamedTuple):
     gpu_temp_c: float = 0.0  # max GPU die temperature (Celsius), 0 if unavailable
     fans: tuple = ()  # per-fan FanReading(current, max); empty on fanless Mac
     fan_available: bool = False  # whether SMC fan keys were discovered
+    net_rx_bps: float = 0.0  # network bytes/s received (delta / elapsed_s)
+    net_tx_bps: float = 0.0  # network bytes/s transmitted
+    net_available: bool = False  # whether getifaddrs returned usable counters
+    disk_read_bps: float = 0.0  # disk bytes/s read
+    disk_write_bps: float = 0.0  # disk bytes/s written
+    disk_available: bool = False  # whether a volume/driver exposed Statistics
 
 
 class IOReportSampler:
@@ -43,6 +54,8 @@ class IOReportSampler:
         self._subsamples = max(1, int(subsamples))
         self._prev_sample = None
         self._prev_time = None
+        self._prev_net_totals = None
+        self._prev_disk_totals = None
         self._core_counts = _get_core_counts()
         self._dvfs = get_dvfs_tables_native()
         self._smc = SMCReader()
@@ -84,9 +97,16 @@ class IOReportSampler:
         new_sample = self._sub.sample()
         new_time = time.monotonic()
 
+        # Read net/disk cumulative totals each poll so the timing matches the
+        # IOReport sample. Seed on the first tick; delta on subsequent.
+        net_now = read_network_totals()
+        disk_now = read_disk_totals()
+
         if self._prev_sample is None:
             self._prev_sample = new_sample
             self._prev_time = new_time
+            self._prev_net_totals = net_now
+            self._prev_disk_totals = disk_now
             return None
 
         items = self._sub.delta(self._prev_sample, new_sample, _keep_states)
@@ -99,6 +119,35 @@ class IOReportSampler:
         if elapsed_s <= 0:
             return None
 
+        # Delta cumulative counters → rate (bytes/s). max(0, ...) guards
+        # against uint32 ifi_*bytes counter wrap under sustained >1 GB/s
+        # transfers; disk counters are uint64 from IOKit CFNumbers and
+        # won't wrap in practice, but the guard is cheap.
+        net_rx_bps = net_tx_bps = 0.0
+        net_available = False
+        if (
+            self._prev_net_totals is not None
+            and net_now[4]
+            and self._prev_net_totals[4]
+        ):
+            net_available = True
+            net_rx_bps = max(0, net_now[0] - self._prev_net_totals[0]) / elapsed_s
+            net_tx_bps = max(0, net_now[1] - self._prev_net_totals[1]) / elapsed_s
+
+        disk_read_bps = disk_write_bps = 0.0
+        disk_available = False
+        if (
+            self._prev_disk_totals is not None
+            and disk_now[4]
+            and self._prev_disk_totals[4]
+        ):
+            disk_available = True
+            disk_read_bps = max(0, disk_now[0] - self._prev_disk_totals[0]) / elapsed_s
+            disk_write_bps = max(0, disk_now[1] - self._prev_disk_totals[1]) / elapsed_s
+
+        self._prev_net_totals = net_now
+        self._prev_disk_totals = disk_now
+
         if include_temperatures:
             cpu_temp, gpu_temp = self._read_temperatures()
             fans = self._read_fan_info()
@@ -107,7 +156,19 @@ class IOReportSampler:
             gpu_temp = 0.0
             fans = ()
 
-        return self._convert(items, elapsed_s, cpu_temp, gpu_temp, fans)
+        return self._convert(
+            items,
+            elapsed_s,
+            cpu_temp,
+            gpu_temp,
+            fans,
+            net_rx_bps,
+            net_tx_bps,
+            net_available,
+            disk_read_bps,
+            disk_write_bps,
+            disk_available,
+        )
 
     def _read_temperatures(self):
         temps = self._smc.read_temperatures()
@@ -166,6 +227,20 @@ class IOReportSampler:
             else:
                 bandwidth_metrics[key] = value
 
+        # Net/disk rates are averaged across sub-samples so a multi-sample
+        # poll interval reports the mean throughput.
+        n = len(samples)
+        if n > 0:
+            net_rx_bps = sum(s.net_rx_bps for s in samples) / n
+            net_tx_bps = sum(s.net_tx_bps for s in samples) / n
+            net_available = any(s.net_available for s in samples)
+            disk_read_bps = sum(s.disk_read_bps for s in samples) / n
+            disk_write_bps = sum(s.disk_write_bps for s in samples) / n
+            disk_available = any(s.disk_available for s in samples)
+        else:
+            net_rx_bps = net_tx_bps = disk_read_bps = disk_write_bps = 0.0
+            net_available = disk_available = False
+
         return SampleResult(
             cpu_metrics=cpu_metrics,
             gpu_metrics=gpu_metrics,
@@ -176,9 +251,28 @@ class IOReportSampler:
             gpu_temp_c=base.gpu_temp_c,
             fans=base.fans,
             fan_available=base.fan_available,
+            net_rx_bps=net_rx_bps,
+            net_tx_bps=net_tx_bps,
+            net_available=net_available,
+            disk_read_bps=disk_read_bps,
+            disk_write_bps=disk_write_bps,
+            disk_available=disk_available,
         )
 
-    def _convert(self, items, elapsed_s, cpu_temp_c=0.0, gpu_temp_c=0.0, fans=()):
+    def _convert(
+        self,
+        items,
+        elapsed_s,
+        cpu_temp_c=0.0,
+        gpu_temp_c=0.0,
+        fans=(),
+        net_rx_bps=0.0,
+        net_tx_bps=0.0,
+        net_available=False,
+        disk_read_bps=0.0,
+        disk_write_bps=0.0,
+        disk_available=False,
+    ):
         """Convert IOReport items to the same dict format as parsers.py output."""
         cpu_energy_j = 0.0
         gpu_energy_j = 0.0
@@ -351,6 +445,12 @@ class IOReportSampler:
             gpu_temp_c=gpu_temp_c,
             fans=fans,
             fan_available=self._smc.fan_available,
+            net_rx_bps=net_rx_bps,
+            net_tx_bps=net_tx_bps,
+            net_available=net_available,
+            disk_read_bps=disk_read_bps,
+            disk_write_bps=disk_write_bps,
+            disk_available=disk_available,
         )
 
     def close(self):

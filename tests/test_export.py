@@ -61,8 +61,12 @@ def _sample_snapshot(
         ram_total_bytes=137_438_953_472,
         swap_used_bytes=1_610_612_736,
         swap_total_bytes=2_147_483_648,
-        ram_used_gb=17.4,
-        swap_used_gb=1.4,
+        net_rx_bps=1_234_567.0,
+        net_tx_bps=234_567.0,
+        net_available=True,
+        disk_read_bps=3_456_789.0,
+        disk_write_bps=456_789.0,
+        disk_available=True,
         thermal_state="Nominal",
         bandwidth_gbps=42.0,
         bandwidth_available=True,
@@ -98,8 +102,6 @@ def _sample_snapshot_with_processes() -> SystemSnapshot:
         ram_total_bytes=snap.ram_total_bytes,
         swap_used_bytes=snap.swap_used_bytes,
         swap_total_bytes=snap.swap_total_bytes,
-        ram_used_gb=snap.ram_used_gb,
-        swap_used_gb=snap.swap_used_gb,
         thermal_state=snap.thermal_state,
         bandwidth_gbps=snap.bandwidth_gbps,
         bandwidth_available=snap.bandwidth_available,
@@ -114,7 +116,6 @@ def _sample_snapshot_with_processes() -> SystemSnapshot:
                 cpu_percent=45.5,
                 cpu_time_share=0.35,
                 gpu_time_share=0.12,
-                rss_mb=2048.0,
                 rss_bytes=2_147_483_648,
                 num_threads=8,
                 attributed_w=5.6,
@@ -125,13 +126,37 @@ def _sample_snapshot_with_processes() -> SystemSnapshot:
                 cpu_percent=12.0,
                 cpu_time_share=0.09,
                 gpu_time_share=0.55,
-                rss_mb=4096.0,
                 rss_bytes=4_294_967_296,
                 num_threads=4,
                 attributed_w=1.8,
             ),
         ],
     )
+
+
+# ---------------------------------------------------------------------------
+# Net/disk rates: both backends
+# ---------------------------------------------------------------------------
+
+
+def test_net_disk_rates_reach_both_backends():
+    """Net/disk byte rates must reach NDJSON (asdict) and Prometheus (gauge
+    rows) with the canonical bytes-per-second naming — no field-wiring error."""
+    snap = _sample_snapshot()
+
+    rec = json.loads(snapshot_to_json(snap))
+    assert rec["net_rx_bps"] == 1_234_567.0
+    assert rec["net_tx_bps"] == 234_567.0
+    assert rec["net_available"] is True
+    assert rec["disk_read_bps"] == 3_456_789.0
+    assert rec["disk_write_bps"] == 456_789.0
+    assert rec["disk_available"] is True
+
+    body = snapshot_to_prometheus(snap)
+    assert "actop_network_receive_bytes_per_second 1234567" in body
+    assert "actop_network_transmit_bytes_per_second 234567" in body
+    assert "actop_disk_read_bytes_per_second 3456789" in body
+    assert "actop_disk_write_bytes_per_second 456789" in body
 
 
 # ---------------------------------------------------------------------------
@@ -358,6 +383,14 @@ def test_serve_prometheus_endpoint_responds():
 
         assert body is not None, "metrics endpoint never returned 200"
         assert "actop_cpu_power_watts" in body
+        # New-metric contract on the real pipeline (real Monitor snapshot, not a
+        # fixture): net/disk gauges are emitted, and the 1.8.0 removal means the
+        # deprecated *_gigabytes gauges must never reappear while the *_bytes
+        # ones are scraped — external dashboards depend on both.
+        assert "actop_network_receive_bytes_per_second" in body
+        assert "actop_disk_read_bytes_per_second" in body
+        assert "actop_ram_used_bytes" in body
+        assert "_gigabytes" not in body
     finally:
         process.terminate()
         try:

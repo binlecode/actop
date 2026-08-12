@@ -42,17 +42,13 @@ def _snapshot(
         ecpu_freq_mhz=1000,
         pcpu_freq_mhz=pcpu_freq_mhz,
         gpu_freq_mhz=800,
-        # Bytes are the canonical fields the engine reads; the *_gb mirrors are
-        # the deprecated rounded views, populated here the way api.py does.
+        # Bytes are the canonical fields the engine reads, populated here the
+        # way api.py does.
         ram_used_bytes=8 * 1024**3,
         ram_total_bytes=32 * 1024**3,
         swap_used_bytes=int(swap_used_gib * 1024**3),
         swap_total_bytes=int(swap_total_gib * 1024**3),
-        ram_used_gb=8.0,
-        swap_used_gb=swap_used_gib,
-        ram_total_gb=32.0,
         ram_used_percent=25.0,
-        swap_total_gb=swap_total_gib,
         thermal_state=thermal_state,
         bandwidth_gbps=bandwidth_gbps,
         bandwidth_available=bandwidth_available,

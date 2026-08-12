@@ -455,6 +455,27 @@ def _classify_dvfs_tables(tables: dict) -> dict:
 
 
 # ---------------------------------------------------------------------------
+# Cached system constants (immutable across system uptime)
+# ---------------------------------------------------------------------------
+# hw.memsize and hw.pagesize never change until a reboot. Reading them via
+# sysctlbyname every tick is pure waste — `get_native_ram()` already does this
+# once per tick and `get_top_processes()` does it again. Cache at module level.
+_MEMSIZE = None
+_PAGESIZE = None
+
+
+def get_hw_memsize() -> int:
+    """Return physical RAM in bytes from hw.memsize. Cached after first call.
+
+    Returns 0 on non-Darwin or if the sysctl is unavailable.
+    """
+    global _MEMSIZE
+    if _MEMSIZE is None and _DARWIN:
+        _MEMSIZE = get_sysctl_int("hw.memsize") or 0
+    return _MEMSIZE or 0
+
+
+# ---------------------------------------------------------------------------
 # Native Memory & Process Polling structures & helpers
 # ---------------------------------------------------------------------------
 
@@ -516,8 +537,11 @@ def get_native_ram() -> VirtualMemory:
             total=16 * 1024 * 1024 * 1024, available=8 * 1024 * 1024 * 1024
         )
     try:
-        page_size = get_sysctl_int("hw.pagesize") or 4096
-        total_ram = get_sysctl_int("hw.memsize") or 0
+        global _PAGESIZE
+        if _PAGESIZE is None:
+            _PAGESIZE = get_sysctl_int("hw.pagesize") or 16384  # Apple Silicon default
+        page_size = _PAGESIZE
+        total_ram = get_hw_memsize()
 
         host_port = _mach_host_self()
         count = ctypes.c_uint32(38)
@@ -690,3 +714,136 @@ def get_native_processes() -> list:
         return entries
     except Exception:
         return []
+
+
+# ---------------------------------------------------------------------------
+# Network interface statistics — getifaddrs / if_data
+# ---------------------------------------------------------------------------
+# Verified on-device (2026-07-02): getifaddrs()→AF_LINK→if_data is the working
+# path; net.link.generic.system.stats does not exist. Fields ifi_ibytes/ifi_obytes
+# are uint32 cumulative counters — callers delta them across polls.
+#
+# Struct layouts confirmed from macOS SDK headers:
+#   ifaddrs:  /usr/include/ifaddrs.h  (natural alignment → 56 B on arm64)
+#   if_data:  /usr/include/net/if_var.h  (#pragma pack(4) → 96 B)
+#   sockaddr: /usr/include/sys/socket.h  (16 B, sa_family at offset 1)
+#   AF_LINK = 18, IFF_LOOPBACK = 0x8
+
+AF_LINK = 18
+IFF_LOOPBACK = 0x8
+
+if _DARWIN:
+    _getifaddrs = _libc.getifaddrs
+    _getifaddrs.argtypes = [ctypes.POINTER(ctypes.c_void_p)]
+    _getifaddrs.restype = ctypes.c_int
+
+    _freeifaddrs = _libc.freeifaddrs
+    _freeifaddrs.argtypes = [ctypes.c_void_p]
+    _freeifaddrs.restype = None
+
+    class _IfAddrs(ctypes.Structure):
+        pass
+
+    _IfAddrs._fields_ = [
+        ("ifa_next", ctypes.POINTER(_IfAddrs)),
+        ("ifa_name", ctypes.c_char_p),
+        ("ifa_flags", ctypes.c_uint32),
+        ("ifa_addr", ctypes.c_void_p),
+        ("ifa_netmask", ctypes.c_void_p),
+        ("ifa_dstaddr", ctypes.c_void_p),
+        ("ifa_data", ctypes.c_void_p),
+    ]
+
+    class _IfData(ctypes.Structure):
+        _pack_ = 4
+        _fields_ = [
+            ("ifi_type", ctypes.c_uint8),
+            ("ifi_typelen", ctypes.c_uint8),
+            ("ifi_physical", ctypes.c_uint8),
+            ("ifi_addrlen", ctypes.c_uint8),
+            ("ifi_hdrlen", ctypes.c_uint8),
+            ("ifi_recvquota", ctypes.c_uint8),
+            ("ifi_xmitquota", ctypes.c_uint8),
+            ("ifi_unused1", ctypes.c_uint8),
+            ("ifi_mtu", ctypes.c_uint32),
+            ("ifi_metric", ctypes.c_uint32),
+            ("ifi_baudrate", ctypes.c_uint32),
+            ("ifi_ipackets", ctypes.c_uint32),
+            ("ifi_ierrors", ctypes.c_uint32),
+            ("ifi_opackets", ctypes.c_uint32),
+            ("ifi_oerrors", ctypes.c_uint32),
+            ("ifi_collisions", ctypes.c_uint32),
+            ("ifi_ibytes", ctypes.c_uint32),
+            ("ifi_obytes", ctypes.c_uint32),
+            ("ifi_imcasts", ctypes.c_uint32),
+            ("ifi_omcasts", ctypes.c_uint32),
+            ("ifi_iqdrops", ctypes.c_uint32),
+            ("ifi_noproto", ctypes.c_uint32),
+            ("ifi_recvtiming", ctypes.c_uint32),
+            ("ifi_xmittiming", ctypes.c_uint32),
+            ("ifi_lastchange", ctypes.c_uint32 * 2),  # struct timeval32
+            ("ifi_unused2", ctypes.c_uint32),
+            ("ifi_hwassist", ctypes.c_uint32),
+            ("ifi_reserved1", ctypes.c_uint32),
+            ("ifi_reserved2", ctypes.c_uint32),
+        ]
+
+    class _SockAddr(ctypes.Structure):
+        _fields_ = [
+            ("sa_len", ctypes.c_uint8),
+            ("sa_family", ctypes.c_uint8),
+            ("sa_data", ctypes.c_uint8 * 14),
+        ]
+
+
+def read_network_totals():
+    """Summed raw byte+packet counters across all non-loopback interfaces.
+
+    Walks ``getifaddrs()`` linked list, keeps entries where
+    ``ifa_addr->sa_family == AF_LINK`` and ``IFF_LOOPBACK`` is not set in
+    ``ifa_flags``, casts ``ifa_data`` → ``struct if_data``, sums
+    ``ifi_ibytes``/``ifi_obytes``/``ifi_ipackets``/``ifi_opackets``.
+
+    Returns ``(rx_bytes, tx_bytes, rx_packets, tx_packets, available)``.
+    ``available=False`` on non-Darwin or when ``getifaddrs`` fails; totals
+    are zeroed in that case. Callers delta these against a previous poll and
+    divide by the elapsed interval to get a rate.
+
+    The list is freed every call — no leak over a long run.
+    """
+    if not _DARWIN:
+        return (0, 0, 0, 0, False)
+    try:
+        ifap = ctypes.c_void_p()
+        if _getifaddrs(ctypes.byref(ifap)) != 0:
+            return (0, 0, 0, 0, False)
+
+        rx_bytes = 0
+        tx_bytes = 0
+        rx_packets = 0
+        tx_packets = 0
+
+        current = ctypes.cast(ifap, ctypes.POINTER(_IfAddrs))
+        while current:
+            ifaddr = current.contents
+
+            if not (ifaddr.ifa_flags & IFF_LOOPBACK):
+                if ifaddr.ifa_addr and ifaddr.ifa_data:
+                    sa = ctypes.cast(
+                        ifaddr.ifa_addr, ctypes.POINTER(_SockAddr)
+                    ).contents
+                    if sa.sa_family == AF_LINK:
+                        data = ctypes.cast(
+                            ifaddr.ifa_data, ctypes.POINTER(_IfData)
+                        ).contents
+                        rx_bytes += data.ifi_ibytes
+                        tx_bytes += data.ifi_obytes
+                        rx_packets += data.ifi_ipackets
+                        tx_packets += data.ifi_opackets
+
+            current = ifaddr.ifa_next
+
+        _freeifaddrs(ifap)
+        return (rx_bytes, tx_bytes, rx_packets, tx_packets, True)
+    except Exception:
+        return (0, 0, 0, 0, False)

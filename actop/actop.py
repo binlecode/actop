@@ -126,16 +126,11 @@ def build_parser():
         "percent of its DVFS max frequency (1-100)",
     )
     parser.add_argument(
-        # --alert-swap-rise-gb is the original spelling, kept as a working alias:
-        # the threshold was always compared against GiB values, so the old name
-        # was a misnomer, not a different unit. Removed in 2.0.0.
         "--alert-swap-rise-gib",
-        "--alert-swap-rise-gb",
         dest="alert_swap_rise_gib",
         type=_validate_swap_rise_gib,
         default=0.3,
-        help="Alert when swap rises by at least this many GiB over sustained "
-        "samples (--alert-swap-rise-gb is a deprecated alias)",
+        help="Alert when swap rises by at least this many GiB over sustained samples",
     )
     parser.add_argument(
         "--alert-sustain-samples",
@@ -278,15 +273,12 @@ def _run_export(args):
     if not include_processes and proc_filter:
         include_processes = True
 
-    # Resolve the SoC profile for the alert engine — the same path the TUI
-    # takes. `get_soc_info()` is idempotent (cached native calls) so calling
-    # it in the export path is zero-cost when the TUI already resolved it.
+    # Resolve the SoC profile for the alert engine. `get_soc_info()` returns
+    # pre-computed `package_ref_w` / `max_total_bw` — single source of truth,
+    # shared with config.py.
     soc_info = get_soc_info()
-    cpu_chart_ref = float(soc_info.get("cpu_chart_ref_w", 30.0))
-    gpu_chart_ref = float(soc_info.get("gpu_chart_ref_w", 30.0))
-    ane_max_power = float(soc_info.get("ane_max_w", 8.0))
-    max_total_bw = max(float(soc_info.get("max_mem_bw", 0.0)), 1.0)
-    package_ref_w = max(cpu_chart_ref + gpu_chart_ref + ane_max_power, 1.0)
+    package_ref_w = float(soc_info["package_ref_w"])
+    max_total_bw = float(soc_info["max_total_bw"])
 
     alert_engine_kwargs = {
         "bw_sat_percent": int(getattr(args, "alert_bw_sat_percent", 85)),

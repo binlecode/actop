@@ -45,12 +45,12 @@ def _processes_to_samples(proc_dict: dict, cpu_watts: float, gpu_watts: float) -
             cpu_time_share=share_cpu,
             gpu_time_share=share_gpu,
             rss_bytes=int(entry.get("rss_bytes", 0) or 0),
-            # Deprecated rounded-MiB view of rss_bytes; removed in 2.0.0.
-            rss_mb=float(entry.get("rss_mb", 0.0) or 0.0),
             num_threads=int(entry.get("num_threads", 0) or 0),
             attributed_w=attributed_w,
         )
-    return sorted(seen.values(), key=lambda p: (p.cpu_percent, p.rss_mb), reverse=True)
+    return sorted(
+        seen.values(), key=lambda p: (p.cpu_percent, p.rss_bytes), reverse=True
+    )
 
 
 def _sample_to_snapshot(
@@ -138,12 +138,7 @@ def _sample_to_snapshot(
         ram_total_bytes=int(ram.get("total_bytes", 0) or 0),
         swap_used_bytes=int(ram.get("swap_used_bytes", 0) or 0),
         swap_total_bytes=int(ram.get("swap_total_bytes", 0) or 0),
-        # Deprecated rounded-GiB views of the *_bytes fields above; removed in 2.0.0.
-        ram_used_gb=float(ram.get("used_GB", 0.0)),
-        swap_used_gb=float(ram.get("swap_used_GB", 0.0)),
-        ram_total_gb=float(ram.get("total_GB", 0.0)),
         ram_used_percent=float(ram.get("used_percent", 0.0) or 0.0),
-        swap_total_gb=float(ram.get("swap_total_GB", 0.0)),
         ane_util_pct=ane_util_pct,
         thermal_state=sample.thermal_pressure,
         bandwidth_gbps=total_bw,
@@ -151,6 +146,12 @@ def _sample_to_snapshot(
         fans=list(sample.fans),
         fan_rpms=[f.current for f in sample.fans],
         fan_available=sample.fan_available,
+        net_rx_bps=sample.net_rx_bps,
+        net_tx_bps=sample.net_tx_bps,
+        net_available=sample.net_available,
+        disk_read_bps=sample.disk_read_bps,
+        disk_write_bps=sample.disk_write_bps,
+        disk_available=sample.disk_available,
         e_cores=e_cores,
         p_cores=p_cores,
         processes=processes,
