@@ -6,6 +6,20 @@ This project follows a Keep a Changelog-style format and uses version tags for r
 
 ## [Unreleased]
 
+## [1.9.6] - 2026-08-12
+
+### Fixed
+
+- **The committed cover snapshot is now byte-deterministic.** As shipped in
+  1.9.5 it carried the build stamp, whose commit hash and timestamp change on
+  every run — so every `build-cover-dist.sh` invocation dirtied
+  `docs/cover.html` even when nothing about the page had changed, and would
+  have permanently tripped this skill's own "clean working tree" gate before
+  deploy. The stamp is now stripped from the committed copy only; the published
+  dist still carries it. Two consecutive builds from an unchanged source now
+  produce identical bytes, so the snapshot changes only when the page or the
+  version does.
+
 ## [1.9.5] - 2026-08-12
 
 ### Changed
