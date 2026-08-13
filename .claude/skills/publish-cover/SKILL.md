@@ -68,7 +68,7 @@ Gate 1–4  →  Build  →  Audit  →  [MANUAL CONFIRM]  →  Deploy  →  Ver
 ### Step 1 — Build
 
 ```bash
-bash .agents/skills/publish-cover/scripts/build-cover-dist.sh
+bash .claude/skills/publish-cover/scripts/build-cover-dist.sh
 ```
 
 What the script does deterministically:

@@ -6,6 +6,22 @@ This project follows a Keep a Changelog-style format and uses version tags for r
 
 ## [Unreleased]
 
+## [1.9.7] - 2026-08-13
+
+### Fixed
+
+- **The agent skills were invisible to the agent.** `record-tui-gif`,
+  `publish-cover`, `capture-tui-diagram`, and `run-actop` were moved from
+  `.claude/skills/` to `.agents/skills/` in the 1.4.x docs reorg. Claude Code
+  discovers project skills only under `.claude/skills/`, so from that point on
+  none of the four were ever offered — they stayed correct, committed, and
+  unused, and got followed only when someone happened to grep them out of the
+  tree. `audit-conformance` stayed behind in `.claude/skills/` and kept working,
+  which is what made the breakage hard to notice.
+  All four are moved back, their internal `.agents/skills/...` path references
+  rewritten, and `CLAUDE.md` now states the constraint so a future reorg does
+  not silently re-break discovery.
+
 ## [1.9.6] - 2026-08-12
 
 ### Fixed

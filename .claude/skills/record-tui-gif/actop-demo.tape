@@ -15,7 +15,7 @@
 # the dashboard drops to ~80 cols and silently degrades mid-take; 1800px
 # (~212 cols) leaves it ~122 cols, so grid survives the whole recording.
 #
-# Render from the repo root:  vhs .agents/skills/record-tui-gif/actop-demo.tape
+# Render from the repo root:  vhs .claude/skills/record-tui-gif/actop-demo.tape
 # (or via record.sh, which drives a GPU workload so the gauges move).
 
 Output images/actop-demo.gif

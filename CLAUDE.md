@@ -136,6 +136,8 @@ The `docs/` directory contains essential system reviews, research, and operation
 - `docs/SPEC-system.md`: Detailed system design reference — native bindings, sampling layer, SoC profile fallback, TUI rendering, testing contract. Kept in sync with the code on every PR that touches architecture.
 - `docs/ROADMAP.md`: Open hardware/metric-coverage gaps and their priority.
 
+**Agent skills live in `.claude/skills/` — nowhere else.** Claude Code discovers project skills only under `.claude/skills/` (plus `~/.claude/skills/` and plugins); a skill parked anywhere else is invisible to the agent and will simply never be invoked. `record-tui-gif`, `publish-cover`, `capture-tui-diagram`, and `run-actop` were moved to `.agents/skills/` in a past docs reorg and silently stopped being offered — they were still correct, still committed, and still useless, because nothing surfaced them. Do not "consolidate" them elsewhere; if another tool needs its own convention, give that tool a copy or a symlink and leave `.claude/skills/` as the real home.
+
 **Conformance auditing:** the `/audit-conformance` skill (`.claude/skills/audit-conformance/`) periodically judgment-scans the whole tree against 12 coding rules (layering, dead code, DRY, naming, swallowed errors) — the whole-codebase counterpart to diff-scoped `/code-review`. It writes an actionable `docs/TODO-conformance-YYYY-MM-DD.md` and never proposes structural/guard tests (they would violate the functional-tests-only mandate).
 
 ## Coding Style & Naming Conventions

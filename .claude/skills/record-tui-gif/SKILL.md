@@ -30,7 +30,7 @@ tape. actop monitors the whole system, so that's fine.
 From anywhere in the repo:
 
 ```bash
-bash .agents/skills/record-tui-gif/record.sh
+bash .claude/skills/record-tui-gif/record.sh
 ```
 
 This drives a GPU workload against the llama.cpp router (llamacpp-first default;
@@ -53,14 +53,14 @@ Examples:
 
 ```bash
 # Default: llama.cpp router, OpenAI protocol, original qwen model:
-bash .agents/skills/record-tui-gif/record.sh
+bash .claude/skills/record-tui-gif/record.sh
 # Heavier load, longer generations:
-CONCURRENCY=3 NUM_PREDICT=8192 bash .agents/skills/record-tui-gif/record.sh
+CONCURRENCY=3 NUM_PREDICT=8192 bash .claude/skills/record-tui-gif/record.sh
 # Ollama fallback (native /api/generate, agentic profile):
 ROUTER_URL=http://localhost:11433 MODEL=qwen3.6:35b-a3b-agentic API=ollama \
-  bash .agents/skills/record-tui-gif/record.sh
+  bash .claude/skills/record-tui-gif/record.sh
 # Record a custom tape with idle gauges (e.g. a quick layout check):
-SKIP_WORKLOAD=1 TAPES=tmp/mytape.tape bash .agents/skills/record-tui-gif/record.sh
+SKIP_WORKLOAD=1 TAPES=tmp/mytape.tape bash .claude/skills/record-tui-gif/record.sh
 ```
 
 ## The GPU workload driver
@@ -71,11 +71,11 @@ generations across N concurrent workers until Ctrl-C or `--duration`.
 
 ```bash
 # llama.cpp (default): OpenAI protocol against the llamacpp router
-.venv/bin/python .agents/skills/record-tui-gif/gpu_workload.py \
+.venv/bin/python .claude/skills/record-tui-gif/gpu_workload.py \
     --url http://localhost:9040 --model qwen3.6:35b-a3b \
     --api openai --concurrency 2 --num-predict 4096
 # ollama fallback: native /api/generate (llama.cpp 404s on this path)
-.venv/bin/python .agents/skills/record-tui-gif/gpu_workload.py \
+.venv/bin/python .claude/skills/record-tui-gif/gpu_workload.py \
     --url http://localhost:11433 --model qwen3.6:35b-a3b-agentic \
     --api ollama --concurrency 2 --num-predict 4096
 ```
