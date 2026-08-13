@@ -510,8 +510,56 @@ class AlertsComputed(Message):
         super().__init__()
 
 
+# Rolling-context suffix glyphs for the compact tiers: ⌀ = rolling average,
+# ▲ = session peak. The spelled-out `avg N · max N` stays the widest tier (what
+# any roomy terminal shows); the glyphs appear only once a column is too narrow
+# for it. Documented in the `?` help overlay under "Metric labels".
+_AVG_GLYPH = "⌀"
+_MAX_GLYPH = "▲"
+
+
+def _fit_suffix(measured: tuple[int, ...], tiers: tuple[str, ...], width: int) -> str:
+    """Widest rolling-context tier that fits beside the headline.
+
+    A 96-col grid gives each box ~44 content columns — too few for
+    `  avg N% · max N%` next to a full `P-CPU  41% @3200MHz (52°C)` headline,
+    which used to cost the row its trailing characters (a clipped `%`, a
+    residency row losing `high37`). Degrade the context instead: the headline is
+    the reading, avg/max is its annotation, so the annotation gives up width
+    first and drops out entirely before the reading is ever touched.
+
+    `measured` is `(head_width, *tier_widths)` — the widths the row is fitted
+    against, which are the high-water marks rather than this frame's actual
+    lengths (see `_stable_widths`); the returned tier is still rendered with the
+    live values. `width <= 0` means the row has no layout to measure yet — a
+    section that this very frame is revealing (Network / Disk start hidden).
+    Take the narrowest tier there: it cannot overflow whatever width the row
+    turns out to have, and the next sample replaces it with the real fit.
+    """
+    if width <= 0:
+        return tiers[-1]
+    head_width = measured[0]
+    for tier, tier_width in zip(tiers, measured[1:]):
+        if head_width + tier_width <= width:
+            return tier
+    return ""
+
+
 _RESIDENCY_ORDER = ("idle", "low", "mid", "high")
 _RESIDENCY_GLYPHS = {"idle": "░", "low": "▒", "mid": "▓", "high": "█"}
+# The residency bar shrinks from _RESIDENCY_BAR_WIDTH toward _RESIDENCY_BAR_MIN
+# to fit its column, and is dropped below that (a 4-6 char density bar reads as
+# noise, not a distribution). The four percentages are the data and the bar is
+# only their picture, so the picture pays for the width — the breakdown is never
+# truncated.
+_RESIDENCY_BAR_WIDTH = 16
+_RESIDENCY_BAR_MIN = 8
+# The bar is sized against the widest the breakdown can ever get, not against
+# this frame's: the four buckets sum to 100, so the worst case is four two-digit
+# values (a 100 forces the other three to 0). Budgeting for it keeps the bar a
+# fixed width per row width, instead of breathing a column or two every time a
+# percentage crosses 10 and dragging the numbers sideways with it.
+_RESIDENCY_BREAKDOWN_MAX = len("idle25 low25 mid25 high25")
 
 
 def _residency_bar_widths(percentages: dict, bar_width: int) -> dict:
@@ -534,19 +582,34 @@ def _residency_bar_widths(percentages: dict, bar_width: int) -> dict:
     return floors
 
 
-def _format_residency_bar(percentages: dict, bar_width: int = 16) -> str:
+def _format_residency_bar(percentages: dict, bar_width: int) -> str:
     """Fixed-width proportional block-density bar for one cluster/domain."""
     widths = _residency_bar_widths(percentages, bar_width)
     return "".join(_RESIDENCY_GLYPHS[name] * widths[name] for name in _RESIDENCY_ORDER)
 
 
-def _format_residency_row(label: str, percentages: dict, bar_width: int = 16) -> str:
-    """`P-CPU  [bar]  idleN lowN midN highN` DVFS residency summary line."""
-    bar = _format_residency_bar(percentages, bar_width)
+def _format_residency_row(label: str, percentages: dict, width: int = 0) -> str:
+    """`P-CPU  [bar]  idleN lowN midN highN` DVFS residency summary line.
+
+    `width` is the row's available columns (0 when it has not been laid out yet,
+    which takes the full bar). The bar gets whatever a worst-case breakdown
+    leaves behind and is dropped below `_RESIDENCY_BAR_MIN`, so the four
+    percentages survive a 44-column grid cell intact instead of losing `high37`
+    to a clip.
+    """
     breakdown = " ".join(
         f"{name}{percentages.get(name, 0)}" for name in _RESIDENCY_ORDER
     )
-    return f"{label:<6} [{bar}]  {breakdown}"
+    prefix = f"{label:<6} "
+    bar_width = _RESIDENCY_BAR_WIDTH
+    if width > 0:
+        # 4 = the brackets around the bar plus the two spaces before breakdown.
+        room = width - len(prefix) - _RESIDENCY_BREAKDOWN_MAX - 4
+        bar_width = min(bar_width, room)
+    if bar_width < _RESIDENCY_BAR_MIN:
+        return f"{prefix}{breakdown}"
+    bar = _format_residency_bar(percentages, bar_width)
+    return f"{prefix}[{bar}]  {breakdown}"
 
 
 class HardwareDashboard(Widget):
@@ -714,6 +777,11 @@ class HardwareDashboard(Widget):
             max_total_bw=cfg.max_mem_bw,
             package_ref_w=cfg.package_ref_w,
         )
+
+        # High-water (head, *tier) widths per metric row, keyed by widget id —
+        # what the width-adaptive avg/max context is fitted against so a row
+        # holds its form instead of flipping on a digit (see _stable_widths).
+        self._row_widths: dict = {}
 
         # Per-core history (dict: index -> deque)
         self._core_hist: dict = {}
@@ -1188,7 +1256,7 @@ class HardwareDashboard(Widget):
             pcpu,
             s.pcpu_freq_mhz,
             cpu_temp,
-            self._pct_stats_suffix(self._pcpu_hist),
+            self._pct_stats_tiers(self._pcpu_hist),
         )
         self._update_cluster_summary_row(
             "#ecpu-summary-row",
@@ -1196,14 +1264,14 @@ class HardwareDashboard(Widget):
             ecpu,
             s.ecpu_freq_mhz,
             cpu_temp,
-            self._pct_stats_suffix(self._ecpu_hist),
+            self._pct_stats_tiers(self._ecpu_hist),
         )
         if cfg.show_residency:
-            self.query_one("#pcpu-residency-row", Static).update(
-                _format_residency_row("P-CPU", s.pcpu_residency_pct)
+            self._update_residency_row(
+                "#pcpu-residency-row", "P-CPU", s.pcpu_residency_pct
             )
-            self.query_one("#ecpu-residency-row", Static).update(
-                _format_residency_row("E-CPU", s.ecpu_residency_pct)
+            self._update_residency_row(
+                "#ecpu-residency-row", "E-CPU", s.ecpu_residency_pct
             )
         # "(drv)" instead of "@NMHz" when gpu_util_pct came from the driver
         # rather than IOReport residency: in that case the GPU DVFS table could
@@ -1215,12 +1283,12 @@ class HardwareDashboard(Widget):
             gpu_label.append(" (drv)")
         else:
             gpu_label.append(f" @{s.gpu_freq_mhz}MHz")
-        gpu_label.append(f"{gpu_temp}{self._pct_stats_suffix(self._gpu_hist)}")
-        self.query_one("#gpu-label", Static).update(gpu_label)
+        gpu_label.append(gpu_temp)
+        self._update_stat_row(
+            "#gpu-label", gpu_label, self._pct_stats_tiers(self._gpu_hist)
+        )
         if cfg.show_residency:
-            self.query_one("#gpu-residency-row", Static).update(
-                _format_residency_row("GPU", s.gpu_residency_pct)
-            )
+            self._update_residency_row("#gpu-residency-row", "GPU", s.gpu_residency_pct)
 
         # Renderer/Tiler detail: hidden when the accelerator exposes no
         # statistics. Availability is effectively constant per session, so
@@ -1235,10 +1303,10 @@ class HardwareDashboard(Widget):
             )
         ane_label = Text("ANE ")
         ane_label.append(f"{ane_pct}%", style=self._util_color(ane_pct))
-        ane_label.append(
-            f" ({s.ane_watts:.1f}W){self._pct_stats_suffix(self._ane_hist)}"
+        ane_label.append(f" ({s.ane_watts:.1f}W)")
+        self._update_stat_row(
+            "#ane-label", ane_label, self._pct_stats_tiers(self._ane_hist)
         )
-        self.query_one("#ane-label", Static).update(ane_label)
 
         # The snapshot carries raw bytes; formatting into GiB is presentation, so
         # it happens here. GiB (not GB) because these are 2^30 divisions — the
@@ -1252,12 +1320,15 @@ class HardwareDashboard(Widget):
             ram_label = f"RAM {used_gib}/{total_gib}GiB sw:{swap_used}/{swap_total}GiB"
         else:
             ram_label = f"RAM {used_gib}/{total_gib}GiB"
-        ram_label += self._pct_stats_suffix(self._ram_hist)
-        self.query_one("#ram-label", Static).update(ram_label)
+        self._update_stat_row(
+            "#ram-label", ram_label, self._pct_stats_tiers(self._ram_hist)
+        )
 
         self._render_power_rows()
-        self.query_one("#pkgpwr-label", Static).update(
-            f"Package Power {s.package_watts:.2f}W{self._watt_stats_suffix(self._pkg_w_hist)}"
+        self._update_stat_row(
+            "#pkgpwr-label",
+            f"Package Power {s.package_watts:.2f}W",
+            self._watt_stats_tiers(self._pkg_w_hist),
         )
 
         # Memory bandwidth: hide the row entirely when the platform exposes no
@@ -1269,8 +1340,10 @@ class HardwareDashboard(Widget):
             bw_label.display = s.bandwidth_available
             bw_chart.display = s.bandwidth_available
         if s.bandwidth_available:
-            bw_label.update(
-                f"Mem BW {s.bandwidth_gbps:.1f} GB/s{self._gbps_stats_suffix(self._bw_gbps_hist)}"
+            self._update_stat_row(
+                "#bw-label",
+                f"Mem BW {s.bandwidth_gbps:.1f} GB/s",
+                self._gbps_stats_tiers(self._bw_gbps_hist),
             )
 
         # Network I/O: hide the section when getifaddrs returns no usable
@@ -1364,35 +1437,110 @@ class HardwareDashboard(Widget):
         peak_vals = vals[-real_n:]
         return (sum(avg_vals) / len(avg_vals), max(peak_vals))
 
-    def _pct_stats_suffix(self, hist) -> str:
-        """`  avg N% · max N%` context string for a percent-valued history.
+    def _pct_stats_tiers(self, hist) -> tuple[str, ...]:
+        """Rolling-context tiers for a percent-valued history, widest first.
 
         The unit is appended because the headline reading often carries a
         different unit (MHz, GB, W), so a bare number would be ambiguous — or,
-        for the RAM row, read as GB instead of percent.
+        for the RAM row, read as GB instead of percent. Only the widest tier
+        spells `avg`/`max` out; the narrow ones fall back to the ⌀/▲ glyphs (see
+        `_fit_suffix`), and the peak outlives the average because it is the
+        figure a session is usually judged on.
         """
         avg, mx = self._avg_max(hist)
-        return f"  avg {avg:.0f}% · max {mx:.0f}%"
+        return (
+            f"  avg {avg:.0f}% · max {mx:.0f}%",
+            f"  {_AVG_GLYPH}{avg:.0f} {_MAX_GLYPH}{mx:.0f}%",
+            f"  {_MAX_GLYPH}{mx:.0f}%",
+        )
 
-    def _watt_stats_suffix(self, hist) -> str:
-        """`  avg N.NW · max N.NW` context string for a watt-valued history."""
+    def _watt_stats_tiers(self, hist) -> tuple[str, ...]:
+        """Rolling-context tiers for a watt-valued history, widest first."""
         avg, mx = self._avg_max(hist)
-        return f"  avg {avg:.1f}W · max {mx:.1f}W"
+        return (
+            f"  avg {avg:.1f}W · max {mx:.1f}W",
+            f"  {_AVG_GLYPH}{avg:.1f} {_MAX_GLYPH}{mx:.1f}W",
+            f"  {_MAX_GLYPH}{mx:.1f}W",
+        )
 
-    def _gbps_stats_suffix(self, hist) -> str:
-        """`  avg N.N · max N.N GB/s` context string for a bandwidth history."""
+    def _gbps_stats_tiers(self, hist) -> tuple[str, ...]:
+        """Rolling-context tiers for a bandwidth history, widest first."""
         avg, mx = self._avg_max(hist)
-        return f"  avg {avg:.1f} · max {mx:.1f} GB/s"
+        return (
+            f"  avg {avg:.1f} · max {mx:.1f} GB/s",
+            f"  {_AVG_GLYPH}{avg:.1f} {_MAX_GLYPH}{mx:.1f} GB/s",
+            f"  {_MAX_GLYPH}{mx:.1f} GB/s",
+        )
 
-    def _bps_stats_suffix(self, hist) -> str:
-        """`  avg N · max N` context string for a byte-rate history.
+    def _bps_stats_tiers(self, hist) -> tuple[str, ...]:
+        """Rolling-context tiers for a byte-rate history, widest first.
 
-        One direction per call: each direction now owns a labelled chart row,
-        so the suffix carries that direction's own rolling context (matching
-        every other stats suffix here) instead of a combined rx+tx figure.
+        One direction per call: each direction owns a labelled chart row, so the
+        suffix carries that direction's own rolling context (matching every
+        other stats suffix here) instead of a combined rx+tx figure. Both values
+        keep their unit even in the compact tiers — unlike the percent/watt/GB/s
+        rows, an average and a peak here can land in different prefixes (KB/s vs
+        MB/s), so a shared trailing unit would be a lie.
         """
         avg, mx = self._avg_max(hist)
-        return f"  avg {_format_bps(avg)} · max {_format_bps(mx)}"
+        return (
+            f"  avg {_format_bps(avg)} · max {_format_bps(mx)}",
+            f"  {_AVG_GLYPH}{_format_bps(avg)} {_MAX_GLYPH}{_format_bps(mx)}",
+            f"  {_MAX_GLYPH}{_format_bps(mx)}",
+        )
+
+    def _update_stat_row(self, widget_id: str, head, tiers: tuple[str, ...]) -> None:
+        """Render `head` plus the widest rolling context its width affords.
+
+        Every metric label goes through here so a narrow grid column degrades
+        the avg/max annotation (`_fit_suffix`) rather than losing the tail of
+        the line to a hard clip. `head` is a plain str or a styled `Text`; the
+        trailing pad keeps the row's background uniform across its full width.
+        """
+        widget = self.query_one(widget_id, Static)
+        avail = widget.size.width
+        is_text = isinstance(head, Text)
+        head_len = head.cell_len if is_text else len(head)
+        suffix = _fit_suffix(
+            self._stable_widths(widget_id, head_len, tiers), tiers, avail
+        )
+        if is_text:
+            line = head.copy()
+            line.append(suffix)
+            if avail > 0:
+                line = line[:avail]
+                line.pad_right(max(0, avail - line.cell_len))
+        else:
+            line = head + suffix
+            if avail > 0:
+                line = line[:avail].ljust(avail)
+        widget.update(line)
+
+    def _stable_widths(
+        self, key: str, head_len: int, tiers: tuple[str, ...]
+    ) -> tuple[int, ...]:
+        """High-water `(head, *tiers)` widths for one row, for a steady fit.
+
+        Fitting against this frame's exact lengths makes a row sitting on a tier
+        boundary flip shape every time a digit appears or leaves — `avg 8%` to
+        `avg 10%`, `987MHz` to `1987MHz` — which is far more distracting than the
+        changing digits themselves. Fit against the widest this row has rendered
+        instead, so the form it settles on holds until the data genuinely reaches
+        a wider shape or the terminal resizes. Widths only ratchet up, exactly
+        like the session peak the suffix already reports: a row that briefly hits
+        three digits keeps the room for them.
+        """
+        widths = (head_len, *(len(tier) for tier in tiers))
+        seen = self._row_widths.get(key)
+        if seen is not None:
+            widths = tuple(max(pair) for pair in zip(seen, widths))
+        self._row_widths[key] = widths
+        return widths
+
+    def _update_residency_row(self, widget_id: str, label: str, percentages) -> None:
+        """Render one DVFS residency row, bar sized to the row's own width."""
+        widget = self.query_one(widget_id, Static)
+        widget.update(_format_residency_row(label, percentages, widget.size.width))
 
     def _append_io_percents(self) -> None:
         """Append this frame's chart percents for the four I/O rate histories.
@@ -1446,8 +1594,10 @@ class HardwareDashboard(Widget):
         if not available:
             return
         for label_id, prefix, rate_bps, native_hist in rows:
-            self.query_one(label_id, Static).update(
-                f"{prefix} {_format_bps(rate_bps)}{self._bps_stats_suffix(native_hist)}"
+            self._update_stat_row(
+                label_id,
+                f"{prefix} {_format_bps(rate_bps)}",
+                self._bps_stats_tiers(native_hist),
             )
 
     def _update_cluster_summary_row(
@@ -1457,20 +1607,16 @@ class HardwareDashboard(Widget):
         util_pct: int,
         freq_mhz: int,
         cpu_temp: str,
-        stats_suffix: str = "",
+        tiers: tuple[str, ...],
     ) -> None:
         """Render one full-width cluster summary line."""
-        widget = self.query_one(widget_id, Static)
-        avail = max(widget.size.width, 1)
-        line = Text(f"{label} ")
+        head = Text(f"{label} ")
         # The % wears the chart's color for that value (see _util_color) so the
         # readout and its tracer agree at a glance; the MHz/temp/avg/max context
         # stays muted plain text.
-        line.append(f"{util_pct:3d}%", style=self._util_color(util_pct))
-        line.append(f" @{freq_mhz}MHz{cpu_temp}{stats_suffix}")
-        line = line[:avail]
-        line.pad_right(max(0, avail - line.cell_len))
-        widget.update(line)
+        head.append(f"{util_pct:3d}%", style=self._util_color(util_pct))
+        head.append(f" @{freq_mhz}MHz{cpu_temp}")
+        self._update_stat_row(widget_id, head, tiers)
 
     # Inline power spark bounds: keep the spark legible (>= 8 chars) but never
     # let a wide terminal turn a one-line row into a full chart (cap 24), the
@@ -1507,12 +1653,17 @@ class HardwareDashboard(Widget):
 
         The spark fills the gap between the headline and the avg/max suffix,
         clamped to [_POWER_SPARK_MIN, _POWER_SPARK_MAX]; below the minimum the
-        row drops the spark and keeps the numbers.
+        row drops the spark and keeps the numbers. The suffix is fitted first
+        (`_fit_suffix`) so the spark competes for width against whatever
+        annotation the row can actually afford, not against the widest one.
         """
         widget = self.query_one(widget_id, Static)
-        avail = max(widget.size.width, 1)
+        avail = widget.size.width
         head = f"{label} {watts:.2f}W"
-        suffix = self._watt_stats_suffix(watt_hist)
+        tiers = self._watt_stats_tiers(watt_hist)
+        suffix = _fit_suffix(
+            self._stable_widths(widget_id, len(head), tiers), tiers, avail
+        )
         room = avail - len(head) - 1 - len(suffix)  # -1 for the space after head
         spark_w = max(0, min(self._POWER_SPARK_MAX, room))
         if spark_w >= self._POWER_SPARK_MIN:
@@ -1522,7 +1673,7 @@ class HardwareDashboard(Widget):
             line = f"{head} {spark}{suffix}"
         else:
             line = f"{head}{suffix}"
-        widget.update(line[:avail].ljust(avail))
+        widget.update(line[:avail].ljust(avail) if avail > 0 else line)
 
     def _format_core_entry(
         self, prefix: str, core, col_width: int, append_sample: bool = True
