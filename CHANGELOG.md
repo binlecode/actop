@@ -6,6 +6,18 @@ This project follows a Keep a Changelog-style format and uses version tags for r
 
 ## [Unreleased]
 
+## [1.9.3] - 2026-08-12
+
+### Fixed
+
+- **Cover page rendered a doubled `v` in its version badge** (`vv1.8.0` live,
+  `vv1.9.2` on rebuild). `build-cover-dist.sh` substitutes `{{VERSION}}` with
+  an already-prefixed `v${VERSION}`, but the template wrote `v{{VERSION}}`, so
+  every publish since the placeholder was introduced doubled the prefix in both
+  the hero badge and the footer. The template now writes a bare `{{VERSION}}`.
+  This recurs on every build rather than being a one-off stale string, so it
+  could not be fixed by editing the rendered output.
+
 ## [1.9.2] - 2026-08-12
 
 ### Changed
