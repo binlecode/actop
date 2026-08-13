@@ -180,7 +180,9 @@ HELP_TEXT = """\
              account for vs total package CPU watts (a partition of it).
 
   avg · max       Rolling average (over the --avg window) and session peak,
-                  shown next to each live reading.
+                  shown next to each live reading. A column too narrow for the
+                  spelled-out form compacts it to ⌀avg ▲peak, then to ▲peak
+                  alone — the reading itself is never shortened.
 
 [b]Status line[/b]
 

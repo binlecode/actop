@@ -52,10 +52,34 @@ This file is the single source of truth for repository guidelines, used by Claud
 
 **RULE — cutting a release REQUIRES a GitHub Release, not just a tag.** A release is cut with `scripts/tag_release.sh`, which pushes the git tag **and** creates the GitHub Release for it via `gh release create` (release notes pulled from the matching `CHANGELOG.md` section). A bare `git tag` + push is **not** a release: it never surfaces on the `/releases` page or as `Latest`, and leaves the Releases history silently behind the code. Never cut a release by hand-tagging alone — if the `gh release create` step fails, finish it manually (see playbooks below) before calling the release cut done.
 
+### When to cut a release
+
+**A release needs something that changed for users.** Repo-internal churn — CI
+workflows, the release scripts themselves, docs, the cover page, agent skills,
+test-only edits — lands under `CHANGELOG.md` `[Unreleased]` and ships with the
+next release that carries a user-visible change. It is never a release on its
+own.
+
+**One release per change set, and version numbers are permanent.** PyPI burns a
+version string on first upload: it can be yanked but never reused, so every
+throwaway release permanently consumes a number and adds a row to `/releases`
+that users have to reason about. On 2026-08-13, six releases (1.9.2–1.9.7)
+landed inside forty minutes, every one of them a fix to the release pipeline
+that had just shipped the previous one. That is the failure mode this rule
+exists to stop: when the release flow itself is what is broken, fix it on a
+branch and cut **one** release at the end.
+
+The only reason to re-tag the same day is a release that is **broken for users**
+— install fails, import fails, the TUI crashes on launch. Anything less waits.
+
+If several unreleased changes have accumulated, a release PR rolls them into one
+dated section; do not manufacture one section per merged PR.
+
 ### Release steps
 
 ```bash
-# 1. Bump version and changelog via a PR (never commit the bump to main)
+# 1. Bump version and changelog via a RELEASE PR (never commit the bump to main).
+#    Only do this when "When to cut a release" above says it is warranted.
 git switch -c release-vX.Y.Z
 # edit pyproject.toml ([project].version) and CHANGELOG.md (move Unreleased -> new version + date)
 git commit -am "Release vX.Y.Z" && git push -u origin release-vX.Y.Z
@@ -236,7 +260,7 @@ a mount point, not a fake); faking the data or the logic under test is not.
 
 ## Commit & Pull Request Guidelines
 - **Branch from `main`; PR strictly into `main`.** Every branch forks from `main` and targets `main`. **Never fork a feature branch off another feature branch** (no stacked PRs): if you need work that is still on an unmerged branch, wait for it to merge and re-branch from `main`. This holds especially for CI/CD and release changes — they land via a single PR into `main`, never a chained branch.
-- **Bump the version in every PR.** Each PR updates `pyproject.toml` version + moves `CHANGELOG.md` `[Unreleased]` into a new dated section, in the same PR: **patch bump by default, minor only for a milestone PR** (major reserved for breaking API/CLI changes). Tagging (`scripts/tag_release.sh`) is a separate step after merge; publishing to PyPI is a third, manual step after that — see the Release Process section above.
+- **A normal PR does NOT bump the version.** It adds its entry under `CHANGELOG.md` `[Unreleased]` and leaves `pyproject.toml` alone. Only a **release PR** moves `[Unreleased]` into a dated version section and bumps `[project].version` — **patch by default, minor for a milestone** (major reserved for breaking API/CLI changes) — and a release PR is the only kind followed by `scripts/tag_release.sh`. See **When to cut a release** in the Release Process section for when a release PR is warranted; publishing to PyPI is a third, manual step after the tag — see the Release Process section above.
 - Use concise, imperative commit subjects (as seen in history), e.g. `Add support for M1 Ultra` or `actop/utils.py: add bandwidth of M2`.
 - Keep commits scoped to one logical change.
 - Before every commit and before every push, always run:

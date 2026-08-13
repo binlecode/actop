@@ -14,9 +14,9 @@ and thermals — plus a **Python API** (`Monitor` / `Profiler`, `to_pandas()`) s
 can instrument your *own* local LLM / MLX / CoreML inference and training runs with
 SoC-accurate power and energy context.
 
-![actop live during a llama.cpp inference run: the single-column stack layout switching chart glyphs and revealing the process panel, with live E-CPU/P-CPU/GPU/ANE utilization, per-core frequency, memory bandwidth, power charts, and a watt-attributed PWR column on Apple Silicon](images/actop-demo.gif)
+![actop live during a llama.cpp inference run: the two-column grid layout switching chart glyphs, revealing the per-core panels and the process table, and cycling themes, with live E-CPU/P-CPU/GPU/ANE utilization, per-core frequency, memory bandwidth, network and disk I/O, power charts, and a watt-attributed PWR column on Apple Silicon](images/actop-demo.gif)
 
-*Above: actop live under a local LLM run — the `stack` layout with braille then block sparklines, then the process panel (`t`) with its watt-attributed `PWR` column. Below: the default two-column `grid` layout (`l` cycles between them).*
+*Above: actop live under a local LLM run — the default `grid` layout with braille then block sparklines, the per-core panels (`c`), the process table (`p`) with its watt-attributed `PWR` column, and a pass through the themes (`t`). Below: the same grid layout as a still (`l` cycles to the single-column `stack`).*
 
 ![actop dashboard in the default two-column grid layout: E-CPU/P-CPU/GPU/ANE utilization, per-core frequency, memory bandwidth, and power charts on Apple Silicon](images/actop.png)
 

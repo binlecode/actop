@@ -355,6 +355,24 @@ honoring `NO_COLOR`).
 Each headline carries rolling `avg N · max N` context (500-sample deques).
 Avg over `--avg` window, max is session peak. Every stat carries its unit.
 
+That context is **width-adaptive** (`_fit_suffix`): a 96-col grid gives each box
+~44 content columns, too few for `avg N% · max N%` beside a full
+`P-CPU  41% @3200MHz (52°C)` headline. Each row independently picks the widest
+of three tiers that fits — `avg N% · max N%` → `⌀N ▲N%` → `▲N%` → nothing —
+so the annotation gives up width and the reading never does. Residency rows are
+adaptive the same way: the bar shrinks from 16 chars toward 8 and is dropped
+below that, because the four percentages are the data and the bar is only their
+picture. A row whose width is not yet measurable (a Network/Disk section on the
+frame that reveals it) takes the narrowest tier, then fits properly one sample
+later.
+
+The fit is computed from **high-water widths** (`_stable_widths`, keyed by
+widget id) rather than the current frame's lengths, and the residency bar is
+budgeted against the widest possible breakdown — otherwise a row sitting on a
+tier boundary would change shape every time a digit appeared or left
+(`avg 8%` → `avg 10%`, `987MHz` → `1987MHz`). Widths only ratchet up, so a form
+holds until the data reaches a genuinely wider shape or the terminal resizes.
+
 Alert/throttle/energy analytics live in L2 (`analytics.AlertEngine`).
 The engine is constructed from threshold values (never `DashboardConfig`),
 `feed(snapshot)` returns an `AlertFrame`. `HardwareDashboard._compute_alerts`

@@ -6,6 +6,40 @@ This project follows a Keep a Changelog-style format and uses version tags for r
 
 ## [Unreleased]
 
+## [1.9.8] - 2026-08-13
+
+**Skip 1.9.1 through 1.9.7 — install this one instead.** Those seven were cut in
+rapid succession (six of them inside forty minutes) while the release pipeline
+itself was being stabilized: each fixed the flow that had just shipped the one
+before it, and none carried a user-visible change worth a release of its own.
+1.9.8 supersedes all of them and is the first release in that line with a real
+fix for users. `CLAUDE.md` now gates releases on user-visible change so this
+does not recur; the intermediate tags stay published because PyPI artifacts
+already point at them.
+
+### Fixed
+
+- **Narrow grid columns no longer clip the tail off metric rows.** At
+  `_GRID_MIN_WIDTH` (96 cols) each box gets ~44 content columns, and the longest
+  rows are wider than that: the P-CPU summary lost the `%` off
+  `avg 41% · max 41`, and every residency row lost `high37` outright (that one
+  overflowed up to ~110 cols). The rows are now width-adaptive instead of
+  hard-clipped — carried open since 1.5.0.
+  - Rolling context degrades in three tiers, each row choosing the widest that
+    fits its own measured width: `avg N% · max N%` → `⌀N ▲N%` → `▲N%` →
+    nothing. Applies to every labelled row (P-CPU/E-CPU, GPU, ANE, RAM, Mem BW,
+    the four I/O rates, CPU/GPU/Package power). The reading itself is never
+    shortened to make room for its annotation.
+  - Residency rows size their density bar to what the breakdown leaves (16 chars
+    down to 8, dropped below that), so the four percentages always survive. The
+    bar is budgeted against the widest the breakdown can ever be, so it does not
+    breathe a column every time a percentage crosses 10.
+  - The fit is against each row's high-water widths, not the current frame's, so
+    a row on a tier boundary holds its form instead of flipping between the
+    spelled-out and compact shapes as digits come and go (`avg 8%` → `avg 10%`,
+    `987MHz` → `1987MHz`).
+  - `?` help and `docs/SPEC-system.md` §6.3 document the ⌀/▲ compact form.
+
 ## [1.9.7] - 2026-08-13
 
 ### Fixed

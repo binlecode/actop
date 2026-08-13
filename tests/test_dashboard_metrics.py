@@ -12,6 +12,7 @@ no mocks. Validates the two Tier-1 surfacing contracts:
 """
 
 import asyncio
+import dataclasses
 import re
 
 import pytest
@@ -621,18 +622,21 @@ def test_residency_row_leans_idle_at_rest():
     assert "idle92" in state["ecpu_residency_row"]
 
 
-def test_residency_bar_has_no_gaps_or_overflow_at_fixed_width():
+def test_residency_bar_has_no_gaps_or_overflow_at_full_width():
     # Largest-remainder allocation must always fill the bar exactly: the
-    # glyph count inside the brackets must equal the configured bar width,
-    # even for percentages that don't divide evenly.
+    # glyph count inside the brackets must equal the allocated bar width,
+    # even for percentages that don't divide evenly. Two samples so the second
+    # renders against a settled layout — a row sizes its bar to the width it
+    # measured, and the first frame after mount still carries the pre-layout
+    # width, where the bar would legitimately be narrower.
     skewed = _snapshot(
         0.0,
         False,
         gpu_residency_pct={"idle": 33, "low": 34, "mid": 17, "high": 16},
     )
-    state = asyncio.run(_drive([skewed]))
+    state = asyncio.run(_drive([skewed, skewed]))
     bar = re.search(r"\[(.*?)\]", state["gpu_residency_row"]).group(1)
-    assert len(bar) == 16
+    assert len(bar) == 16  # full bar: an 80-col row affords it
 
 
 def test_residency_rows_hidden_when_show_residency_disabled():
@@ -785,6 +789,70 @@ def test_grid_auto_degrades_below_min_width_and_recovers():
     assert narrow == "stack"  # auto-degraded under 96 cols
     assert requested_when_narrow == "grid"  # request is unchanged by degrade
     assert wide == "grid"  # recovers when width returns
+
+
+def test_narrow_grid_columns_degrade_context_instead_of_clipping_rows():
+    # At exactly _GRID_MIN_WIDTH (96 cols) each box gets ~44 content columns —
+    # narrower than `P-CPU  41% @3200MHz (52°C)  avg 41% · max 41%` (45 cols) or
+    # the residency row's full bar plus breakdown (50 cols). Those rows used to
+    # lose their tail to a hard clip: a P-CPU headline missing its `%`, a
+    # residency row missing `high37` entirely. Every row must now end on a whole
+    # reading, and a wide terminal must still get the spelled-out avg/max form
+    # (the degrade is width-driven, not unconditional).
+    busy = dataclasses.replace(
+        _snapshot(
+            120.5,
+            True,
+            pcpu_util_pct=41.0,
+            pcpu_freq_mhz=3200,
+            cpu_temp_c=52.0,
+            pcpu_residency_pct={"idle": 60, "low": 1, "mid": 2, "high": 37},
+            net_rx_bps=12_000_000.0,
+            net_tx_bps=340_000.0,
+            net_available=True,
+        ),
+        swap_used_bytes=int(1.2 * 1024**3),
+        swap_total_bytes=4 * 1024**3,
+    )
+
+    async def _run(width):
+        dash = HardwareDashboard(config=_config())
+        app = _Host(dash)
+        async with app.run_test(size=(width, 45)) as pilot:
+            # Two samples: the Network box is hidden until the first snapshot
+            # reveals it, so its rows only have a measurable width from the
+            # second frame on — the same one-sample settle a real session has.
+            for _ in range(2):
+                dash.update_metrics(MetricsUpdated(busy))
+                await pilot.pause()
+            rows = {}
+            for row_id in (
+                "#pcpu-summary-row",
+                "#pcpu-residency-row",
+                "#ram-label",
+                "#bw-label",
+                "#net-rx-label",
+            ):
+                widget = dash.query_one(row_id, Static)
+                rows[row_id] = (str(widget.render()), widget.size.width)
+            return dash.effective_layout_preset, rows
+
+    preset, narrow = asyncio.run(_run(96))
+    assert preset == "grid"  # 96 is the grid floor, not a degrade to stack
+    for text, width in narrow.values():
+        assert len(text.rstrip()) <= width  # nothing overflows its column
+    # Each row still ends on a complete reading rather than a severed one.
+    assert narrow["#pcpu-summary-row"][0].rstrip().endswith("%")
+    assert "high37" in narrow["#pcpu-residency-row"][0]
+    assert narrow["#ram-label"][0].rstrip().endswith("%")
+    assert narrow["#bw-label"][0].rstrip().endswith("GB/s")
+    assert narrow["#net-rx-label"][0].rstrip().endswith("B/s")
+    # The swap figures are part of the headline and are never traded away.
+    assert "sw:1.2/4.0GiB" in narrow["#ram-label"][0]
+
+    _, wide = asyncio.run(_run(160))
+    assert "avg 41% · max 41%" in wide["#pcpu-summary-row"][0]
+    assert "avg 120.5 · max 120.5 GB/s" in wide["#bw-label"][0]
 
 
 def test_set_layout_preset_rejects_unknown_name():
