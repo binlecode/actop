@@ -318,6 +318,11 @@ class ActopApp(App):
         self._last_cpu_watts = 0.0
         self._last_gpu_watts = 0.0
         self._show_processes = bool(self._config.show_processes)
+        # True until a snapshot that actually carried a process walk arrives, so
+        # the table can explain the wait rather than sit blank (up to ~2
+        # intervals after `p`, since the in-flight sample was started with the
+        # walk off).
+        self._processes_pending = self._show_processes
         self._splash_frame = 0
         self._sampler_ready = False
         self._splash_timer = None
@@ -367,11 +372,12 @@ class ActopApp(App):
                 # Processes ride on the snapshot now; collection is opt-in per
                 # tick so a hidden table costs no process walk, and the live
                 # filter regex is passed each iteration (no worker restart).
+                include_procs = self._show_processes
                 snapshot = monitor.get_snapshot(
-                    include_processes=self._show_processes,
+                    include_processes=include_procs,
                     process_filter=self._filter_regex,
                 )
-                self.post_message(MetricsUpdated(snapshot))
+                self.post_message(MetricsUpdated(snapshot, include_procs))
         finally:
             monitor.close()
 
@@ -402,6 +408,8 @@ class ActopApp(App):
 
     def _paint_metrics(self, message: MetricsUpdated) -> None:
         self.query_one("#hardware-dash", HardwareDashboard).update_metrics(message)
+        if message.processes_included:
+            self._processes_pending = False
         self._last_processes = message.snapshot.processes
         self._last_cpu_watts = message.snapshot.cpu_watts
         self._last_gpu_watts = message.snapshot.gpu_watts
@@ -463,6 +471,8 @@ class ActopApp(App):
     def action_toggle_processes(self) -> None:
         table = self.query_one("#process-table", DataTable)
         self._show_processes = not self._show_processes
+        if self._show_processes:
+            self._processes_pending = True
         table.display = self._show_processes
         self._refresh_process_table()
         # Re-evaluate check_action so the footer shows/hides `/  Filter` at once.
@@ -561,6 +571,23 @@ class ActopApp(App):
         cpu_watts = self._last_cpu_watts
         gpu_watts = self._last_gpu_watts
         sorted_procs = sort_processes(self._last_processes, self._sort_mode, limit)
+        if not sorted_procs:
+            # An empty table reads as a broken panel, so say why it is empty.
+            # The wait after `p` is up to two intervals (the in-flight sample
+            # was started with the walk off); while paused no sample is coming
+            # at all, so point at the key that resumes one.
+            if self._processes_pending:
+                note = (
+                    "paused — press space to resume"
+                    if self._stop_polling.is_set()
+                    else "collecting process samples…"
+                )
+            else:
+                note = "no processes match filter"
+            table.add_row("", note, "", "", "", "", "")
+            table.border_subtitle = ""  # no Σ to reconcile against yet
+            return
+
         shown_pwr = 0.0
         for proc in sorted_procs:
             # PWR is the L2-computed CPU+GPU time-share partition of package

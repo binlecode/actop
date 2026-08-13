@@ -317,3 +317,54 @@ def test_process_table_renders_combined_cpu_gpu_pwr():
 
     assert "18.1W" in subtitle  # Σ shown
     assert "22.0W" in subtitle  # pkg CPU+GPU = 2.0 + 20.0
+
+
+@pytest.mark.local  # drives the real sampler and a real process walk
+def test_process_table_says_it_is_collecting_until_the_first_walk_lands():
+    # Toggling the table on with `p` cannot yield real rows on that frame: the
+    # sample already in flight was started with the process walk off, so rows
+    # are up to two intervals away (~4s at the default interval). The panel used
+    # to render empty for that whole window, which reads as a broken table.
+    # Driven against the live poll worker so the gap is the real one.
+    async def _run():
+        from textual.widgets import DataTable
+
+        app = ActopApp(build_parser().parse_args(["--interval", "1"]))
+        async with app.run_test(size=(160, 50)) as pilot:
+            table = app.query_one("#process-table", DataTable)
+
+            def rows():
+                return [
+                    [str(cell) for cell in table.get_row_at(i)]
+                    for i in range(table.row_count)
+                ]
+
+            for _ in range(60):  # first real sample dismisses the splash
+                await pilot.pause()
+                if app.query_one("#main-section").display:
+                    break
+                await asyncio.sleep(0.25)
+
+            app.set_focus(None)  # harness focuses the hidden filter Input
+            await pilot.press("p")
+            await pilot.pause()
+            pending = rows()
+
+            collected = []
+            for _ in range(40):  # the walk starts on the next tick
+                await asyncio.sleep(0.25)
+                await pilot.pause()
+                if rows() and rows()[0][0].isdigit():
+                    collected = rows()
+                    break
+            return pending, collected
+
+    pending, collected = asyncio.run(_run())
+
+    assert len(pending) == 1, pending  # a placeholder row, never a blank table
+    assert "collecting" in " ".join(pending[0]).lower(), pending
+
+    # And it is transient: the first snapshot that carried a walk replaces it
+    # with real PID rows.
+    assert collected, "process rows never arrived"
+    assert all(row[0].isdigit() for row in collected), collected
