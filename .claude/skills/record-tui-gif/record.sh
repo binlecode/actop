@@ -11,7 +11,7 @@
 #   5. stop the GPU workload
 #
 # Run from anywhere inside the repo:
-#   bash .agents/skills/record-tui-gif/record.sh
+#   bash .claude/skills/record-tui-gif/record.sh
 #
 # Config via env:
 #   TAPES="tmp/a.tape tmp/b.tape"   tapes to record (default: bundled actop-demo.tape)

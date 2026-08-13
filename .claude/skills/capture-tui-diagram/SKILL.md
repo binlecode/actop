@@ -71,14 +71,14 @@ sleep 6                            # let the next poll apply it, THEN capture
 lines, trailing pad whitespace, and scrollbar thumb artifacts:
 
 ```bash
-python .agents/skills/capture-tui-diagram/clean_capture.py tmp/raw.txt > tmp/grid.txt
+python .claude/skills/capture-tui-diagram/clean_capture.py tmp/raw.txt > tmp/grid.txt
 ```
 
 For a **single-column** capture (the `stack` preset) add `--compress` to collapse
 runs of blank chart rows so a ~47-row frame fits a doc:
 
 ```bash
-python .agents/skills/capture-tui-diagram/clean_capture.py tmp/stack_raw.txt --compress > tmp/stack.txt
+python .claude/skills/capture-tui-diagram/clean_capture.py tmp/stack_raw.txt --compress > tmp/stack.txt
 ```
 
 **Never `--compress` a side-by-side frame** (grid, or dashboard+table): the two
