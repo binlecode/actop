@@ -22,11 +22,12 @@ _BLOCK_BLANK = " "
 class _ChartHost(App):
     """Mounts one BrailleChart pinned to an exact cell size."""
 
-    def __init__(self, width, height, glyph_mode, color_mode, palette) -> None:
+    def __init__(self, width, height, glyph_mode, color_mode, palette, fill) -> None:
         super().__init__()
         self._w = width
         self._h = height
         self._glyph_mode = glyph_mode
+        self._fill = fill
         # Pin the color tier so rendered styles are deterministic regardless of
         # the terminal the suite runs under (CI has no TERM, which otherwise
         # resolves to the "none" tier and drops all color).
@@ -39,6 +40,7 @@ class _ChartHost(App):
             glyph_mode=self._glyph_mode,
             color_mode=self._color_mode,
             palette=self._palette,
+            fill=self._fill,
         )
         chart.styles.width = self._w
         chart.styles.height = self._h
@@ -47,10 +49,16 @@ class _ChartHost(App):
 
 
 def _render_chart(
-    data, width, height, glyph_mode="dots", color_mode="truecolor", palette="thermal"
+    data,
+    width,
+    height,
+    glyph_mode="dots",
+    color_mode="truecolor",
+    palette="thermal",
+    fill="up",
 ) -> Text:
     async def _run() -> Text:
-        app = _ChartHost(width, height, glyph_mode, color_mode, palette)
+        app = _ChartHost(width, height, glyph_mode, color_mode, palette, fill)
         async with app.run_test(size=(width + 8, height + 8)) as pilot:
             app.chart.data = data
             await pilot.pause()
@@ -141,3 +149,41 @@ def test_palette_selects_a_different_gradient_for_the_same_value() -> None:
 
     assert thermal[0].startswith("rgb(") and viridis[0].startswith("rgb(")
     assert thermal[0] != viridis[0]
+
+
+def test_down_fill_hangs_the_trace_from_the_top_edge() -> None:
+    # The lower half of each Network / Disk mirror is a `fill="down"` chart
+    # stacked under a normal one, so the seam between them reads as a shared
+    # zero axis. If the downward chart rendered bottom-up like every other
+    # sparkline, the mirror would silently become two identical traces with a
+    # gap in the middle — the whole feature inverted, and nothing else catches
+    # it. A partial reading must therefore occupy the TOP rows and leave the
+    # bottom blank, the exact opposite of the default direction.
+    rendered = _render_chart(data=[50.0], width=1, height=4, fill="down")
+    rows = rendered.plain.splitlines()
+
+    assert rows[0][0] != _BRAILLE_BLANK
+    assert rows[1][0] != _BRAILLE_BLANK
+    assert rows[2][0] == _BRAILLE_BLANK
+    assert rows[3][0] == _BRAILLE_BLANK
+
+    # Same reading in the default direction fills the bottom instead.
+    up_rows = _render_chart(data=[50.0], width=1, height=4).plain.splitlines()
+    assert up_rows[0][0] == _BRAILLE_BLANK
+    assert up_rows[3][0] != _BRAILLE_BLANK
+
+
+def test_down_fill_block_mode_uses_upper_block_glyphs() -> None:
+    # Block mode has no full upper-fill ramp in Block Elements, so the downward
+    # half quantizes to ▀/█ rather than reaching for the Symbols for Legacy
+    # Computing quarter-blocks that many terminal fonts render as tofu. The
+    # trace must still hang from the top with a legible partial cap.
+    rows = _render_chart(
+        data=[80.0], width=1, height=4, glyph_mode="block", fill="down"
+    ).plain.splitlines()
+
+    assert rows[0][0] == "█"
+    assert rows[1][0] == "█"
+    assert rows[2][0] == "█"
+    assert rows[3][0] == "▀"
+    assert set("".join(rows)) <= {"▀", "█", _BLOCK_BLANK}

@@ -10,7 +10,14 @@ from textual.message import Message
 from textual.widget import Widget
 from textual.widgets import Static
 
-from actop.analytics import AlertEngine, bandwidth_percent, package_power_percent
+from actop.analytics import (
+    DISK_RATE_FLOOR_BPS,
+    NET_RATE_FLOOR_BPS,
+    AlertEngine,
+    bandwidth_percent,
+    io_rate_percent,
+    package_power_percent,
+)
 from actop.models import SystemSnapshot
 from actop.power_scaling import (
     DEFAULT_CPU_FLOOR_W,
@@ -70,10 +77,29 @@ _BRAILLE_FULL = 0x47  # all 4 left-column dots
 # doubling horizontal density (btop-style) instead of leaving it blank.
 _BRAILLE_FILL_BITS_R = [0x80, 0xA0, 0xB0, 0xB8]
 _BRAILLE_FULL_R = 0xB8  # all 4 right-column dots
+# Mirror poles for a top-down fill (the `down` half of the I/O mirror charts):
+# the same cumulative ramps accumulating from the top dot instead of the bottom
+# \u2014 left dots 1 / 1+2 / 1+2+3 / 1+2+3+7, right dots 4 / 4+5 / 4+5+6 / 4+5+6+8.
+# The all-4-dots value is necessarily the same in both directions.
+_BRAILLE_FILL_BITS_DOWN = [0x01, 0x03, 0x07, 0x47]
+_BRAILLE_FILL_BITS_DOWN_R = [0x08, 0x18, 0x38, 0xB8]
 _BRAILLE_BLANK = "\u2800"
 _BLOCK_FILL_GLYPHS = ["\u2582", "\u2584", "\u2586", "\u2588"]
+# Top-down block ramp. Block Elements only ships two upper-fill glyphs that are
+# universally available in terminal fonts \u2014 \u2580 (half) and \u2588 (full) \u2014 so the
+# downward half quantizes to 2 levels per row instead of 4, mapped to the
+# nearest available fill. The 1/4 and 3/4 upper blocks live in Symbols for
+# Legacy Computing (U+1FB82/U+1FB85), which many fonts render as tofu; a coarser
+# but always-legible ramp beats a finer one that may not draw at all.
+_BLOCK_FILL_GLYPHS_DOWN = ["\u2580", "\u2580", "\u2588", "\u2588"]
 _BLOCK_FULL_GLYPH = "\u2588"
 _BLOCK_BLANK = " "
+# Fill directions a chart can render in. `up` is the normal bottom-anchored
+# sparkline; `down` hangs the trace from the top edge so a `down` chart placed
+# directly beneath an `up` one forms a mirrored pair sharing an implicit zero
+# axis where they meet (see the Network / Disk sections).
+_FILL_UP = "up"
+_FILL_DOWN = "down"
 
 # Fan row spinner: one braille-cascade glyph per fan, prefixed to its RPM
 # reading (same 10-frame cascade as the splash screen's _SPINNER_FRAMES in
@@ -205,14 +231,17 @@ def _normalize_chart_glyph_mode(value: str) -> str:
     return "block" if str(value).strip().lower() == "block" else "dots"
 
 
-def _glyph_set_for_mode(mode: str) -> tuple[str, str, list[str]]:
+def _glyph_set_for_mode(mode: str, fill: str = _FILL_UP) -> tuple[str, str, list[str]]:
     normalized = _normalize_chart_glyph_mode(mode)
+    down = fill == _FILL_DOWN
     if normalized == "block":
-        return (_BLOCK_BLANK, _BLOCK_FULL_GLYPH, _BLOCK_FILL_GLYPHS)
+        glyphs = _BLOCK_FILL_GLYPHS_DOWN if down else _BLOCK_FILL_GLYPHS
+        return (_BLOCK_BLANK, _BLOCK_FULL_GLYPH, glyphs)
+    bits = _BRAILLE_FILL_BITS_DOWN if down else _BRAILLE_FILL_BITS
     return (
         _BRAILLE_BLANK,
         chr(0x2800 | _BRAILLE_FULL),
-        [chr(0x2800 | bits) for bits in _BRAILLE_FILL_BITS],
+        [chr(0x2800 | b) for b in bits],
     )
 
 
@@ -224,32 +253,46 @@ def _clamped_value_and_level(value: float, total_levels: int) -> tuple[float, in
     return (v, level)
 
 
-def _braille_column_bits(level: int, row: int, height: int, fill, full: int) -> int:
+def _braille_column_bits(
+    level: int, row: int, height: int, fill, full: int, down: bool = False
+) -> int:
     """Braille bits for one vertical dot column of the cell at terminal `row`.
 
-    `level` is the sample's 0..height*4 fill height (bottom-up). `fill`/`full`
-    are the cumulative-partial list and all-4-dots value for the target column
+    `level` is the sample's 0..height*4 fill height. `fill`/`full` are the
+    cumulative-partial list and all-4-dots value for the target column
     (left = `_BRAILLE_FILL_BITS`/`_BRAILLE_FULL`, right = the `*_R` pair).
+    `down` anchors the fill at the top edge instead of the bottom — the trace
+    hangs downward, mirroring the normal sparkline about its top row.
     """
     if level <= 0:
         return 0
-    dot_row = height - 1 - (level - 1) // 4
-    if row > dot_row:
-        return full
+    if down:
+        dot_row = (level - 1) // 4
+        if row < dot_row:
+            return full
+    else:
+        dot_row = height - 1 - (level - 1) // 4
+        if row > dot_row:
+            return full
     if row == dot_row:
         return fill[(level - 1) % 4]
     return 0
 
 
-def _braille_cell_bits(llevel: int, rlevel: int, row: int, height: int) -> int:
+def _braille_cell_bits(
+    llevel: int, rlevel: int, row: int, height: int, down: bool = False
+) -> int:
     """Braille bits for one dense cell: left column = earlier sample `llevel`,
     right column = later sample `rlevel`. Single source of truth for the 2-sample
     packing shared by BrailleChart._render_dots (height rows) and _inline_spark
-    (height 1). `llevel`/`rlevel` are 0..height*4 fill heights.
+    (height 1). `llevel`/`rlevel` are 0..height*4 fill heights; `down` renders
+    the mirrored, top-anchored fill.
     """
+    lfill = _BRAILLE_FILL_BITS_DOWN if down else _BRAILLE_FILL_BITS
+    rfill = _BRAILLE_FILL_BITS_DOWN_R if down else _BRAILLE_FILL_BITS_R
     return _braille_column_bits(
-        llevel, row, height, _BRAILLE_FILL_BITS, _BRAILLE_FULL
-    ) | _braille_column_bits(rlevel, row, height, _BRAILLE_FILL_BITS_R, _BRAILLE_FULL_R)
+        llevel, row, height, lfill, _BRAILLE_FULL, down
+    ) | _braille_column_bits(rlevel, row, height, rfill, _BRAILLE_FULL_R, down)
 
 
 def _value_to_cell_glyph(value: float, glyph_mode: str) -> str:
@@ -305,11 +348,19 @@ class BrailleChart(Widget):
         glyph_mode: str = "dots",
         color_mode: str | None = None,
         palette: str = _DEFAULT_PALETTE,
+        fill: str = _FILL_UP,
         **kwargs,
     ) -> None:
         super().__init__(**kwargs)
         self._data = []
         self._glyph_mode = _normalize_chart_glyph_mode(glyph_mode)
+        # Fill direction, fixed at construction: `down` hangs the trace from the
+        # top edge so this chart mirrors an `up` chart stacked above it.
+        if fill not in (_FILL_UP, _FILL_DOWN):
+            raise ValueError(
+                f"fill must be {_FILL_UP!r} or {_FILL_DOWN!r}, got {fill!r}"
+            )
+        self._fill = fill
         # None => resolve lazily from the running app's console (and NO_COLOR)
         # once mounted; falls back to environment detection before then.
         self._color_mode = color_mode
@@ -388,7 +439,9 @@ class BrailleChart(Widget):
                 rv, rlevel = _clamped_value_and_level(
                     float(self._data[ri]) if ri >= 0 else 0.0, total_levels=total
                 )
-                bits = _braille_cell_bits(llevel, rlevel, row, height)
+                bits = _braille_cell_bits(
+                    llevel, rlevel, row, height, self._fill == _FILL_DOWN
+                )
                 if bits:
                     line_color = _pct_to_color(max(lv, rv), color_mode, self._palette)
                     out.append(chr(0x2800 | bits), style=line_color)
@@ -400,7 +453,10 @@ class BrailleChart(Widget):
 
     def _render_block(self, width: int, height: int, color_mode: str):
         """Block-glyph render: 1 time sample per character (no column packing)."""
-        blank_glyph, full_glyph, partial_glyphs = _glyph_set_for_mode(self._glyph_mode)
+        down = self._fill == _FILL_DOWN
+        blank_glyph, full_glyph, partial_glyphs = _glyph_set_for_mode(
+            self._glyph_mode, self._fill
+        )
         n = width  # 1 sample per character
         dlen = len(self._data)
         offset = dlen - n
@@ -413,9 +469,11 @@ class BrailleChart(Widget):
                 v, level = _clamped_value_and_level(raw_v, total_levels=total)
                 line_color = _pct_to_color(v, color_mode, self._palette)
                 if level > 0:
-                    dot_row = height - 1 - (level - 1) // 4
-                    if row > dot_row:
-                        # below the peak row: fully filled segment
+                    dot_row = (
+                        (level - 1) // 4 if down else height - 1 - (level - 1) // 4
+                    )
+                    if (row < dot_row) if down else (row > dot_row):
+                        # between the peak row and the anchored edge: full cell
                         out.append(full_glyph, style=line_color)
                     elif row == dot_row:
                         # peak row: partial fill
@@ -497,7 +555,9 @@ class HardwareDashboard(Widget):
     # Dashboard CSS lives here (scoped to this widget), not in ActopApp: the two
     # layout presets are just a class swap on this widget. `grid` is a two-column
     # grid — the P-CPU / E-CPU cluster boxes share the top row, GPU·ANE / Memory
-    # the second, and Power spans the full width beneath them; `stack` is the
+    # the second, Network / Disk the third (either or both hidden when the
+    # platform exposes no counters), and Power spans the full width beneath
+    # them; `stack` is the
     # single scrollable column (only the stack preset scrolls — grid is sized to
     # fit). Below `_GRID_MIN_WIDTH` cols grid auto-degrades to stack (`on_resize`),
     # so a grid never squeezes its columns below readability.
@@ -515,7 +575,7 @@ class HardwareDashboard(Widget):
         layout: grid;
         grid-size: 2;
         grid-columns: 1fr 1fr;
-        grid-rows: auto auto auto;
+        grid-rows: auto auto auto auto;
     }
     /* Power is a single wide chart, so it spans both columns on the bottom row
        instead of leaving a half-empty cell beside it. */
@@ -530,7 +590,9 @@ class HardwareDashboard(Widget):
     HardwareDashboard.layout-grid #section-pcpu,
     HardwareDashboard.layout-grid #section-ecpu,
     HardwareDashboard.layout-grid #section-gpu-ane,
-    HardwareDashboard.layout-grid #section-memory {
+    HardwareDashboard.layout-grid #section-memory,
+    HardwareDashboard.layout-grid #section-net,
+    HardwareDashboard.layout-grid #section-disk {
         height: 100%;
     }
     .dash-section {
@@ -626,6 +688,14 @@ class HardwareDashboard(Widget):
         self._net_tx_hist: deque = deque([0] * maxlen, maxlen=maxlen)
         self._disk_read_hist: deque = deque([0] * maxlen, maxlen=maxlen)
         self._disk_write_hist: deque = deque([0] * maxlen, maxlen=maxlen)
+
+        # Chart percents for the I/O rates above, normalised against a rolling
+        # peak (see _append_io_percents) — the same native/percent deque pairing
+        # as _bw_gbps_hist / _bw_hist.
+        self._net_rx_pct_hist: deque = deque([0] * maxlen, maxlen=maxlen)
+        self._net_tx_pct_hist: deque = deque([0] * maxlen, maxlen=maxlen)
+        self._disk_read_pct_hist: deque = deque([0] * maxlen, maxlen=maxlen)
+        self._disk_write_pct_hist: deque = deque([0] * maxlen, maxlen=maxlen)
 
         # Count of real samples appended; histories are zero-padded for chart
         # right-alignment, so avg/max must ignore the leading padding.
@@ -835,12 +905,57 @@ class HardwareDashboard(Widget):
                 id="bw-chart",
                 classes="metric-chart",
             )
-            # Network / disk I/O rates (bytes/s). Hidden when unavailable
-            # (non-Darwin or no usable counters), gated per-snapshot via
-            # SystemSnapshot.net_available / disk_available — same hide-row
-            # pattern as Mem BW / Fan below.
-            yield Static("Net 0 B/s", id="net-label", classes="metric-label")
-            yield Static("Disk 0 B/s", id="disk-label", classes="metric-label")
+
+        # Network / disk I/O each own a section rather than trailing the Memory
+        # box: network throughput is not a memory metric, and the rates deserve
+        # the same history rendering every other metric family gets. Both start
+        # hidden and are revealed by the first snapshot that reports counters
+        # (SystemSnapshot.net_available / disk_available) — the same
+        # start-hidden treatment as #gpu-rt-row, so a machine with no counters
+        # never shows an empty box.
+        # Each I/O box is a mirror pair: the inbound chart fills upward, the
+        # outbound one directly beneath it fills downward, so the seam where
+        # they meet reads as a shared zero axis (btop/vnstat convention) without
+        # spending a row on drawing one. The labels sandwich the pair — inbound
+        # above, outbound below — which keeps each direction's own avg/max at
+        # the same total height as two separate label+chart stacks.
+        with Vertical(id="section-net", classes="dash-section") as net_sec:
+            net_sec.border_title = "Network"
+            net_sec.display = False
+            yield Static("↓ In 0 B/s", id="net-rx-label", classes="metric-label")
+            yield BrailleChart(
+                glyph_mode=self._chart_glyph,
+                palette=self._palette,
+                id="net-rx-chart",
+                classes="metric-chart",
+            )
+            yield BrailleChart(
+                glyph_mode=self._chart_glyph,
+                palette=self._palette,
+                fill=_FILL_DOWN,
+                id="net-tx-chart",
+                classes="metric-chart",
+            )
+            yield Static("↑ Out 0 B/s", id="net-tx-label", classes="metric-label")
+
+        with Vertical(id="section-disk", classes="dash-section") as disk_sec:
+            disk_sec.border_title = "Disk"
+            disk_sec.display = False
+            yield Static("↓ Read 0 B/s", id="disk-read-label", classes="metric-label")
+            yield BrailleChart(
+                glyph_mode=self._chart_glyph,
+                palette=self._palette,
+                id="disk-read-chart",
+                classes="metric-chart",
+            )
+            yield BrailleChart(
+                glyph_mode=self._chart_glyph,
+                palette=self._palette,
+                fill=_FILL_DOWN,
+                id="disk-write-chart",
+                classes="metric-chart",
+            )
+            yield Static("↑ Write 0 B/s", id="disk-write-label", classes="metric-label")
 
         with Vertical(id="section-power", classes="dash-section") as pwr_sec:
             pwr_sec.border_title = "Power"
@@ -1045,6 +1160,7 @@ class HardwareDashboard(Widget):
         self._net_tx_hist.append(s.net_tx_bps if s.net_available else 0.0)
         self._disk_read_hist.append(s.disk_read_bps if s.disk_available else 0.0)
         self._disk_write_hist.append(s.disk_write_bps if s.disk_available else 0.0)
+        self._append_io_percents()
 
         # Update charts
         chart_data = (
@@ -1054,6 +1170,10 @@ class HardwareDashboard(Widget):
             ("#ane-chart", self._ane_hist),
             ("#ram-chart", self._ram_hist),
             ("#bw-chart", self._bw_hist),
+            ("#net-rx-chart", self._net_rx_pct_hist),
+            ("#net-tx-chart", self._net_tx_pct_hist),
+            ("#disk-read-chart", self._disk_read_pct_hist),
+            ("#disk-write-chart", self._disk_write_pct_hist),
             ("#pkgpwr-chart", self._pkgpwr_hist),
         )
         for widget_id, data in chart_data:
@@ -1153,26 +1273,34 @@ class HardwareDashboard(Widget):
                 f"Mem BW {s.bandwidth_gbps:.1f} GB/s{self._gbps_stats_suffix(self._bw_gbps_hist)}"
             )
 
-        # Network I/O: hide the row when getifaddrs returns no usable counters.
-        # Rates are bytes/s; displayed as human-readable with rolling context.
-        net_label = self.query_one("#net-label", Static)
-        if net_label.display != s.net_available:
-            net_label.display = s.net_available
-        if s.net_available:
-            net_label.update(
-                f"Net ↓ {_format_bps(s.net_rx_bps)} ↑ {_format_bps(s.net_tx_bps)}"
-                f"{self._bps_stats_suffix(self._net_rx_hist, self._net_tx_hist)}"
-            )
+        # Network I/O: hide the section when getifaddrs returns no usable
+        # counters. Rates are bytes/s; displayed as human-readable with rolling
+        # context.
+        self._update_io_section(
+            "#section-net",
+            s.net_available,
+            (
+                ("#net-rx-label", "↓ In", s.net_rx_bps, self._net_rx_hist),
+                ("#net-tx-label", "↑ Out", s.net_tx_bps, self._net_tx_hist),
+            ),
+        )
 
-        # Disk I/O: hide the row when no volume/driver exposes Statistics.
-        disk_label = self.query_one("#disk-label", Static)
-        if disk_label.display != s.disk_available:
-            disk_label.display = s.disk_available
-        if s.disk_available:
-            disk_label.update(
-                f"Disk R {_format_bps(s.disk_read_bps)} W {_format_bps(s.disk_write_bps)}"
-                f"{self._bps_stats_suffix(self._disk_read_hist, self._disk_write_hist)}"
-            )
+        # Disk I/O: hide the section when no volume/driver exposes Statistics.
+        # Read takes the upward half and write the downward one, the same
+        # inbound/outbound axis the network mirror uses.
+        self._update_io_section(
+            "#section-disk",
+            s.disk_available,
+            (
+                ("#disk-read-label", "↓ Read", s.disk_read_bps, self._disk_read_hist),
+                (
+                    "#disk-write-label",
+                    "↑ Write",
+                    s.disk_write_bps,
+                    self._disk_write_hist,
+                ),
+            ),
+        )
 
         # Fan RPM: hide the row entirely on fanless Macs (no SMC fan keys),
         # mirroring the Mem BW hide-on-unavailable pattern above. Per-fan
@@ -1256,16 +1384,71 @@ class HardwareDashboard(Widget):
         avg, mx = self._avg_max(hist)
         return f"  avg {avg:.1f} · max {mx:.1f} GB/s"
 
-    def _bps_stats_suffix(self, rx_hist, tx_hist) -> str:
-        """`  avg ↓ N · ↑ N` context for network/disk byte-rate histories.
+    def _bps_stats_suffix(self, hist) -> str:
+        """`  avg N · max N` context string for a byte-rate history.
 
-        Shows the combined rx+tx average and peak in human-readable form.
-        The suffix is shorter than the per-metric versions because the label
-        already carries two readings (↓/↑ or R/W).
+        One direction per call: each direction now owns a labelled chart row,
+        so the suffix carries that direction's own rolling context (matching
+        every other stats suffix here) instead of a combined rx+tx figure.
         """
-        rx_avg, _ = self._avg_max(rx_hist)
-        tx_avg, _ = self._avg_max(tx_hist)
-        return f"  avg ↓{_format_bps(rx_avg)} ↑{_format_bps(tx_avg)}"
+        avg, mx = self._avg_max(hist)
+        return f"  avg {_format_bps(avg)} · max {_format_bps(mx)}"
+
+    def _append_io_percents(self) -> None:
+        """Append this frame's chart percents for the four I/O rate histories.
+
+        Both directions of a box share one denominator (the rolling peak across
+        rx+tx / read+write), so an upload trickle never renders as tall as a
+        saturating download — the whole point of stacking them in one box is
+        comparison. Called once per frame, after the native-unit deques have
+        been appended, so this frame's rate is included in its own peak.
+        """
+        for pct_hist, rate_hist, other_hist, floor in (
+            (
+                self._net_rx_pct_hist,
+                self._net_rx_hist,
+                self._net_tx_hist,
+                NET_RATE_FLOOR_BPS,
+            ),
+            (
+                self._net_tx_pct_hist,
+                self._net_tx_hist,
+                self._net_rx_hist,
+                NET_RATE_FLOOR_BPS,
+            ),
+            (
+                self._disk_read_pct_hist,
+                self._disk_read_hist,
+                self._disk_write_hist,
+                DISK_RATE_FLOOR_BPS,
+            ),
+            (
+                self._disk_write_pct_hist,
+                self._disk_write_hist,
+                self._disk_read_hist,
+                DISK_RATE_FLOOR_BPS,
+            ),
+        ):
+            peak = max(max(rate_hist), max(other_hist))
+            pct_hist.append(io_rate_percent(rate_hist[-1], peak, floor))
+
+    def _update_io_section(self, section_id: str, available: bool, rows) -> None:
+        """Show/hide one I/O section and refresh its labelled rate rows.
+
+        `rows` is a sequence of `(label_id, prefix, rate_bps, native_hist)`.
+        Availability is effectively constant per session, so `display` is only
+        written on change (the same pattern as Mem BW / Fan); the section starts
+        hidden, so the first available frame is what reveals it.
+        """
+        section = self.query_one(section_id, Vertical)
+        if section.display != available:
+            section.display = available
+        if not available:
+            return
+        for label_id, prefix, rate_bps, native_hist in rows:
+            self.query_one(label_id, Static).update(
+                f"{prefix} {_format_bps(rate_bps)}{self._bps_stats_suffix(native_hist)}"
+            )
 
     def _update_cluster_summary_row(
         self,

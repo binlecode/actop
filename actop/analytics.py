@@ -11,7 +11,16 @@ obtain, not render-time math trapped in the view.
 from collections import deque
 from dataclasses import dataclass
 
-from actop.power_scaling import clamp_percent
+from actop.power_scaling import DEFAULT_AUTO_MULTIPLIER, clamp_percent
+
+# Chart denominator floors for the network / disk I/O rates (bytes/s). Without a
+# floor an idle machine's background chatter (mDNS keepalives, spotlight
+# indexing, APFS journaling) divides by its own peak and paints a full-scale
+# chart — pure noise amplification. Disk sits an order of magnitude higher than
+# net because APFS idles far above network keepalives and NVMe peaks are in the
+# GB/s range.
+NET_RATE_FLOOR_BPS = 1_000_000.0
+DISK_RATE_FLOOR_BPS = 10_000_000.0
 
 
 def attribute_power(share_cpu, share_gpu, cpu_watts, gpu_watts):
@@ -73,6 +82,23 @@ def bandwidth_percent(snapshot, max_total_bw):
     if not snapshot.bandwidth_available:
         return 0
     return clamp_percent(snapshot.bandwidth_gbps / max(max_total_bw, 1.0) * 100)
+
+
+def io_rate_percent(
+    rate_bps, peak_bps, floor_bps, auto_multiplier=DEFAULT_AUTO_MULTIPLIER
+):
+    """Normalize a network/disk byte-rate to a 0-100 chart percent.
+
+    Always auto-scaled: the denominator is the rolling peak plus headroom
+    (the same multiplier `--power-scale auto` uses), floored at `floor_bps`.
+    Unlike `power_to_percent` there is no `profile` mode — no SoC reference
+    throughput exists for a NIC or NVMe controller. Callers pass one peak for
+    both directions of a box so the two charts stay visually comparable.
+    """
+    denominator = max(float(floor_bps), float(peak_bps or 0.0) * auto_multiplier)
+    if denominator <= 0:
+        return 0
+    return clamp_percent(float(rate_bps or 0.0) / denominator * 100.0)
 
 
 def package_power_percent(snapshot, package_ref_w):

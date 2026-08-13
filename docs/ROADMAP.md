@@ -12,11 +12,16 @@ utilization, per-core frequency, memory/bandwidth, thermal state, fan RPM, per-p
 time, SMC die temperatures; NDJSON/Prometheus export; Textual dashboard with sparklines;
 public Python API (`Monitor`, `Profiler`, `AsyncMonitor`); Homebrew + PyPI distribution;
 16 built-in M1–M4 SoC profiles; accessibility palettes (`--palette`). Net/disk I/O
-shipped v1.8.0. No menu-bar mode, no in-app update notice.
+shipped v1.8.0, with their own chart sections since v1.9.0. No menu-bar mode,
+no in-app update notice.
 
 ## State — 2026-08
 
-- **Shipped:** v1.8.0 — **net/disk I/O (N track):** getifaddrs/if_data network +
+- **Shipped:** v1.9.0 — **net/disk chart sections (N2):** the 1.8.0 text rows
+  promoted out of the `Memory` box into their own `Network` / `Disk` sections,
+  each a mirrored in-over-out chart pair, auto-scaled against a shared rolling
+  peak (`analytics.io_rate_percent`, peak x1.25 with a noise floor);
+  v1.8.0 — **net/disk I/O (N track):** getifaddrs/if_data network +
   IOKit AppleAPFSVolume disk rates, surfaced in TUI/NDJSON/Prometheus; plus the
   **reading-plane audit closes (F track):** deprecated `*_gb`/`*_GB`/`rss_mb`/
   `*_gigabytes` aliases and the `--alert-swap-rise-gb` CLI alias removed;
@@ -25,7 +30,7 @@ shipped v1.8.0. No menu-bar mode, no in-app update notice.
   alerts/throttle/session energy reach both backends; v1.7.1 — `--theme` flag +
   live theme cycling; layering cleanup LC-1→LC-3; fan RPM, per-process GPU,
   accessibility palettes, GPU Renderer/Tiler via `IOAccelerator`, reading-plane
-  audit. → `CHANGELOG.md` `[1.2.x]`–`[1.8.0]`
+  audit. → `CHANGELOG.md` `[1.2.x]`–`[1.9.0]`
 - **Board:** one open track — **S** sudo elevation for per-process GPU/energy
   attribution. **First move is S1:** the `--sudo` re-exec + `u`-key password
   modal per `docs/TODO-sudo-mode.md`. **E** (export parity) shipped v1.7.2;
