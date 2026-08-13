@@ -1,8 +1,29 @@
 name: publish-pypi
 run-name: "publish-pypi | ${{ github.event_name == 'workflow_dispatch' && inputs.tag_name || github.ref_name }} | ${{ github.sha }}"
 
-# Publishes the actop package to PyPI on a version tag push using PyPI
-# Trusted Publishing (OIDC) — no API token is stored in the repo.
+# Publishes the actop package to PyPI using PyPI Trusted Publishing (OIDC) —
+# no API token is stored in the repo.
+#
+# MANUAL ONLY — this workflow does NOT run on tag push. Publishing is a
+# deliberate step taken AFTER the tag and its CI have landed, because the
+# automatic form was self-defeating: a tag push started the publish at the same
+# moment the tag appeared, so the run raced the release it was meant to ship and
+# never published against a settled tag. Making it a dispatch that takes the tag
+# as an input removes the ordering problem entirely — the tag already exists and
+# is named explicitly.
+#
+# Publish with (after `scripts/tag_release.sh` and green CI):
+#   gh workflow run publish-pypi.yml --ref vX.Y.Z -f tag_name=vX.Y.Z
+#
+# `--ref` must be the TAG, not a branch: the `pypi` environment's deployment
+# policy only admits refs matching `v*`, so a dispatch from main is rejected
+# before the job starts. Pointing it at the tag satisfies the policy and keeps
+# the "only a tagged commit ever reaches PyPI" guarantee that the old automatic
+# trigger provided.
+#
+# Local fallback, from a clean checkout of the tag (needs a PyPI API token —
+# OIDC is only available to the workflow above):
+#   python -m build && python -m twine upload --skip-existing dist/*
 #
 # One-time PyPI-side setup (do this once, signed in as the project owner):
 #   1. https://pypi.org/manage/account/publishing/  ->  "Add a new pending publisher"
@@ -15,9 +36,6 @@ run-name: "publish-pypi | ${{ github.event_name == 'workflow_dispatch' && inputs
 #   trusted publisher for the project.
 
 on:
-  push:
-    tags:
-      - "v*"
   workflow_dispatch:
     inputs:
       tag_name:
