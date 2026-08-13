@@ -6,6 +6,17 @@ This project follows a Keep a Changelog-style format and uses version tags for r
 
 ## [Unreleased]
 
+### Fixed
+
+- **The process table no longer sits blank after `p`.** Toggling it on cannot
+  produce rows for up to two intervals (~4s at the default): the sample already
+  in flight was started with the process walk off, so the first snapshot back
+  carries no processes. The bordered panel rendered empty for that whole window
+  and read as a broken or hung table. It now shows `collecting process
+  samples…` until the first walk lands — or `paused — press space to resume`
+  when polling is paused, where no sample is coming at all. An empty table with
+  collection running now says `no processes match filter` instead of nothing.
+
 ## [1.9.8] - 2026-08-13
 
 **Skip 1.9.1 through 1.9.7 — install this one instead.** Those seven were cut in

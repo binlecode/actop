@@ -491,8 +491,15 @@ class BrailleChart(Widget):
 class MetricsUpdated(Message):
     """Posted by ActopApp when a new hardware snapshot is ready."""
 
-    def __init__(self, snapshot: SystemSnapshot) -> None:
+    def __init__(
+        self, snapshot: SystemSnapshot, processes_included: bool = False
+    ) -> None:
         self.snapshot = snapshot  # sole frame contract (RAM/swap/processes on it)
+        # Whether the worker asked for a process walk on this tick. `processes`
+        # is [] both when collection was off and when the filter matched
+        # nothing, so the flag is what lets the table tell "still collecting"
+        # apart from "nothing matched" instead of rendering a blank panel.
+        self.processes_included = processes_included
         super().__init__()
 
 
