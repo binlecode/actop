@@ -205,6 +205,13 @@ dist, src, out = (pathlib.Path(a) for a in sys.argv[1:4])
 html = (dist / "index.html").read_text()
 rel = os.path.relpath(src.resolve(), out.parent.resolve())
 
+# Drop the build stamp. The snapshot is committed, so it must be byte-stable
+# for a given source + version — the stamp carries a commit hash and a
+# timestamp that change on every run, which would dirty the working tree on
+# every build and permanently trip this skill's own clean-tree gate. The
+# published dist keeps its stamp; only the committed copy sheds it.
+html = re.sub(r'\A<!-- repo:[^\n]*-->\n', '', html, count=1)
+
 SKIP = re.compile(r'^(?:[a-z][a-z0-9+.-]*:|//|#|\.\.?/)', re.I)
 
 def repoint(m):
