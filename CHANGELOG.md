@@ -6,6 +6,23 @@ This project follows a Keep a Changelog-style format and uses version tags for r
 
 ## [Unreleased]
 
+## [1.9.5] - 2026-08-12
+
+### Changed
+
+- **`build-cover-dist.sh` now emits the local cover snapshot itself**
+  (`LOCAL_COPY`, default `docs/cover.html`), removing the manual sync step that
+  produced two bugs in a row: a copy several versions behind, and a hero image
+  that never resolved. Hand-maintaining it could not work — the version badge is
+  injected at build time, so an edited duplicate is stale as soon as the version
+  moves, and because the copy lands outside `dist-cover/` its relative asset
+  paths dangle.
+  The new phase runs after the secret scan (so a snapshot is never written with
+  a leak the scan would have rejected) and re-points each asset reference at
+  `COVER_SRC`, computed relative to wherever the copy lands. Anchors, absolute
+  URLs, and references that do not resolve in the source tree are left alone
+  rather than silently rewritten. `LOCAL_COPY=""` skips the phase.
+
 ## [1.9.4] - 2026-08-12
 
 ### Fixed
