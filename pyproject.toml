@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "actop"
-version = "1.9.4"
+version = "1.9.5"
 description = "Apple Silicon (M1–M4) power, GPU, ANE & memory-bandwidth monitor — sudoless TUI + Python API for profiling local LLM / MLX / CoreML inference"
 readme = "README.md"
 license = { text = "MIT" }

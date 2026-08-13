@@ -8,6 +8,11 @@ COVER_SRC="${COVER_SRC:-cover}"
 COVER_DIST="${COVER_DIST:-dist-cover}"
 MAX_GIF_SIZE_MB="${MAX_GIF_SIZE_MB:-5}"
 SKIP_SECRET_SCAN="${SKIP_SECRET_SCAN:-0}"
+# Repo-relative path for a committed, browsable snapshot of the built page.
+# Set to "" to skip. This exists because a hand-maintained copy cannot stay
+# correct: the version badge is injected here at build time, so any manually
+# edited duplicate is stale the moment the version moves.
+LOCAL_COPY="${LOCAL_COPY:-docs/cover.html}"
 
 RED='\033[0;31m'
 GREEN='\033[0;32m'
@@ -181,6 +186,39 @@ else:
     print('  clean')
 " 2>&1) || die "secret scan found ${HITS} potential leak(s) — remove secrets from source and rebuild (or set SKIP_SECRET_SCAN=1)"
     echo "$HITS"
+fi
+
+# ── local copy ──────────────────────────────────────────────────────────────
+# Emitted AFTER the secret scan so a copy is never committed with a leak the
+# scan would have rejected. Asset references are re-pointed at COVER_SRC:
+# the copy lands outside COVER_DIST, so every relative src/href in it would
+# otherwise dangle (this is exactly how docs/cover.html shipped a broken hero
+# image). Only index.html is mirrored — the copy is a browsable snapshot, not
+# a second dist.
+
+if [ -n "$LOCAL_COPY" ]; then
+    say "emitting local copy → ${LOCAL_COPY}"
+    python3 - "$COVER_DIST" "$COVER_SRC" "$REPO_ROOT/$LOCAL_COPY" <<'PY'
+import os, pathlib, re, sys
+
+dist, src, out = (pathlib.Path(a) for a in sys.argv[1:4])
+html = (dist / "index.html").read_text()
+rel = os.path.relpath(src.resolve(), out.parent.resolve())
+
+SKIP = re.compile(r'^(?:[a-z][a-z0-9+.-]*:|//|#|\.\.?/)', re.I)
+
+def repoint(m):
+    attr, val = m.group(1), m.group(2)
+    if SKIP.match(val):
+        return m.group(0)
+    # Only rewrite refs that actually resolve inside the source tree; anything
+    # else is left untouched rather than silently pointed somewhere wrong.
+    return f'{attr}="{rel}/{val}"' if (src / val).is_file() else m.group(0)
+
+out.parent.mkdir(parents=True, exist_ok=True)
+out.write_text(re.sub(r'\b(src|href)="([^"]+)"', repoint, html))
+print(f"  assets re-pointed at {rel}/")
+PY
 fi
 
 # ── manifest + summary ──────────────────────────────────────────────────────

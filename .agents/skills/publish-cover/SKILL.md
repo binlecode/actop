@@ -81,6 +81,7 @@ What the script does deterministically:
 | Stamp | `<!-- repo:<hash> built:<ISO-8601> -->` in every `.html` |
 | Validate | Every `.gif` in dist: max file size, nonzero frame count |
 | Scan | Secret scan across all dist files (rejects on match) |
+| Local copy | Writes `LOCAL_COPY` — a committed, browsable snapshot of the built page |
 | Report | Manifest + per-file sizes to stdout |
 
 **Env overrides:**
@@ -91,6 +92,17 @@ What the script does deterministically:
 | `COVER_DIST` | `dist-cover/` | Build output |
 | `MAX_GIF_SIZE_MB` | `5` | Reject gifs larger than this |
 | `SKIP_SECRET_SCAN` | `0` | `1` = bypass (escape hatch) |
+| `LOCAL_COPY` | `docs/cover.html` | Repo-relative snapshot of the built page; `""` skips |
+
+**On `LOCAL_COPY`:** do not hand-maintain a duplicate of the cover. The version
+badge is injected *at build time*, so any manually edited copy is stale the
+moment the version moves — and because the copy lands outside `COVER_DIST`, its
+relative asset paths dangle (`docs/cover.html` shipped a broken hero image for
+exactly this reason). The build emits it after the secret scan and re-points
+each asset reference at `COVER_SRC`, relative to wherever the copy lands.
+Anchors, absolute URLs, and refs that do not resolve in the source tree are
+left untouched. Only `index.html` is mirrored — it is a snapshot, not a second
+dist. Commit the result; never edit it by hand.
 
 ### Step 2 — Audit
 
