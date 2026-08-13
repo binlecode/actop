@@ -6,6 +6,45 @@ This project follows a Keep a Changelog-style format and uses version tags for r
 
 ## [Unreleased]
 
+## [1.9.0] - 2026-08-12
+
+### Changed
+
+- **Net / disk I/O get their own chart sections** (N2). The rates shipped in
+  1.8.0 as two plain text rows tacked onto the bottom of the `Memory` box — the
+  only telemetry in the dashboard with no history rendering, and mis-filed
+  (network throughput is not a memory metric). They now own two sibling
+  sections, `Network` and `Disk`, each drawing a **mirrored pair** of charts —
+  the inbound trace (`↓ In` / `↓ Read`) grows upward and the outbound one
+  (`↑ Out` / `↑ Write`) hangs downward directly beneath it, so the seam where
+  they meet reads as a shared zero axis (the btop/vnstat convention) without
+  spending a row drawing one. Labels sandwich the pair, so each direction keeps
+  its own `avg · max` at the same box height two separate label+chart stacks
+  would cost:
+  - The grid preset gains a third paired row (`Network` | `Disk`); `Power`
+    keeps its full-width span beneath them. Each section hides itself entirely
+    when the platform reports no counters, so `Power` closes the gap on a
+    machine without them.
+  - Charts are always auto-scaled — there is no SoC reference throughput for a
+    NIC or NVMe controller, so `--power-scale profile` has no analogue here.
+    New L2 helper `analytics.io_rate_percent()` divides by
+    `max(floor, rolling_peak x1.25)`, reusing the multiplier `--power-scale
+    auto` already uses. Both directions of a box share one denominator, so an
+    upload trickle never renders as tall as a saturating download.
+  - New floors `NET_RATE_FLOOR_BPS` (1 MB/s) and `DISK_RATE_FLOOR_BPS`
+    (10 MB/s) stop idle background chatter (mDNS keepalives, APFS journaling)
+    from dividing by itself and painting a full-scale chart.
+  - Each direction now carries its own `avg N · max N` context, replacing the
+    combined `avg ↓N ↑N` suffix of the single-row form.
+  - `BrailleChart` gains a `fill` direction. `down` anchors the trace at the
+    top edge via a second cumulative bit table — exact in `dots` mode; in
+    `block` mode the downward half quantizes to 2 levels per row, since Block
+    Elements ships only `▀` and `█` as upper fills and the quarter-blocks at
+    U+1FB82/U+1FB85 are missing from many terminal fonts.
+  - No alert threshold added: neither bus has a knowable ceiling to saturate
+    against, so `AlertEngine` is untouched. Export output is unchanged — this
+    is a presentation-only change.
+
 ## [1.8.0] - 2026-08-12
 
 ### Added

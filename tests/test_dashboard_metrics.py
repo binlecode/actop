@@ -180,10 +180,15 @@ async def _drive(snapshots, config=None):
             "bw_label": str(dash.query_one("#bw-label", Static).render()),
             "bw_label_display": dash.query_one("#bw-label", Static).display,
             "bw_chart_display": dash.query_one("#bw-chart", BrailleChart).display,
-            "net_label": str(dash.query_one("#net-label", Static).render()),
-            "net_label_display": dash.query_one("#net-label", Static).display,
-            "disk_label": str(dash.query_one("#disk-label", Static).render()),
-            "disk_label_display": dash.query_one("#disk-label", Static).display,
+            "net_rx_label": str(dash.query_one("#net-rx-label", Static).render()),
+            "net_tx_label": str(dash.query_one("#net-tx-label", Static).render()),
+            "net_section_display": dash.query_one("#section-net").display,
+            "net_rx_chart": list(dash.query_one("#net-rx-chart", BrailleChart).data),
+            "disk_read_label": str(dash.query_one("#disk-read-label", Static).render()),
+            "disk_write_label": str(
+                dash.query_one("#disk-write-label", Static).render()
+            ),
+            "disk_section_display": dash.query_one("#section-disk").display,
             "fan_label": str(dash.query_one("#fan-label", Static).render()),
             "fan_label_display": dash.query_one("#fan-label", Static).display,
             "gpu_label": str(dash.query_one("#gpu-label", Static).render()),
@@ -257,38 +262,52 @@ def test_mem_bw_row_hidden_when_bandwidth_unavailable():
     assert state["bw_chart_display"] is False
 
 
-def test_net_disk_rows_show_rates_when_available():
-    # Net/disk ride the same snapshot contract as Mem BW: byte rates surfaced
-    # as human-readable decimal throughput (↓/↑, R/W), rows visible only when
-    # the underlying readers reported usable counters.
+def test_net_disk_sections_show_rates_and_scaled_charts_when_available():
+    # Net/disk own titled sections with a chart per direction. Two samples: the
+    # first sets the rolling peak (100 MB/s rx), the second drops to a quarter
+    # of it. The labels must carry the live rate + session max in decimal
+    # throughput, and the charts must carry *percents* against the shared
+    # peak-based denominator (peak x1.25) — 100 MB/s -> 80%, 25 MB/s -> 20%.
+    # A chart wired to the native-unit deque instead of the percent deque would
+    # ship 1e8 here and render permanently full-scale; only a two-sample
+    # assertion catches that.
+    def snap(net_rx, net_tx, disk_r, disk_w):
+        return _snapshot(
+            120.0,
+            True,
+            net_rx_bps=net_rx,
+            net_tx_bps=net_tx,
+            net_available=True,
+            disk_read_bps=disk_r,
+            disk_write_bps=disk_w,
+            disk_available=True,
+        )
+
     state = asyncio.run(
         _drive(
             [
-                _snapshot(
-                    120.0,
-                    True,
-                    net_rx_bps=1_500_000,  # 1.5 MB/s
-                    net_tx_bps=750_000,  # 750 KB/s
-                    net_available=True,
-                    disk_read_bps=25_000_000,  # 25 MB/s
-                    disk_write_bps=500_000,  # 500 KB/s
-                    disk_available=True,
-                )
+                snap(100_000_000, 750_000, 400_000_000, 500_000),
+                snap(25_000_000, 750_000, 100_000_000, 500_000),
             ]
         )
     )
-    assert state["net_label_display"] is True
-    assert "Net ↓ 1.5 MB/s ↑ 750.0 KB/s" in state["net_label"]
-    assert state["disk_label_display"] is True
-    assert "Disk R 25.0 MB/s W 500.0 KB/s" in state["disk_label"]
+    assert state["net_section_display"] is True
+    assert "↓ In 25.0 MB/s" in state["net_rx_label"]
+    assert "max 100.0 MB/s" in state["net_rx_label"]
+    assert "↑ Out 750.0 KB/s" in state["net_tx_label"]
+    assert state["disk_section_display"] is True
+    assert "↓ Read 100.0 MB/s" in state["disk_read_label"]
+    assert "max 400.0 MB/s" in state["disk_read_label"]
+    assert "↑ Write 500.0 KB/s" in state["disk_write_label"]
+    assert list(state["net_rx_chart"])[-2:] == [80, 20]
 
 
-def test_net_disk_rows_hidden_when_unavailable():
-    # No usable counters: hide the rows rather than show a phantom 0 B/s,
-    # the same hide-row contract the Mem BW / Fan rows honour.
+def test_net_disk_sections_hidden_when_unavailable():
+    # No usable counters: hide the whole section rather than show a phantom
+    # 0 B/s box, the same hide-on-unavailable contract Mem BW / Fan honour.
     state = asyncio.run(_drive([_snapshot(120.0, True)]))
-    assert state["net_label_display"] is False
-    assert state["disk_label_display"] is False
+    assert state["net_section_display"] is False
+    assert state["disk_section_display"] is False
 
 
 def test_renderer_tiler_row_shows_driver_split_when_available():

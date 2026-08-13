@@ -172,8 +172,8 @@ SDK bump.
 
 **Availability** — `net_available`/`disk_available` on `SystemSnapshot` mirror
 `bandwidth_available`: `False` (with zeroed rates) on non-Darwin or when no
-usable counters exist; the TUI hides the row rather than render a phantom
-`0 B/s`. `hw.memsize`/`hw.pagesize` are module-cached (fixed until reboot) so
+usable counters exist; the TUI hides the whole `Network` / `Disk` section
+(§6.5) rather than render a phantom `0 B/s`. `hw.memsize`/`hw.pagesize` are module-cached (fixed until reboot) so
 the per-tick sysctl floor stays low under the added reader calls.
 
 ---
@@ -331,12 +331,21 @@ Keybindings: `q` quit, `Space` pause, `s` sort, `g` glyph toggle, `l` layout
 cycle (grid/stack), `c` cores toggle, `p` process table, `t` theme cycle
 (8 themes), `/` regex filter, `?` help.
 
+`grid` is four rows: P-CPU | E-CPU, GPU·ANE | Memory, Network | Disk, then
+Power spanning both columns. Paired boxes are height-matched so their bottom
+borders align; below `_GRID_MIN_WIDTH` (96 cols) grid degrades to `stack`.
+
 All letter actions answer uppercase (Caps Lock/Shift — same Textual key).
 
 ### 6.2 Sparklines (`BrailleChart`)
 
 Unicode Braille (`⠀`–`⣿`, 2 samples/char in `dots` mode) or
-Block (`▂`–`█`, 1 sample/char in `block` mode). Color gradient:
+Block (`▂`–`█`, 1 sample/char in `block` mode). `fill="down"` mirrors the
+trace about its top edge (top-anchored, hanging downward) — used for the lower
+half of the I/O mirror charts (§6.5). In `dots` the mirror is exact (a second
+cumulative bit table); in `block` the downward half quantizes to 2 levels per
+row, since Block Elements ships only `▀` and `█` as upper fills and the
+quarter-blocks at U+1FB82/U+1FB85 are absent from many terminal fonts. Color gradient:
 blue→red, with palette selection (`thermal`/`viridis`/`mono` via
 `--palette`) and terminal-color-tier degradation (truecolor→256→16→none,
 honoring `NO_COLOR`).
@@ -360,7 +369,32 @@ sustain-counted (default 3 samples). Session energy displayed as
 status-line tokens (`span`, `energy`, `THERMAL`, `THROTTLING:CPU/GPU`,
 `MEM-BOUND>`, `PKG>`, `SWAP+`), and `NO_COLOR` behavior.
 
-### 6.5 Per-process power attribution (`PWR`)
+### 6.5 Network / Disk I/O sections
+
+Two titled sections (`Network`, `Disk`), each a **mirrored pair**: the
+inbound chart (`↓ In` / `↓ Read`) fills upward and the outbound one
+(`↑ Out` / `↑ Write`) is stacked directly beneath it filling downward, so the
+seam between them reads as a shared zero axis without spending a row drawing
+one (the btop/vnstat convention). Labels sandwich the pair — inbound above,
+outbound below — so each direction keeps its own `avg N · max N` at the same
+box height two separate label+chart stacks would cost. Both start hidden and
+are revealed by the first snapshot reporting `net_available` /
+`disk_available`; a machine with no counters never shows an empty box. The two
+hide independently: when only one reports counters the survivor occupies the
+left grid column at half width, which is accepted rather than span-corrected
+(a runtime `column-span` toggle for a rare case is not worth the machinery).
+
+Charts are **always** auto-scaled — there is no SoC reference throughput for a
+NIC or NVMe controller, so `--power-scale profile` has no analogue here.
+`analytics.io_rate_percent(rate, peak, floor)` divides by
+`max(floor, rolling_peak x1.25)`, where the peak spans **both directions** of a
+box so ↓/↑ stay visually comparable. The floors
+(`NET_RATE_FLOOR_BPS` = 1 MB/s, `DISK_RATE_FLOOR_BPS` = 10 MB/s) exist to stop
+idle background chatter (mDNS keepalives, APFS journaling) from dividing by
+itself and painting a full-scale chart. No alert threshold: neither bus has a
+knowable ceiling to saturate against, so `AlertEngine` is not involved.
+
+### 6.6 Per-process power attribution (`PWR`)
 
 CPU: `PWR_cpu = (pid CPU-time Δ / Σ CPU-time Δ) × cpu_watts`.
 GPU: `gpu_registry.get_gpu_time_by_pid()` → per-pid GPU-time Δ / Σ GPU-time Δ.

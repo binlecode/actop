@@ -123,9 +123,9 @@ HELP_TEXT = """\
 [b]Layout presets[/b]
 
   grid       Two columns (default): P-CPU / E-CPU cluster boxes share the top
-             row, GPU·ANE / Memory the next, and Power spans the full width
-             beneath. Fits short terminals without scrolling. Falls back to
-             stack automatically under ~96 cols.
+             row, GPU·ANE / Memory the next, Network / Disk the third, and
+             Power spans the full width beneath. Fits short terminals without
+             scrolling. Falls back to stack automatically under ~96 cols.
   stack      Single full-width column — longest chart history span; scrolls
              on tall dashboards while the status line stays fixed.
 
@@ -147,12 +147,21 @@ HELP_TEXT = """\
   ANE             Apple Neural Engine util% (estimated) and power
   RAM             Used / total memory (and swap when active)
   Mem BW          Unified-memory bandwidth in GB/s (hidden if unavailable)
+  ↓ In / ↑ Out    Network receive / transmit throughput (Network box)
+  ↓ Read / ↑ Write  Disk read / write throughput (Disk box)
   CPU / GPU       Live CPU/GPU rail power (W) with an inline sparkline
   Package Power   Total SoC power draw in watts (CPU + GPU + ANE + other rails)
   idle/low/mid/high  DVFS residency: % of time since the last sample spent
              idle vs. below 40% / 40-74% / ≥75% of the cluster's max
              frequency (not just the instantaneous clock). Hidden with
              --no-show-residency
+
+  Both I/O boxes draw a mirrored pair of charts: the inbound trace grows up
+  from the middle, the outbound one hangs down from it, so the seam where they
+  meet is a shared zero axis. Both directions share one scale, always
+  auto-scaled against this session's rolling peak rather than a fixed ceiling
+  (there is no reference throughput for a NIC or SSD). Each box hides itself
+  entirely when no counters are available.
 
 [b]Process table[/b]
 

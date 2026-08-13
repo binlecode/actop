@@ -8,7 +8,14 @@ contracts on the returned `AlertFrame`s. No mocks, no private access: `feed()`
 is the public entrypoint and `AlertFrame` fields are the public output.
 """
 
-from actop.analytics import AlertEngine, AlertFrame, domain_throttling
+from actop.analytics import (
+    DISK_RATE_FLOOR_BPS,
+    NET_RATE_FLOOR_BPS,
+    AlertEngine,
+    AlertFrame,
+    domain_throttling,
+    io_rate_percent,
+)
 from actop.models import SystemSnapshot
 
 _IDLE_RESIDENCY = {"idle": 100, "low": 0, "mid": 0, "high": 0}
@@ -229,3 +236,20 @@ def test_package_power_ceiling_ratchets_up_and_never_back_down():
     # ratcheted reference, not the static construction-time floor.
     frame = engine.feed(_snapshot(package_watts=78.0))
     assert frame.pkg_alert is True
+
+
+def test_io_rate_percent_floor_keeps_idle_chatter_off_full_scale():
+    # The I/O charts are always auto-scaled against their own rolling peak, so
+    # without a floor an idle machine's background chatter (mDNS keepalives,
+    # APFS journaling) would divide by itself and paint a full-scale chart —
+    # the noise-amplification failure the floors exist to prevent.
+    #
+    # Idle: 20 KB/s peaking at 20 KB/s stays near the baseline because the
+    # 1 MB/s net floor, not the peak, wins the denominator.
+    assert io_rate_percent(20_000.0, 20_000.0, NET_RATE_FLOOR_BPS) == 2
+    # Real traffic above the floor scales against peak x1.25, so a sample *at*
+    # the session peak lands at 80% and leaves headroom for a higher one.
+    assert io_rate_percent(100_000_000.0, 100_000_000.0, NET_RATE_FLOOR_BPS) == 80
+    # Disk's floor is an order of magnitude higher (APFS idles far above
+    # network keepalives), so the same 20 KB/s reads as flat there.
+    assert io_rate_percent(20_000.0, 20_000.0, DISK_RATE_FLOOR_BPS) == 0
