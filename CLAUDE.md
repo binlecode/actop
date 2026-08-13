@@ -48,7 +48,7 @@ This file is the single source of truth for repository guidelines, used by Claud
 
 ## Release Process
 
-`main` is **PR-only** (branch protection + `.githooks/pre-commit` redaction check and `.githooks/pre-push` guard; run `git config core.hooksPath .githooks` once). The Homebrew formula lives in the separate tap repo `binlecode/homebrew-actop` (not this repo); CI syncs it on tag and publishes to PyPI via OIDC. CI/CD mechanics are owned by the workflow files themselves (`.github/workflows/main-ci.yml`, `release-formula.yml`, `publish-pypi.yml`, `guard-release.yml`) — each carries its one-time setup inline. `guard-release.yml` is the post-push integrity gate: every tag push triggers a scan that verifies every `v*` tag has a corresponding GitHub Release object, catching the "silent link breakage" that caused the v0.8.7–v1.6.6 release-object gap.
+`main` is **PR-only** (branch protection + `.githooks/pre-commit` redaction check and `.githooks/pre-push` guard; run `git config core.hooksPath .githooks` once). The Homebrew formula lives in the separate tap repo `binlecode/homebrew-actop` (not this repo); CI syncs it on tag. **PyPI publishing is NOT part of the tag flow** — it is a manual step taken after the tag and its CI have landed (`gh workflow run publish-pypi.yml --ref vX.Y.Z -f tag_name=vX.Y.Z`). The old tag-triggered publish raced the tag that started it and shipped against an unsettled ref; a dispatch naming the tag explicitly has no such ordering problem. CI/CD mechanics are owned by the workflow files themselves (`.github/workflows/main-ci.yml`, `release-formula.yml`, `publish-pypi.yml`, `guard-release.yml`) — each carries its one-time setup inline. `guard-release.yml` is the post-push integrity gate: every tag push triggers a scan that verifies every `v*` tag has a corresponding GitHub Release object, catching the "silent link breakage" that caused the v0.8.7–v1.6.6 release-object gap.
 
 **RULE — cutting a release REQUIRES a GitHub Release, not just a tag.** A release is cut with `scripts/tag_release.sh`, which pushes the git tag **and** creates the GitHub Release for it via `gh release create` (release notes pulled from the matching `CHANGELOG.md` section). A bare `git tag` + push is **not** a release: it never surfaces on the `/releases` page or as `Latest`, and leaves the Releases history silently behind the code. Never cut a release by hand-tagging alone — if the `gh release create` step fails, finish it manually (see playbooks below) before calling the release cut done.
 
@@ -74,10 +74,15 @@ git checkout main && git pull --ff-only
 # 4. Cut the release — tag + GitHub Release (RULE: tag alone is not a release)
 scripts/tag_release.sh "X.Y.Z"
 
-# 5. Monitor CI — wait for release-formula and publish-pypi to pass
+# 5. Monitor CI — wait for release-formula and guard-release to pass
 gh run list -R binlecode/actop --limit 10
 
-# 6. Verify
+# 6. Publish to PyPI — MANUAL, only after the tag exists and CI is green.
+#    --ref must be the tag: the `pypi` environment admits only `v*` refs.
+gh workflow run publish-pypi.yml --ref "vX.Y.Z" -f tag_name="vX.Y.Z"
+gh run watch -R binlecode/actop "$(gh run list -R binlecode/actop --workflow publish-pypi.yml --limit 1 --json databaseId --jq '.[0].databaseId')"
+
+# 7. Verify
 pipx install actop && actop --version                # PyPI
 brew update && brew upgrade binlecode/actop/actop    # Homebrew (tap repo synced)
 ```
@@ -96,12 +101,12 @@ brew update && brew upgrade binlecode/actop/actop    # Homebrew (tap repo synced
   Never leave a release cut as a bare tag — verify it appears on `/releases` before moving on.
 - **`release-formula` fails with tag/version mismatch:** tag `vX.Y.Z` doesn't match `pyproject.toml` in the tag commit. Fix in a new PR, merge, then create a **new** tag (never reuse the old tag).
 - **`release-formula` fails at tap checkout/push:** missing or under-scoped `HOMEBREW_TAP_TOKEN`. Confirm the secret exists on `binlecode/actop` and the PAT has **Contents: Read/write** on `binlecode/homebrew-actop`. Re-run the failed job.
-- **`publish-pypi` fails with OIDC / trusted-publisher error:** verify the trusted publisher on pypi.org matches repo `binlecode/actop`, workflow `publish-pypi.yml`, environment `pypi`; confirm the run is from a `v*` tag (the `pypi` environment's deploy policy is tag-only). `skip-existing` makes re-runs safe. **Break-glass:** publish that version manually with the token-driven Flow B (`twine upload --skip-existing`), then restore OIDC for subsequent releases.
+- **`publish-pypi` fails with OIDC / trusted-publisher error:** verify the trusted publisher on pypi.org matches repo `binlecode/actop`, workflow `publish-pypi.yml`, environment `pypi`; confirm the dispatch used `--ref vX.Y.Z` (the `pypi` environment's deploy policy is tag-only, so a dispatch from `main` is rejected before the job starts). `skip-existing` makes re-runs safe. **Break-glass:** publish that version manually with the token-driven Flow B (`twine upload --skip-existing`), then restore OIDC for subsequent releases.
 - **Emergency rerun without resource refresh:** `workflow_dispatch` on `release-formula` with `refresh_resources=false` as a temporary workaround; follow up with a normal run (`refresh_resources=true`).
 
 ### PyPI publishing — two flows
 
-OIDC Trusted Publishing is the default (no stored secret; the `pypi` environment on `binlecode/actop` is tag-only, and the workflow file documents the one-time publisher registration). The token-driven flow is the fallback / bootstrap and the only place a long-lived PyPI credential appears:
+OIDC Trusted Publishing is the default (no stored secret; the `pypi` environment on `binlecode/actop` is tag-only, and the workflow file documents the one-time publisher registration). It is **dispatched manually against the tag**, never fired by the tag push. The token-driven flow is the fallback / bootstrap and the only place a long-lived PyPI credential appears:
 
 ```bash
 python -m build                       # produces dist/*.tar.gz and dist/*.whl
@@ -229,7 +234,7 @@ a mount point, not a fake); faking the data or the logic under test is not.
 
 ## Commit & Pull Request Guidelines
 - **Branch from `main`; PR strictly into `main`.** Every branch forks from `main` and targets `main`. **Never fork a feature branch off another feature branch** (no stacked PRs): if you need work that is still on an unmerged branch, wait for it to merge and re-branch from `main`. This holds especially for CI/CD and release changes — they land via a single PR into `main`, never a chained branch.
-- **Bump the version in every PR.** Each PR updates `pyproject.toml` version + moves `CHANGELOG.md` `[Unreleased]` into a new dated section, in the same PR: **patch bump by default, minor only for a milestone PR** (major reserved for breaking API/CLI changes). Tagging (`scripts/tag_release.sh`) is a separate step after merge and is what publishes — see the Release Process section above.
+- **Bump the version in every PR.** Each PR updates `pyproject.toml` version + moves `CHANGELOG.md` `[Unreleased]` into a new dated section, in the same PR: **patch bump by default, minor only for a milestone PR** (major reserved for breaking API/CLI changes). Tagging (`scripts/tag_release.sh`) is a separate step after merge; publishing to PyPI is a third, manual step after that — see the Release Process section above.
 - Use concise, imperative commit subjects (as seen in history), e.g. `Add support for M1 Ultra` or `actop/utils.py: add bandwidth of M2`.
 - Keep commits scoped to one logical change.
 - Before every commit and before every push, always run:

@@ -6,6 +6,31 @@ This project follows a Keep a Changelog-style format and uses version tags for r
 
 ## [Unreleased]
 
+## [1.9.2] - 2026-08-12
+
+### Changed
+
+- **PyPI publishing left the tag flow — it is now a manual, post-tag step.**
+  `publish-pypi.yml` no longer triggers on `push: tags`; it is
+  `workflow_dispatch` only, taking the tag as an input:
+  `gh workflow run publish-pypi.yml --ref vX.Y.Z -f tag_name=vX.Y.Z`.
+  The automatic form was self-defeating — the tag push started the publish at
+  the moment the tag appeared, so the run raced the release it was meant to
+  ship rather than publishing a settled one. Dispatching against a tag that
+  already exists removes the ordering problem entirely, and because the `pypi`
+  environment admits only `v*` refs, the "only a tagged commit reaches PyPI"
+  guarantee is preserved rather than weakened. OIDC trusted publishing is
+  unchanged; no token is introduced.
+- **Hero GIF re-recorded for the v1.9.x dashboard** (`images/actop-demo.gif`),
+  and the recording tape now pins the binary it records. The tape typed a bare
+  `actop`, which resolved to whatever was installed on `PATH` — it had been
+  capturing a stale Homebrew build with no Network/Disk sections at all. It now
+  requires `.venv/bin/actop`. The capture moved to the default `grid` layout at
+  1800x930 (stack pushed the two new I/O boxes below the fold) and covers the
+  mirrored Network/Disk pair, per-core panels, both glyph modes, the process
+  table with watt attribution, and the theme cycle.
+- Cover page: net/disk feature card now describes the mirrored charts.
+
 ## [1.9.1] - 2026-08-12
 
 ### Fixed
