@@ -6,6 +6,8 @@ This project follows a Keep a Changelog-style format and uses version tags for r
 
 ## [Unreleased]
 
+## [1.9.9] - 2026-08-13
+
 ### Fixed
 
 - **The process table no longer sits blank after `p`.** Toggling it on cannot
