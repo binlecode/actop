@@ -6,6 +6,22 @@ This project follows a Keep a Changelog-style format and uses version tags for r
 
 ## [Unreleased]
 
+## [1.9.1] - 2026-08-12
+
+### Fixed
+
+- **`guard-release` never actually guarded anything.** Both `gh api` calls in
+  the workflow ran un-paginated, and the REST API returns 30 items per page.
+  With 90 tags and only the newest 30 releases visible, the guard reported the
+  60 older tags as having no GitHub Release object — every release from v1.6.9
+  through v1.9.0 failed the gate on phantom findings while every tag in fact
+  had its release. A permanently-red integrity gate reports nothing, so the
+  one real failure it exists to catch (a bare `git tag` push that skips
+  `tag_release.sh`) would have been invisible in the noise. Added `--paginate`
+  to both calls: `/releases` so the comparison set is complete, and
+  `git/refs/tags` so the tag list does not silently truncate past its own page
+  cap later — a false negative being the worse failure mode for a guard.
+
 ## [1.9.0] - 2026-08-12
 
 ### Changed

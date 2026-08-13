@@ -25,8 +25,15 @@ jobs:
         run: |
           set -euo pipefail
 
-          TAGS="$(gh api "repos/${GH_REPO}/git/refs/tags" --jq '.[].ref | ltrimstr("refs/tags/")' | grep '^v' | sort -V)"
-          RELEASES="$(gh api "repos/${GH_REPO}/releases" --jq '.[].tag_name' | sort -V | uniq)"
+          # --paginate is load-bearing on BOTH calls: the REST API returns 30
+          # items per page, so an un-paginated /releases sees only the newest 30
+          # and reports every older tag as missing (this guard was red from
+          # v1.6.9 to v1.9.0 for exactly that reason — 90 tags vs 30 visible
+          # releases = 60 phantom failures). The tags endpoint returns all 90
+          # today, but will start silently under-checking past its own page cap,
+          # which is the worse failure for an integrity gate: a false negative.
+          TAGS="$(gh api --paginate "repos/${GH_REPO}/git/refs/tags" --jq '.[].ref | ltrimstr("refs/tags/")' | grep '^v' | sort -V)"
+          RELEASES="$(gh api --paginate "repos/${GH_REPO}/releases" --jq '.[].tag_name' | sort -V | uniq)"
 
           missing=()
           while IFS= read -r tag; do
