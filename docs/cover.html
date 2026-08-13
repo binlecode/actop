@@ -1,11 +1,11 @@
-<!-- repo:c53e879 built:2026-08-12T17:30:00Z -->
+<!-- repo:8feed7b built:2026-08-13T03:41:41Z -->
 <!DOCTYPE html>
 <html lang="en">
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>actop — Apple Silicon performance monitor</title>
-<meta name="description" content="actop is a sudoless, in-process performance monitor for M1–M4 Macs: CPU/GPU/ANE utilization, per-core frequency, memory bandwidth, power, and thermals — plus a Python API for profiling your own LLM / MLX / CoreML workloads.">
+<meta name="description" content="actop is a sudoless, in-process performance monitor for M1–M4 Macs: CPU/GPU/ANE utilization, per-core frequency, memory bandwidth, network/disk I/O, power, and thermals — plus a Python API for profiling your own LLM / MLX / CoreML workloads.">
 <style>
   :root {
     --bg: #0d1117;
@@ -166,14 +166,14 @@
 
 <section class="hero">
   <div class="wrap">
-    <span class="badge">v1.9.0</span>
+    <span class="badge">v1.9.4</span>
     <h1>actop<span>.</span></h1>
     <p class="tagline">
       Watch your Apple Silicon Mac the way it actually works — <strong>sudoless</strong>,
       in-process, for M1–M4.
     </p>
     <div class="demo">
-      <img src="actop-demo.gif" alt="actop live during a llama.cpp inference run: E-CPU/P-CPU/GPU/ANE utilization, per-core frequency, memory bandwidth, and power charts on Apple Silicon">
+      <img src="../images/actop-demo.gif" alt="actop live during a llama.cpp inference run: E-CPU/P-CPU/GPU/ANE utilization, per-core frequency, memory bandwidth, and power charts on Apple Silicon">
       <div class="caption">Live under a local llama.cpp run — the stack layout with braille then block sparklines, then the process panel with its watt-attributed PWR column.</div>
     </div>
   </div>
@@ -197,8 +197,8 @@
         <p>Live GB/s against the SoC's peak, with a bandwidth-saturation alert and a MEM-BOUND indicator.</p>
       </div>
       <div class="feature">
-        <h3><span class="ic">▮</span>Network & disk I/O</h3>
-        <p>Throughput on both buses as mirrored in-over-out charts, read unprivileged from <code>getifaddrs</code> and IOKit volume counters — no <code>iostat</code> subprocess.</p>
+        <h3><span class="ic">▮</span>Net / disk I/O</h3>
+        <p>Network and disk throughput as mirrored in-over-out charts sharing a zero axis, sourced from native getifaddrs and IOKit counters — no sudo, no subprocesses.</p>
       </div>
       <div class="feature">
         <h3><span class="ic">▮</span>Thermals & throttling</h3>
@@ -275,7 +275,7 @@ df = p.to_pandas()  <span class="cmt"># rows = samples; cols = power/freq/reside
 
 <footer>
   <div class="wrap">
-    <p>actop v1.9.0 · an independent project inspired by <a href="https://github.com/tlkh/asitop">asitop</a> · MIT licensed</p>
+    <p>actop v1.9.4 · an independent project inspired by <a href="https://github.com/tlkh/asitop">asitop</a> · MIT licensed</p>
   </div>
 </footer>
 

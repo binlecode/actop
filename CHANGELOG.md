@@ -6,6 +6,22 @@ This project follows a Keep a Changelog-style format and uses version tags for r
 
 ## [Unreleased]
 
+## [1.9.4] - 2026-08-12
+
+### Fixed
+
+- **The local cover page (`docs/cover.html`) never rendered its hero image.**
+  It referenced `actop-demo.gif` relative to `docs/`, but the GIF lives in
+  `images/` — so opening the local copy always showed a broken image. It now
+  points at `../images/actop-demo.gif`, which resolves without duplicating a
+  4.3 MB binary into the repo.
+- **`docs/cover.html` is regenerated from the build output** rather than
+  hand-edited, so it matches what is actually published. It had drifted several
+  versions behind and carried a hand-written version string that the build
+  injects automatically. Regenerating it at the same version as the tag keeps
+  the rendered copy and `pyproject.toml` in agreement; it is a snapshot of the
+  published page, and `cover/index.html` remains the single source.
+
 ## [1.9.3] - 2026-08-12
 
 ### Fixed
