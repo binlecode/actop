@@ -38,11 +38,21 @@ Set Theme "Dracula"
 Set Padding 20
 Set Framerate 24
 
-# --- Warm up OFF-camera so the first visible frame already has live gauges ---
+# --- Warm up OFF-camera so the first visible frame already has FULL charts ---
+# Live gauges are not enough: the sparklines are right-aligned over the whole
+# chart width, so a short warm-up shows a thin trace clinging to the right edge
+# and reads as a dashboard that just booted. The window here is ~328 samples
+# (the status line prints it as `span 5m28s`: ~120 chart columns x 2 samples per
+# braille char at the 1s default interval), so the warm-up has to cover it — 7s
+# filled 2% of the chart, 40s only 12%. Sleep the whole span and the first
+# visible frame is already a dense trace. Cost is wall-clock on an off-camera
+# sleep; the GPU workload is already running by then, so the history it fills
+# with is real load, not idle.
+# (vhs `Sleep` takes ONE unit — `5m30s` is a parse error; use seconds.)
 Hide
 Type ".venv/bin/actop"
 Enter
-Sleep 7s
+Sleep 330s
 Show
 
 # --- 1) default grid layout, classic braille-dot charts ---
