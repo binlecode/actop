@@ -6,6 +6,19 @@ This project follows a Keep a Changelog-style format and uses version tags for r
 
 ## [Unreleased]
 
+### Changed
+
+- **The `record-tui-gif` skill finds a local LLM endpoint at runtime instead of
+  assuming a port.** The GIF workload exists only to keep the GPU gauges moving
+  while `vhs` records; nothing in actop depends on which model or port answers.
+  The script nevertheless pinned `http://localhost:9040`, which read like a
+  declared dependency but was only whatever happened to be running when it was
+  written. It now probes the locally listening ports for an OpenAI or Ollama
+  model-listing API, takes the first that answers, and asks it which model it
+  serves; `LLM_URL` pins it explicitly (`ROUTER_URL` still honoured). Discovery
+  failure now falls through to a no-workload recording rather than aborting —
+  a flat-gauge GIF is degraded, not invalid. Skill-only; no user-visible change.
+
 ## [1.9.9] - 2026-08-13
 
 ### Fixed
