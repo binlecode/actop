@@ -3,8 +3,8 @@
 # Record the actop TUI to a GIF with vhs, optionally under a real GPU workload
 # so the gauges actually move. Orchestrates the full sequence and ALWAYS stops
 # the workload on exit (success, error, or Ctrl-C):
-#   1. start a GPU workload against the llama.cpp router (unless SKIP_WORKLOAD=1)
-#      — the ollama-router is the fully supported fallback, see env below
+#   1. start a GPU workload against whatever local LLM endpoint is up
+#      (unless SKIP_WORKLOAD=1) — discovered at runtime, see below
 #   2. wait for the GPU to ramp
 #   3. record each tape with vhs (retries the ttyd-startup race under load)
 #   4. stop recording (vhs exits on its own)
@@ -16,11 +16,20 @@
 # Config via env:
 #   TAPES="tmp/a.tape tmp/b.tape"   tapes to record (default: bundled actop-demo.tape)
 #   SKIP_WORKLOAD=1                  record without driving the GPU (idle gauges)
-#   ROUTER_URL=http://localhost:11433  router base URL (ollama:11433, llamacpp:9040)
-#   MODEL=qwen3.6:35b-a3b-agentic   model to drive
-#   API=ollama|openai                wire protocol (llama.cpp backends need openai)
-#   CONCURRENCY=2  NUM_PREDICT=4096  workload knobs (match router backend count)
+#   LLM_URL=http://127.0.0.1:8081    pin the endpoint (default: auto-discover)
+#   MODEL=<id>                       model to drive (default: ask the endpoint)
+#   API=ollama|openai                wire protocol (default: from discovery)
+#   CONCURRENCY=2  NUM_PREDICT=4096  workload knobs (>1 only helps if the target
+#                                    serves >1 instance; otherwise requests queue
+#                                    — which still keeps the GPU busy, the point)
 #   RAMP_SECONDS=8                   GPU spin-up wait before recording
+#
+# The LLM is only a way to make the GPU gauges move — nothing about actop
+# depends on which model or port answers. So this script BINDS TO NOTHING:
+# it checks at runtime which local ports actually speak an OpenAI or Ollama
+# model-listing API and picks the first that does. Hardcoded ports rot (the
+# local stack renumbered twice in 2026-08 alone) and a recording script has no
+# business tracking someone else's topology.
 #
 set -euo pipefail
 
@@ -29,12 +38,12 @@ REPO_ROOT="$(git -C "$SCRIPT_DIR" rev-parse --show-toplevel 2>/dev/null || pwd)"
 cd "$REPO_ROOT"
 
 # ---- Config (override via env) --------------------------------------------
-# Defaults are llama.cpp-first (OpenAI wire protocol on the llamacpp router at
-# :9040, original-model weights). The ollama-router fallback is fully supported:
-#   ROUTER_URL=http://localhost:11433 MODEL=qwen3.6:35b-a3b-agentic API=ollama
-ROUTER_URL="${ROUTER_URL:-http://localhost:9040}"
-MODEL="${MODEL:-qwen3.6:35b-a3b}"
-API="${API:-openai}"                  # openai (/v1/chat/completions, llama.cpp) or ollama (/api/generate)
+# No endpoint defaults on purpose — see the header. LLM_URL/API/MODEL stay empty
+# unless pinned, and get filled in by discover_endpoint() at runtime.
+# ROUTER_URL is the pre-2026-08 name, still honoured so old invocations work.
+LLM_URL="${LLM_URL:-${ROUTER_URL:-}}"
+MODEL="${MODEL:-}"
+API="${API:-}"                        # openai (/v1/chat/completions) or ollama (/api/generate)
 CONCURRENCY="${CONCURRENCY:-2}"
 NUM_PREDICT="${NUM_PREDICT:-4096}"   # long generations = sustained GPU load
 RAMP_SECONDS="${RAMP_SECONDS:-8}"    # let the model start generating before vhs
@@ -45,6 +54,45 @@ WORKLOAD_LOG="${WORKLOAD_LOG:-tmp/gpu_workload.log}"
 PY="$REPO_ROOT/.venv/bin/python"
 WORKLOAD="$SCRIPT_DIR/gpu_workload.py"
 WORKLOAD_PID=""
+
+# ---- Runtime endpoint discovery -------------------------------------------
+# Probe every locally listening TCP port for a model-listing API. First one that
+# answers wins; nothing is assumed about port numbers, model names, or which
+# stack is running. Sets LLM_URL / API / MODEL as a side effect.
+probe_endpoint() {
+    local base="$1"
+    if curl -sf --max-time 1 "$base/v1/models" 2>/dev/null | grep -q '"id"'; then
+        API="${API:-openai}"; return 0
+    fi
+    if curl -sf --max-time 1 "$base/api/tags" 2>/dev/null | grep -q '"models"'; then
+        API="${API:-ollama}"; return 0
+    fi
+    return 1
+}
+
+discover_endpoint() {
+    local port base
+    # Ports only, deduped. Probing an unrelated service costs one 1s GET that it
+    # answers with 404 — harmless, and cheaper than maintaining a port registry.
+    for port in $(lsof -nP -iTCP -sTCP:LISTEN 2>/dev/null \
+                  | sed -n 's/.*:\([0-9][0-9]*\) (LISTEN).*/\1/p' | sort -un); do
+        base="http://127.0.0.1:$port"
+        if probe_endpoint "$base"; then LLM_URL="$base"; return 0; fi
+    done
+    return 1
+}
+
+# Ask the endpoint what it serves rather than guessing. For llama.cpp the id is
+# the GGUF path, which is fine — the endpoint ignores the field anyway.
+discover_model() {
+    if [[ "$API" == ollama ]]; then
+        curl -sf --max-time 2 "$LLM_URL/api/tags" 2>/dev/null \
+            | "$PY" -c "import sys,json;print(json.load(sys.stdin)['models'][0]['name'])" 2>/dev/null
+    else
+        curl -sf --max-time 2 "$LLM_URL/v1/models" 2>/dev/null \
+            | "$PY" -c "import sys,json;print(json.load(sys.stdin)['data'][0]['id'])" 2>/dev/null
+    fi
+}
 
 cleanup() {
     if [[ -n "$WORKLOAD_PID" ]] && kill -0 "$WORKLOAD_PID" 2>/dev/null; then
@@ -68,23 +116,33 @@ if [[ "$SKIP_WORKLOAD" == 1 ]]; then
     echo ">> SKIP_WORKLOAD=1 — recording with idle gauges."
 else
     [[ -x "$PY" ]] || { echo "!! .venv python missing at $PY (activate/create the repo venv)"; exit 1; }
-    # Health probe: try the native Ollama /api/tags first, then fall back to
-    # the router-level /health (the llama.cpp router's catch-all proxy 400s on
-    # body-less GETs, so /v1/models is not a usable probe).
-    HEALTH_URL="$ROUTER_URL/api/tags"
-    if ! curl -sf "$HEALTH_URL" >/dev/null 2>&1; then
-        HEALTH_URL="$ROUTER_URL/health"
-        if ! curl -sf "$HEALTH_URL" >/dev/null 2>&1; then
-            echo "!! router not reachable at $ROUTER_URL"
-            echo "   start it, or re-run with SKIP_WORKLOAD=1 to record idle."
+
+    if [[ -n "$LLM_URL" ]]; then
+        probe_endpoint "$LLM_URL" || {
+            echo "!! pinned endpoint not answering: $LLM_URL"
+            echo "   unset LLM_URL to auto-discover, or SKIP_WORKLOAD=1 to record idle."
             exit 1
-        fi
+        }
+    else
+        echo ">> Looking for a local LLM endpoint…"
+        discover_endpoint || {
+            # A missing workload degrades the GIF (flat gauges); it does not
+            # invalidate it. Failing the whole recording here would be worse.
+            echo "!! no local LLM endpoint found — recording with idle gauges."
+            echo "   pin one with LLM_URL=http://127.0.0.1:PORT if that's wrong."
+            SKIP_WORKLOAD=1
+        }
     fi
-    echo "   router OK @ $ROUTER_URL, model=$MODEL"
+fi
+
+if [[ "$SKIP_WORKLOAD" != 1 ]]; then
+    MODEL="${MODEL:-$(discover_model)}"
+    MODEL="${MODEL:-local}"
+    echo "   endpoint OK @ $LLM_URL  api=$API  model=$MODEL"
     echo ">> Starting GPU workload (concurrency=$CONCURRENCY, num_predict=$NUM_PREDICT)…"
     set -m  # job control → child gets its own process group
     "$PY" "$WORKLOAD" \
-        --url "$ROUTER_URL" --model "$MODEL" --api "$API" \
+        --url "$LLM_URL" --model "$MODEL" --api "$API" \
         --concurrency "$CONCURRENCY" --num-predict "$NUM_PREDICT" \
         >"$WORKLOAD_LOG" 2>&1 &
     WORKLOAD_PID=$!
