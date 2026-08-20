@@ -627,15 +627,17 @@ class HardwareDashboard(Widget):
     # grid — the P-CPU / E-CPU cluster boxes share the top row, GPU·ANE / Memory
     # the second, Network / Disk the third (either or both hidden when the
     # platform exposes no counters), and Power spans the full width beneath
-    # them; `stack` is the
-    # single scrollable column (only the stack preset scrolls — grid is sized to
-    # fit). Below `_GRID_MIN_WIDTH` cols grid auto-degrades to stack (`on_resize`),
+    # them; `stack` is the single full-width column. Both presets support vertical
+    # scrolling (`overflow-y: auto`) when the dashboard content exceeds the terminal
+    # viewport height (e.g. when per-core panels are shown with `c` or in compact
+    # terminal windows). Below `_GRID_MIN_WIDTH` cols grid auto-degrades to stack (`on_resize`),
     # so a grid never squeezes its columns below readability.
     DEFAULT_CSS = """
     HardwareDashboard {
         width: 1fr;
         height: 1fr;
         padding: 0;
+        overflow-y: auto;
     }
     HardwareDashboard.layout-stack {
         layout: vertical;
@@ -646,6 +648,7 @@ class HardwareDashboard(Widget):
         grid-size: 2;
         grid-columns: 1fr 1fr;
         grid-rows: auto auto auto auto;
+        overflow-y: auto;
     }
     /* Power is a single wide chart, so it spans both columns on the bottom row
        instead of leaving a half-empty cell beside it. */

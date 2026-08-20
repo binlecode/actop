@@ -859,3 +859,24 @@ def test_set_layout_preset_rejects_unknown_name():
     dash = HardwareDashboard(config=_config())
     with pytest.raises(ValueError):
         dash.set_layout_preset("bogus")
+
+
+def test_grid_layout_supports_vertical_scrolling():
+    # In grid mode, when dashboard content height exceeds the terminal viewport,
+    # HardwareDashboard must be vertically scrollable (overflow-y: auto).
+    async def _run():
+        dash = HardwareDashboard(config=_config(show_cores=True))
+        app = _Host(dash)
+        # Sized short enough that all grid sections + core grids overflow vertically
+        async with app.run_test(size=(120, 20)) as pilot:
+            dash.update_metrics(MetricsUpdated(_snapshot(120.0, True)))
+            await pilot.pause()
+            assert dash.effective_layout_preset == "grid"
+            assert dash.max_scroll_y > 0
+            dash.scroll_to(y=5, animate=False)
+            await pilot.pause()
+            return dash.scroll_y, dash.max_scroll_y
+
+    scroll_y, max_scroll_y = asyncio.run(_run())
+    assert max_scroll_y > 0
+    assert scroll_y == 5

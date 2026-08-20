@@ -6,6 +6,15 @@ This project follows a Keep a Changelog-style format and uses version tags for r
 
 ## [Unreleased]
 
+## [1.9.10] - 2026-08-19
+
+### Added
+
+- **Grid mode now supports vertical scrolling.** Compact terminal windows or
+  configurations with per-core views enabled (`c`) no longer clip overflowing
+  dashboard content; `HardwareDashboard` now sets `overflow-y: auto` in both
+  `grid` and `stack` layout presets.
+
 ### Changed
 
 - **The `record-tui-gif` skill finds a local LLM endpoint at runtime instead of

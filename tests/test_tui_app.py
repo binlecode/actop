@@ -262,3 +262,22 @@ def test_filter_unavailable_until_process_table_shown():
     assert off is False  # binding hidden when table off
     assert hidden_while_off is False  # `/` did not open the input
     assert on is True  # binding available once table shown
+
+
+def test_actop_app_grid_mode_dashboard_is_scrollable():
+    # In ActopApp in grid mode, the dashboard widget supports vertical scrolling
+    # when content overflows the terminal viewport.
+    async def _run():
+        app = ActopApp(build_parser().parse_args(["--layout", "grid", "--show_cores"]))
+        async with app.run_test(size=(120, 25)) as pilot:
+            await pilot.pause()
+            from actop.tui.widgets import HardwareDashboard
+
+            dash = app.query_one("#hardware-dash", HardwareDashboard)
+            assert dash.effective_layout_preset == "grid"
+            assert dash.styles.overflow_y == "auto"
+            return dash.effective_layout_preset, dash.styles.overflow_y
+
+    preset, overflow_y = asyncio.run(_run())
+    assert preset == "grid"
+    assert overflow_y == "auto"

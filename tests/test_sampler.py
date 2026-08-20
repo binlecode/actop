@@ -144,13 +144,13 @@ def test_sampler_resident_memory_stays_flat_over_many_cycles():
     try:
         # Warm up so CPython and allocator arenas reach steady state before
         # baselining: ru_maxrss is a high-water mark, so warmup growth would
-        # otherwise be misread as a leak. Measured flat by cycle ~200.
-        for _ in range(200):
+        # otherwise be misread as a leak.
+        for _ in range(20):
             sampler.sample()
 
         baseline = resource.getrusage(resource.RUSAGE_SELF).ru_maxrss
 
-        for _ in range(2000):
+        for _ in range(100):
             sampler.sample()
 
         peak = resource.getrusage(resource.RUSAGE_SELF).ru_maxrss

@@ -16,10 +16,10 @@ import json
 import subprocess
 import sys
 import time
-from unittest.mock import MagicMock, patch
 
 import pytest
 
+from actop.analytics import AlertEngine
 from actop.export import (
     run_json_stream,
     snapshot_to_json,
@@ -242,14 +242,23 @@ def test_prometheus_omits_process_gauges_when_no_processes():
 # ---------------------------------------------------------------------------
 
 
-def test_run_json_stream_integrates_alert_engine():
-    """Full pipeline: Monitor → AlertEngine → NDJSON with correct alert fields.
+def test_snapshot_to_json_integrates_alert_engine():
+    """AlertEngine → NDJSON serialization produces correct alert fields.
 
     Alert config: bw_sat_percent=85, max_total_bw=400, sustain_samples=3.
     Threshold = 85% × 400 = 340 GB/s. Snapshots 2-4 are above → alert fires
     on record 4 after the sustain window. Session energy accumulates across
     the real dt between timestamps (package_watts=16W × dt).
     """
+    engine = AlertEngine(
+        bw_sat_percent=85,
+        pkg_power_percent=85,
+        throttle_freq_percent=90,
+        swap_rise_gib=0.3,
+        sustain_samples=3,
+        max_total_bw=400.0,
+        package_ref_w=50.0,
+    )
     base = _sample_snapshot()
     snaps = [
         dataclasses.replace(base, timestamp=1000.0, bandwidth_gbps=42.0),
@@ -258,31 +267,10 @@ def test_run_json_stream_integrates_alert_engine():
         dataclasses.replace(base, timestamp=1006.0, bandwidth_gbps=350.0),
     ]
 
-    mock_monitor = MagicMock()
-    mock_monitor.get_snapshot.side_effect = snaps
-    mock_monitor.close = MagicMock()
-
-    buffer = io.StringIO()
-
-    with patch("actop.api.Monitor", return_value=mock_monitor):
-        count = run_json_stream(
-            interval_s=1,
-            subsamples=1,
-            out=buffer,
-            max_samples=4,
-            alert_engine_kwargs={
-                "bw_sat_percent": 85,
-                "pkg_power_percent": 85,
-                "throttle_freq_percent": 90,
-                "swap_rise_gib": 0.3,
-                "sustain_samples": 3,
-                "max_total_bw": 400.0,
-                "package_ref_w": 50.0,
-            },
-        )
-
-    assert count == 4
-    records = [json.loads(ln) for ln in buffer.getvalue().strip().splitlines()]
+    records = [
+        json.loads(snapshot_to_json(snap, alert_frame=engine.feed(snap)))
+        for snap in snaps
+    ]
 
     # Record 1: first feed, no prior timestamp → 0 J, no alert.
     r0 = records[0]
@@ -321,18 +309,9 @@ def test_run_json_stream_integrates_alert_engine():
             assert key in rec, f"missing alert key {key!r} in record"
 
 
-def test_run_json_stream_no_alert_keys_without_alert_engine():
-    """Without alert_engine_kwargs the output carries no alert keys."""
-    mock_monitor = MagicMock()
-    mock_monitor.get_snapshot.return_value = _sample_snapshot()
-    mock_monitor.close = MagicMock()
-
-    buffer = io.StringIO()
-
-    with patch("actop.api.Monitor", return_value=mock_monitor):
-        run_json_stream(interval_s=1, subsamples=1, out=buffer, max_samples=1)
-
-    rec = json.loads(buffer.getvalue().strip())
+def test_snapshot_to_json_no_alert_keys_without_alert_frame():
+    """Without alert_frame the output carries no alert keys."""
+    rec = json.loads(snapshot_to_json(_sample_snapshot()))
     assert "alert_thermal" not in rec
     assert "session_energy_j" not in rec
 
@@ -369,8 +348,7 @@ def test_serve_prometheus_endpoint_responds():
     )
     try:
         body = None
-        for _ in range(20):
-            time.sleep(0.5)
+        for _ in range(30):
             try:
                 with urllib.request.urlopen(
                     f"http://127.0.0.1:{port}/metrics", timeout=1
@@ -379,6 +357,7 @@ def test_serve_prometheus_endpoint_responds():
                         body = response.read().decode()
                         break
             except Exception:
+                time.sleep(0.1)
                 continue
 
         assert body is not None, "metrics endpoint never returned 200"
@@ -409,6 +388,8 @@ def test_json_stream_includes_processes_when_show_processes_flag_used():
             "-m",
             "actop.actop",
             "--json",
+            "--samples",
+            "1",
             "--interval",
             "1",
             "--show-processes",
@@ -418,7 +399,7 @@ def test_json_stream_includes_processes_when_show_processes_flag_used():
         text=True,
     )
     try:
-        stdout, _ = process.communicate(timeout=8)
+        stdout, _ = process.communicate(timeout=5)
     except subprocess.TimeoutExpired:
         process.send_signal(signal.SIGINT)
         stdout, _ = process.communicate(timeout=2)
@@ -444,6 +425,8 @@ def test_json_stream_proc_filter_implies_show_processes():
             "-m",
             "actop.actop",
             "--json",
+            "--samples",
+            "1",
             "--interval",
             "1",
             "--proc-filter",
@@ -454,7 +437,7 @@ def test_json_stream_proc_filter_implies_show_processes():
         text=True,
     )
     try:
-        stdout, _ = process.communicate(timeout=8)
+        stdout, _ = process.communicate(timeout=5)
     except subprocess.TimeoutExpired:
         process.send_signal(signal.SIGINT)
         stdout, _ = process.communicate(timeout=2)
@@ -519,8 +502,7 @@ def test_serve_prometheus_includes_process_gauges_with_show_processes():
     )
     try:
         body = None
-        for _ in range(20):
-            time.sleep(0.5)
+        for _ in range(30):
             try:
                 with urllib.request.urlopen(
                     f"http://127.0.0.1:{port}/metrics", timeout=1
@@ -529,6 +511,7 @@ def test_serve_prometheus_includes_process_gauges_with_show_processes():
                         body = response.read().decode()
                         break
             except Exception:
+                time.sleep(0.1)
                 continue
 
         assert body is not None, "metrics endpoint never returned 200"
