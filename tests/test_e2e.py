@@ -17,8 +17,8 @@ def test_actop_runs_and_handles_sigint():
     )
 
     try:
-        # Give it a bit more time to initialize and render the first frame
-        time.sleep(4)
+        # Give it a moment to initialize and render the first frame
+        time.sleep(1.5)
 
         # Send SIGINT to simulate Ctrl+C
         process.send_signal(signal.SIGINT)

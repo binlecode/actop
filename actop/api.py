@@ -169,6 +169,7 @@ class Monitor:
         include_processes: bool = False,
         process_limit: int = 50,
         process_filter=None,
+        stop_event: threading.Event | None = None,
     ):
         self._interval_s = max(1, int(interval_s))
         self._sampler, _ = create_sampler(self._interval_s, subsamples=subsamples)
@@ -181,6 +182,7 @@ class Monitor:
         self._include_processes = bool(include_processes)
         self._process_limit = int(process_limit)
         self._process_filter = process_filter
+        self._stop_event = stop_event
         # Prime delta: first sample() always returns None
         self._sampler.sample()
 
@@ -206,7 +208,10 @@ class Monitor:
             self._process_filter if process_filter is _UNSET else process_filter
         )
         if not self.manages_timing:
-            time.sleep(self._interval_s)
+            if self._stop_event is not None:
+                self._stop_event.wait(self._interval_s)
+            else:
+                time.sleep(self._interval_s)
         sample = self._sampler.sample()
         while sample is None:
             # A None sample means the delta interval was non-positive; sleep

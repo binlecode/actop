@@ -124,8 +124,8 @@ HELP_TEXT = """\
 
   grid       Two columns (default): P-CPU / E-CPU cluster boxes share the top
              row, GPU·ANE / Memory the next, Network / Disk the third, and
-             Power spans the full width beneath. Fits short terminals without
-             scrolling. Falls back to stack automatically under ~96 cols.
+             Power spans the full width beneath. Scrolls when content exceeds
+             the terminal height. Falls back to stack automatically under ~96 cols.
   stack      Single full-width column — longest chart history span; scrolls
              on tall dashboards while the status line stays fixed.
 
@@ -345,7 +345,7 @@ class ActopApp(App):
             yield HardwareDashboard(config=self._config, id="hardware-dash")
             yield DataTable(id="process-table", zebra_stripes=True, cursor_type="row")
         # App-level status bar: fixed chrome below the dashboard so alerts stay
-        # visible even while a stacked dashboard scrolls. Fed by AlertsComputed.
+        # visible even while the dashboard scrolls. Fed by AlertsComputed.
         yield Static("", id="status-line")
         filter_input = Input(placeholder="Regex filter...", id="filter-input")
         filter_input.display = False
@@ -366,6 +366,7 @@ class ActopApp(App):
             self._config.sample_interval,
             self._config.subsamples,
             process_limit=self._config.process_display_count,
+            stop_event=self._stop_polling,
         )
         try:
             while not self._stop_polling.is_set():
@@ -387,8 +388,12 @@ class ActopApp(App):
     def _tick_splash(self) -> None:
         if self._sampler_ready:
             return  # splash already dismissed; timer not yet stopped
+        try:
+            splash = self.query_one("#loading-splash", Static)
+        except Exception:
+            return
         self._splash_frame = (self._splash_frame + 1) % len(_SPINNER_FRAMES)
-        self.query_one("#loading-splash", Static).update(self._build_splash())
+        splash.update(self._build_splash())
 
     def on_metrics_updated(self, message: MetricsUpdated) -> None:
         if not self._sampler_ready:
