@@ -6,6 +6,25 @@ This project follows a Keep a Changelog-style format and uses version tags for r
 
 ## [Unreleased]
 
+### Changed
+
+- **`CLAUDE.md`: the PyPI break-glass token is retained and refreshed, not
+  deleted — and agents are now barred from deleting credentials at all.** The
+  hygiene note used to say to delete the project-scoped token once OIDC Trusted
+  Publishing was confirmed on a release. That contradicted the failure playbook
+  two paragraphs above it, which names the token-driven Flow B as the recovery
+  path when `publish-pypi` fails on an OIDC / trusted-publisher error — so
+  following the hygiene rule removed the fallback exactly when a broken release
+  would need it. It was also a silent failure: `~/.zshrc` builds
+  `TWINE_PASSWORD` with `$(cat … 2>/dev/null)`, so a deleted file yields an
+  empty password and a confusing PyPI auth error rather than a missing-file one.
+  Three changes: the hygiene note is reversed (retain, refresh on expiry, revoke
+  only on leak/replacement); the break-glass credential is documented as coming
+  from the **system environment**, not a file hunt; and *Security &
+  Configuration Tips* gains a hard rule against deleting, revoking, or rotating
+  any credential, plus secret-handling rules (never print a value; assert on
+  presence, not content). Docs only — no code or CLI change.
+
 ## [1.9.11] - 2026-08-23
 
 ### Fixed

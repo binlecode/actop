@@ -134,11 +134,14 @@ OIDC Trusted Publishing is the default (no stored secret; the `pypi` environment
 
 ```bash
 python -m build                       # produces dist/*.tar.gz and dist/*.whl
-python -m twine upload --skip-existing dist/*
-# username: __token__   password: <PyPI project-scoped API token from ~/env-secrets/>
+python -m twine upload --skip-existing dist/*   # credentials already in the env
 ```
 
-Prefer `TWINE_USERNAME=__token__` + `TWINE_PASSWORD` env vars (or `~/.pypirc`) so the token never hits shell history. **Hygiene:** once OIDC is confirmed on a release, delete the project-scoped token from pypi.org and `~/env-secrets/api_keys/` so no long-lived PyPI credential remains; regenerate only to bootstrap or break glass.
+**The break-glass credential comes from the system environment — check there first, do not hunt for the token file.** `~/.zshrc` exports `TWINE_USERNAME=__token__` and `TWINE_PASSWORD=$(cat $HOME/env-secrets/api_keys/pypi-org-api-token-binlecode 2>/dev/null)` in every login shell, so `twine upload` authenticates with no flags, no prompt, and nothing pasted on a command line. Confirm it is present with `env | grep -c TWINE_PASSWORD` (expect `1`) — never echo the value. The file under `~/env-secrets/` is only the backing store for that export; the env var is the interface.
+
+**Hygiene — keep the token; do NOT delete it after OIDC works.** It stays (mode `600`) as the standing break-glass credential and is **refreshed when it expires**, not revoked. Flow B *is* the documented recovery path when `publish-pypi` fails on an OIDC / trusted-publisher error (see the failure playbook above), so deleting the token removes the fallback exactly when a broken release needs it. Worse, the export is written with `2>/dev/null`: delete the file and `TWINE_PASSWORD` silently becomes the empty string, turning a missing credential into a confusing PyPI auth failure instead of an obvious missing-file error. An earlier version of this section said to delete the token once OIDC was confirmed; that was wrong and is retired.
+
+Rules for the retained token: never commit it or paste it into a PR/issue (`.githooks/pre-commit` redaction is a backstop, not the control); never echo it — rely on the env export; keep it **project-scoped to `actop`**, never account-wide, so a leak cannot reach other projects. On refresh, **write the new token into the existing filename** — `~/.zshrc` names `pypi-org-api-token-binlecode` literally, not by glob, so renaming the file (e.g. to add an `-exp-<month>-<year>` suffix like the other dated keys) breaks the export and, because of the `2>/dev/null`, does so silently. To adopt a dated name, edit the `.zshrc` path in the same commit as the rename. Revoke on pypi.org only if the token leaks or is replaced.
 
 ### Homebrew Core submission (optional)
 
@@ -273,6 +276,28 @@ a mount point, not a fake); faking the data or the logic under test is not.
   - screenshot or terminal capture for UI-visible changes.
 
 ## Security & Configuration Tips
+
+**RULE — never delete, revoke, or rotate a credential, and never propose it as
+cleanup.** Not the PyPI token, not `HOMEBREW_TAP_TOKEN`, nothing under
+`~/env-secrets/`. Deleting a credential is irreversible from this side, and the
+ones that look idle are usually the break-glass path for a pipeline that is
+already broken — removing them costs nothing until the day it costs everything.
+Credential lifecycle is the maintainer's call alone: if a credential genuinely
+looks stale, say so in one line and stop. Do not run the deletion, do not stage
+it, do not put it on a checklist. This rule exists because an agent read the old
+"delete the token once OIDC is confirmed" hygiene note as an action item and
+proposed deleting the live PyPI break-glass token immediately after a successful
+release (2026-08-23); the note is retired, but the reflex it triggered is what
+this rule blocks.
+
+**Reading secrets:** prefer the system environment (`TWINE_USERNAME` /
+`TWINE_PASSWORD` are pre-exported by `~/.zshrc` — see *PyPI publishing — two
+flows*) over reading files under `~/env-secrets/`. Never `cat`, `echo`, print,
+or interpolate a secret value into a command line, a commit, a PR body, or an
+issue: mask it (`sed -E 's/[A-Za-z0-9_-]{20,}/<REDACTED>/g'`) or, better, assert
+on its presence (`env | grep -c TWINE_PASSWORD`) instead of its content.
+Filenames and env-var *names* are not secrets; their values are.
+
 - The IOReport backend runs unprivileged.
-- Avoid introducing persistent privileged processes or unsafe temporary-file handling.
-- Avoid introducing persistent privileged processes or shell commands that invoke `sudo`.
+- Avoid introducing persistent privileged processes, unsafe temporary-file
+  handling, or shell commands that invoke `sudo`.
