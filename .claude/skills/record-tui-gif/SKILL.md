@@ -1,6 +1,6 @@
 ---
 name: record-tui-gif
-description: Record the actop TUI as an animated GIF with vhs, optionally under a real GPU workload so the gauges move (for the README hero / launch demos). Covers the vhs tape (sizing, off-camera warm-up so the first frame is already live, on-camera glyph/layout/process toggles), the llama.cpp / ollama GPU driver that lights up GPU/ANE/bandwidth/power, and the record.sh orchestrator that starts the workload, records, and always stops it. Use when refreshing the hero GIF after a TUI/layout change or producing a launch capture. For a *still* ASCII diagram in the docs use capture-tui-diagram instead.
+description: Record the actop TUI as an animated GIF with vhs, optionally under a real GPU workload so the gauges move (for the README hero / launch demos). Covers the vhs tape (sizing, off-camera warm-up so the first frame is already live, on-camera glyph/per-core/process-table/theme toggles), the llama.cpp / ollama GPU driver that lights up GPU/ANE/bandwidth/power, and the record.sh orchestrator that starts the workload, records, and always stops it. Use when refreshing the hero GIF after a TUI/layout change or producing a launch capture. For a *still* ASCII diagram in the docs use capture-tui-diagram instead.
 ---
 
 # record-tui-gif
@@ -97,27 +97,41 @@ Notes:
 
 `actop-demo.tape` (bundled) is the hero recipe. Key techniques:
 
-- **Warm up off-camera** with `Hide` … `Sleep 6s` … `Show` so the **first visible
+- **Warm up off-camera** with `Hide` … `Sleep` … `Show` so the **first visible
   frame already shows non-zero gauges** (the acceptance check — an idle first
-  frame reads as broken). Quit (`Type "q"`) also goes under a trailing `Hide`.
-- **Width 1400 @ FontSize 16 ≈ 165 cols** — well above the ~96-col floor where
-  the `grid` preset auto-degrades to `stack` (see run-actop).
-- **Height sizes to the layout.** `stack` is tall (~47 rows); `Set Height 1050`
-  fits the stacked column + process table with **no bottom gap**. A `grid`-only
-  tape uses ~`Height 900`.
-- **Gapless layout switch**: do the `l` (grid→stack) switch *off-camera* — `grid`
-  at stack's height leaves a large empty gap. `g` (glyph) and `t` (processes)
-  toggles are safe *on-camera* because `stack` already fills the height.
-- Choreography: `l` (stack, hidden) → show dots → `g` (blocks) → `t` (processes).
-  The final frame — stack + block charts + per-process **watt attribution**
-  (workload procs top the PWR column) — is the strongest hero frame.
+  frame reads as broken). The sleep must cover the whole **chart span**, not just
+  "a few seconds": the sparklines are right-aligned across the full chart width,
+  so a short warm-up shows a thin trace clinging to the right edge and still
+  reads as a dashboard that just booted. At the 1s default interval the window is
+  ~328 samples (`span 5m28s`), so the tape sleeps **330s** — 7s fills 2% of the
+  chart and 40s only 12%. Quit (`Type "q"`) also goes under a trailing `Hide`.
+- **Width 1800 @ FontSize 16 ≈ 212 cols.** Width is load-bearing because `p`
+  splits the dashboard against the process table: at 1400px (~165 cols) the
+  dashboard drops to ~80 cols and **silently degrades to stack mid-take**. 1800px
+  leaves it ~122 cols, so `grid` survives the whole recording. Do not lower it.
+- **Height sizes to the layout, and the layout is fixed for the take.**
+  `Set Height 930` fits the tallest on-camera grid state (grid + per-core panels
+  + process table ≈ 42 dashboard rows + chrome). `stack` at this width would need
+  ~`Height 1240`.
+- **Do NOT press `l` on camera.** The hero take stays in `grid` start to finish —
+  grid is the default, so no layout switch is needed at all. Height is sized for
+  grid, so a mid-take switch to `stack` clips or opens a large gap under Power.
+  (Since v1.9.x `l` also raises a toast, which would land in the frame.) A
+  stack-based tape is a *separate* tape with its own `Height`, not an `l` press
+  bolted onto this one.
+- Choreography (all on-camera, gapless): dots → `g` (block charts) → `c`
+  (per-core panels) → `p` (process table + watt attribution) → `t` ×8 (theme
+  cycle, ending back at the `textual-dark` default). The process-table frame —
+  grid + block charts + per-process **watt attribution** (workload procs top the
+  PWR column) — is the strongest hero frame.
 
 ### Authoring a new tape
 
 Start from `actop-demo.tape`, change `Output`, and keep the off-camera warm-up.
-Keybindings available to script (`Type "…"`): `g` glyph, `l` layout, `t`
-processes, `s` sort, `p` pause, `/` filter, `?` help, `q` quit (see run-actop for
-the full table). Put custom tapes under `tmp/` (repo convention).
+Keybindings available to script (`Type "…"`): `g` glyph, `l` layout, `c` per-core
+panels, `p` process table, `s` sort, `t` theme, `space` pause, `/` filter, `?`
+help, `q` quit (see run-actop for the full table). Put custom tapes under `tmp/`
+(repo convention).
 
 ## Verify the result
 
