@@ -23,6 +23,23 @@ This project follows a Keep a Changelog-style format and uses version tags for r
 
 ### Changed
 
+- **PyPI publishing moved out of CI/CD into the local tag cut.**
+  `.github/workflows/publish-pypi.yml` is deleted and OIDC Trusted Publishing is
+  no longer used; `scripts/tag_release.sh` now builds the sdist + wheel and
+  uploads them with `twine` immediately after pushing the tag and creating the
+  GitHub Release, so cutting and publishing a release are one act on the
+  maintainer's machine. Credentials come from `TWINE_USERNAME` / `TWINE_PASSWORD`
+  in the environment. The script pre-flights the credentials, the `.venv`, and
+  the `build`/`twine` modules **before** it pushes anything, because a
+  credential failure discovered after the tag is pushed would leave a tagged,
+  released, unpublished version that cannot be re-cut. It also wipes `dist/`
+  before building (the upload glob would otherwise ship stale artifacts),
+  verifies the built filenames match the tag, and runs `twine check` before
+  uploading. New `release` optional-dependency group (`build`, `twine`), kept out
+  of `dev` so Linux CI stays lean. Maintainer-facing only — no change to the
+  published package.
+
+
 - **`record-tui-gif` skill: prose re-synced with the bundled tape.** `SKILL.md`
   still described a pre-v1.9 stack-based recipe and contradicted
   `actop-demo.tape`'s own comments: it recommended `Width 1400` (which the tape
