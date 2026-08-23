@@ -48,7 +48,7 @@ This file is the single source of truth for repository guidelines, used by Claud
 
 ## Release Process
 
-`main` is **PR-only** (branch protection + `.githooks/pre-commit` redaction check and `.githooks/pre-push` guard; run `git config core.hooksPath .githooks` once). The Homebrew formula lives in the separate tap repo `binlecode/homebrew-actop` (not this repo); CI syncs it on tag. **PyPI publishing is NOT part of the tag flow** — it is a manual step taken after the tag and its CI have landed (`gh workflow run publish-pypi.yml --ref vX.Y.Z -f tag_name=vX.Y.Z`). The old tag-triggered publish raced the tag that started it and shipped against an unsettled ref; a dispatch naming the tag explicitly has no such ordering problem. CI/CD mechanics are owned by the workflow files themselves (`.github/workflows/main-ci.yml`, `release-formula.yml`, `publish-pypi.yml`, `guard-release.yml`) — each carries its one-time setup inline. `guard-release.yml` is the post-push integrity gate: every tag push triggers a scan that verifies every `v*` tag has a corresponding GitHub Release object, catching the "silent link breakage" that caused the v0.8.7–v1.6.6 release-object gap.
+`main` is **PR-only** (branch protection + `.githooks/pre-commit` redaction check and `.githooks/pre-push` guard; run `git config core.hooksPath .githooks` once). The Homebrew formula lives in the separate tap repo `binlecode/homebrew-actop` (not this repo); CI syncs it on tag. **PyPI publishing is LOCAL-ONLY and part of the tag flow** — `scripts/tag_release.sh` builds the sdist + wheel and uploads them with `twine` right after it pushes the tag and creates the GitHub Release, so cutting a release and publishing it are one act. **No workflow publishes to PyPI**: there is no `publish-pypi.yml`, and OIDC Trusted Publishing is not used. Credentials come from the environment (`TWINE_USERNAME` / `TWINE_PASSWORD`, exported by `~/.zshrc`); the script verifies both are present *before* it pushes anything, because a credential failure found after the tag is pushed leaves a half-cut release. CI/CD mechanics are owned by the workflow files themselves (`.github/workflows/main-ci.yml`, `release-formula.yml`, `guard-release.yml`) — each carries its one-time setup inline. `guard-release.yml` is the post-push integrity gate: every tag push triggers a scan that verifies every `v*` tag has a corresponding GitHub Release object, catching the "silent link breakage" that caused the v0.8.7–v1.6.6 release-object gap.
 
 **RULE — cutting a release REQUIRES a GitHub Release, not just a tag.** A release is cut with `scripts/tag_release.sh`, which pushes the git tag **and** creates the GitHub Release for it via `gh release create` (release notes pulled from the matching `CHANGELOG.md` section). A bare `git tag` + push is **not** a release: it never surfaces on the `/releases` page or as `Latest`, and leaves the Releases history silently behind the code. Never cut a release by hand-tagging alone — if the `gh release create` step fails, finish it manually (see playbooks below) before calling the release cut done.
 
@@ -95,18 +95,16 @@ gh pr create --base main --fill
 gh pr merge --merge --delete-branch
 git checkout main && git pull --ff-only
 
-# 4. Cut the release — tag + GitHub Release (RULE: tag alone is not a release)
+# 4. Cut the release — tag + GitHub Release + PyPI publish, all from here.
+#    Needs TWINE_USERNAME/TWINE_PASSWORD in the env and .[release] installed;
+#    the script pre-flights both before it pushes anything.
+#    NOTE: this uploads to PyPI. The version string is burned permanently.
 scripts/tag_release.sh "X.Y.Z"
 
 # 5. Monitor CI — wait for release-formula and guard-release to pass
 gh run list -R binlecode/actop --limit 10
 
-# 6. Publish to PyPI — MANUAL, only after the tag exists and CI is green.
-#    --ref must be the tag: the `pypi` environment admits only `v*` refs.
-gh workflow run publish-pypi.yml --ref "vX.Y.Z" -f tag_name="vX.Y.Z"
-gh run watch -R binlecode/actop "$(gh run list -R binlecode/actop --workflow publish-pypi.yml --limit 1 --json databaseId --jq '.[0].databaseId')"
-
-# 7. Verify
+# 6. Verify
 pipx install actop && actop --version                # PyPI
 brew update && brew upgrade binlecode/actop/actop    # Homebrew (tap repo synced)
 ```
@@ -125,21 +123,27 @@ brew update && brew upgrade binlecode/actop/actop    # Homebrew (tap repo synced
   Never leave a release cut as a bare tag — verify it appears on `/releases` before moving on.
 - **`release-formula` fails with tag/version mismatch:** tag `vX.Y.Z` doesn't match `pyproject.toml` in the tag commit. Fix in a new PR, merge, then create a **new** tag (never reuse the old tag).
 - **`release-formula` fails at tap checkout/push:** missing or under-scoped `HOMEBREW_TAP_TOKEN`. Confirm the secret exists on `binlecode/actop` and the PAT has **Contents: Read/write** on `binlecode/homebrew-actop`. Re-run the failed job.
-- **`publish-pypi` fails with OIDC / trusted-publisher error:** verify the trusted publisher on pypi.org matches repo `binlecode/actop`, workflow `publish-pypi.yml`, environment `pypi`; confirm the dispatch used `--ref vX.Y.Z` (the `pypi` environment's deploy policy is tag-only, so a dispatch from `main` is rejected before the job starts). `skip-existing` makes re-runs safe. **Break-glass:** publish that version manually with the token-driven Flow B (`twine upload --skip-existing`), then restore OIDC for subsequent releases.
+- **`tag_release.sh` aborts in pre-flight (missing `build`/`twine`, or empty `TWINE_*`):** nothing was pushed — that is the point of checking first. Install the tooling (`.venv/bin/python -m pip install -e ".[release]"`) or fix the credential export (`env | grep -c TWINE_PASSWORD`, expect `1`; a renamed token file silently yields an empty value because `~/.zshrc` uses `2>/dev/null`), then re-run.
+- **PyPI upload fails *after* the tag and GitHub Release exist:** do **not** re-cut the tag — it and the Release are already correct, and the version cannot be reused on PyPI anyway. Fix the cause and re-run only the upload from the tag's checkout: `.venv/bin/python -m twine upload --skip-existing dist/*`. `--skip-existing` makes repeats safe.
+- **Build produced the wrong version:** the script checks for `dist/actop-X.Y.Z.tar.gz` and the matching wheel and aborts before uploading if either is missing, so a stale `dist/` cannot be shipped (it wipes `dist/` first for the same reason). Re-run the build from a clean checkout of the tag.
 - **Emergency rerun without resource refresh:** `workflow_dispatch` on `release-formula` with `refresh_resources=false` as a temporary workaround; follow up with a normal run (`refresh_resources=true`).
 
-### PyPI publishing — two flows
+### PyPI publishing — local only
 
-OIDC Trusted Publishing is the default (no stored secret; the `pypi` environment on `binlecode/actop` is tag-only, and the workflow file documents the one-time publisher registration). It is **dispatched manually against the tag**, never fired by the tag push. The token-driven flow is the fallback / bootstrap and the only place a long-lived PyPI credential appears:
+There is **one** flow: local, token-driven, run by `scripts/tag_release.sh` as part of cutting the tag. No workflow publishes to PyPI — `publish-pypi.yml` was removed and OIDC Trusted Publishing is not used, so the long-lived project-scoped token is the *only* publishing credential. The steps the script runs, should you ever need them by hand from a clean checkout of the tag:
 
 ```bash
-python -m build                       # produces dist/*.tar.gz and dist/*.whl
-python -m twine upload --skip-existing dist/*   # credentials already in the env
+rm -rf dist                                     # stale artifacts would be uploaded by the glob
+.venv/bin/python -m build                       # produces dist/*.tar.gz and dist/*.whl
+.venv/bin/python -m twine check dist/*          # catches what PyPI would reject
+.venv/bin/python -m twine upload --skip-existing dist/*   # credentials already in the env
 ```
 
-**The break-glass credential comes from the system environment — check there first, do not hunt for the token file.** `~/.zshrc` exports `TWINE_USERNAME=__token__` and `TWINE_PASSWORD=$(cat $HOME/env-secrets/api_keys/pypi-org-api-token-binlecode 2>/dev/null)` in every login shell, so `twine upload` authenticates with no flags, no prompt, and nothing pasted on a command line. Confirm it is present with `env | grep -c TWINE_PASSWORD` (expect `1`) — never echo the value. The file under `~/env-secrets/` is only the backing store for that export; the env var is the interface.
+Requires the `release` extra (`pip install -e ".[release]"`), which is deliberately outside `dev` so Linux CI stays lean.
 
-**Hygiene — keep the token; do NOT delete it after OIDC works.** It stays (mode `600`) as the standing break-glass credential and is **refreshed when it expires**, not revoked. Flow B *is* the documented recovery path when `publish-pypi` fails on an OIDC / trusted-publisher error (see the failure playbook above), so deleting the token removes the fallback exactly when a broken release needs it. Worse, the export is written with `2>/dev/null`: delete the file and `TWINE_PASSWORD` silently becomes the empty string, turning a missing credential into a confusing PyPI auth failure instead of an obvious missing-file error. An earlier version of this section said to delete the token once OIDC was confirmed; that was wrong and is retired.
+**The credential comes from the system environment — check there first, do not hunt for the token file.** `~/.zshrc` exports `TWINE_USERNAME=__token__` and `TWINE_PASSWORD=$(cat $HOME/env-secrets/api_keys/pypi-org-api-token-binlecode 2>/dev/null)` in every login shell, so `twine upload` authenticates with no flags, no prompt, and nothing pasted on a command line. Confirm it is present with `env | grep -c TWINE_PASSWORD` (expect `1`) — never echo the value. The file under `~/env-secrets/` is only the backing store for that export; the env var is the interface.
+
+**Hygiene — keep the token; never delete it.** It stays (mode `600`) and is **refreshed when it expires**, not revoked. It is now the *only* way to publish at all: with `publish-pypi.yml` gone there is no OIDC fallback, so deleting the token does not remove a spare path — it removes the sole path, and releases stop shipping. Worse, the export is written with `2>/dev/null`: delete or rename the file and `TWINE_PASSWORD` silently becomes the empty string, turning a missing credential into a confusing PyPI auth failure instead of an obvious missing-file error. (`tag_release.sh` now pre-flights for exactly this before pushing anything.) An earlier version of this section said to delete the token once OIDC was confirmed; that was wrong and is retired.
 
 Rules for the retained token: never commit it or paste it into a PR/issue (`.githooks/pre-commit` redaction is a backstop, not the control); never echo it — rely on the env export; keep it **project-scoped to `actop`**, never account-wide, so a leak cannot reach other projects. On refresh, **write the new token into the existing filename** — `~/.zshrc` names `pypi-org-api-token-binlecode` literally, not by glob, so renaming the file (e.g. to add an `-exp-<month>-<year>` suffix like the other dated keys) breaks the export and, because of the `2>/dev/null`, does so silently. To adopt a dated name, edit the `.zshrc` path in the same commit as the rename. Revoke on pypi.org only if the token leaks or is replaced.
 
@@ -154,7 +158,8 @@ gh run list -R binlecode/actop --limit 12
 gh run view -R binlecode/actop <RUN_ID> --log-failed
 git ls-remote --tags origin "v*"
 gh secret list -R binlecode/actop                 # confirm HOMEBREW_TAP_TOKEN
-gh api /repos/binlecode/actop/environments/pypi/deployment-branch-policies
+env | grep -c TWINE_PASSWORD                      # expect 1 (never echo the value)
+.venv/bin/python -c "import build, twine"         # release extra installed?
 ```
 
 ## SDLC & Architectural Documentation

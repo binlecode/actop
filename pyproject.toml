@@ -32,6 +32,11 @@ dependencies = [
 # the rule set is codified in [tool.ruff.lint] below, so CI no longer depends
 # on ruff's default select (whose 0.16.0 expansion had broken the gate).
 dev = ["ruff", "pytest"]
+# Release tooling: PyPI publishing is local-only (scripts/tag_release.sh runs
+# `python -m build` + `twine upload` as part of the tag cut), so the maintainer
+# cutting a release needs these. Kept out of `dev` so CI stays lean — no
+# workflow publishes to PyPI.
+release = ["build", "twine"]
 pandas = ["pandas>=1.3"]
 # ANE load generator (scripts/ane_load.py) only; macOS-only + heavy, kept out
 # of `dev` so Linux CI (`pip install -e ".[dev]"`) stays lean and green.
