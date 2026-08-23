@@ -6,6 +6,8 @@ This project follows a Keep a Changelog-style format and uses version tags for r
 
 ## [Unreleased]
 
+## [1.9.11] - 2026-08-23
+
 ### Fixed
 
 - **Every single-letter keybinding was dead on startup (`l`, `g`, `c`, `p`, `s`,
