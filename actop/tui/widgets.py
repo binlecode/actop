@@ -1065,6 +1065,13 @@ class HardwareDashboard(Widget):
         auto-degraded below `_GRID_MIN_WIDTH`, else same as `layout_preset`."""
         return self._effective_preset
 
+    @property
+    def grid_min_width(self) -> int:
+        """Minimum widget width the `grid` preset needs. Below this a requested
+        grid is auto-degraded to `stack` (see `_reconcile_layout`). Public so the
+        app can explain the degrade to the user without reaching inside."""
+        return self._GRID_MIN_WIDTH
+
     def set_layout_preset(self, name: str) -> None:
         """Switch the requested layout preset. Raises ValueError on unknown
         names. Never touches history deques, so switching mid-session loses no
