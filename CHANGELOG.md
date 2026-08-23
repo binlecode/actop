@@ -6,6 +6,8 @@ This project follows a Keep a Changelog-style format and uses version tags for r
 
 ## [Unreleased]
 
+## [1.9.12] - 2026-08-23
+
 ### Fixed
 
 - **`l` now says why the layout did not change on a narrow terminal.** The
