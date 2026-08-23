@@ -6,6 +6,23 @@ This project follows a Keep a Changelog-style format and uses version tags for r
 
 ## [Unreleased]
 
+### Fixed
+
+- **Every single-letter keybinding was dead on startup (`l`, `g`, `c`, `p`, `s`,
+  `t`, `q`).** The hidden `#filter-input` was auto-focused on mount and silently
+  swallowed the keys: pressing `l` typed an `l` into an invisible regex box
+  instead of cycling the layout preset. Textual's default screen `AUTO_FOCUS`
+  (`"*"`) focuses the first focusable widget, and `display = False` does *not*
+  make a widget unfocusable — `visible` tracks the `visibility` style, not
+  `display` — so the invisible input was a legitimate focus candidate and won.
+  `ActopApp` now sets `AUTO_FOCUS = None` and assigns focus explicitly
+  (`_focus_default_widget()`: the process table when shown, else the
+  non-focusable dashboard), so the letter bindings are live from the first frame
+  and the process table gets the arrow keys when it is visible.
+  The TUI tests had been papering over this with `app.set_focus(None)`, blaming
+  the headless harness for what was a real production bug; those workarounds are
+  removed so the tests now fail if focus regresses.
+
 ## [1.9.10] - 2026-08-19
 
 ### Added

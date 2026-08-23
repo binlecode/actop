@@ -345,7 +345,6 @@ def test_process_table_says_it_is_collecting_until_the_first_walk_lands():
                     break
                 await asyncio.sleep(0.25)
 
-            app.set_focus(None)  # harness focuses the hidden filter Input
             await pilot.press("p")
             await pilot.pause()
             pending = rows()

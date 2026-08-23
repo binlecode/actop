@@ -281,6 +281,9 @@ class ActopApp(App):
         ("c", "toggle_cores", "Cores"),
         ("t", "cycle_theme", "Theme"),
     ]
+    # No auto-focus: see the on_mount comment. Focus is assigned explicitly by
+    # `_focus_default_widget()` so a hidden Input can never claim the keyboard.
+    AUTO_FOCUS = None
     BINDINGS = [
         *_LETTER_BINDINGS,
         Binding("space", "toggle_pause", "Pause"),
@@ -353,11 +356,19 @@ class ActopApp(App):
         yield Footer()
 
     def on_mount(self) -> None:
+        # Textual's default screen AUTO_FOCUS ("*") focuses the first focusable
+        # widget, and `display = False` does NOT make a widget unfocusable
+        # (`visible` tracks the `visibility` style, not `display`) — so the
+        # hidden #filter-input won the focus and silently ate every printable
+        # key. `l`, `g`, `c`, `p`, `s`, `t` all went dead: the keystrokes were
+        # typed into an invisible regex box instead of firing their bindings.
+        # AUTO_FOCUS is cleared at class level; focus is placed explicitly here.
         self.query_one("#main-section").display = False
         self.query_one("#status-line").display = False  # hidden behind the splash
         self.query_one("#process-table", DataTable).display = self._show_processes
         self._refresh_process_table()  # initialises columns without advancing sort
         self._splash_timer = self.set_interval(0.1, self._tick_splash)
+        self._focus_default_widget()
         self.poll_metrics()
 
     @work(thread=True, exclusive=True)
@@ -480,15 +491,26 @@ class ActopApp(App):
             self._processes_pending = True
         table.display = self._show_processes
         self._refresh_process_table()
+        # Follow the table with the focus: a revealed table needs the arrow keys
+        # for its cursor, and a hidden one must not keep them (nor keep focus on
+        # a `display = False` widget). Letter bindings stay live either way —
+        # DataTable claims only navigation keys, never printable ones.
+        self._focus_default_widget()
         # Re-evaluate check_action so the footer shows/hides `/  Filter` at once.
         self.refresh_bindings()
 
-    def _close_filter_input(self, inp) -> None:
-        inp.display = False
+    def _focus_default_widget(self) -> None:
+        """Park focus on a widget that does not consume printable keys, so the
+        single-letter bindings stay live. The process table when it is shown
+        (its cursor wants the arrow keys), else the dashboard."""
         if self._show_processes:
             self.set_focus(self.query_one("#process-table", DataTable))
         else:
             self.set_focus(self.query_one("#hardware-dash", HardwareDashboard))
+
+    def _close_filter_input(self, inp) -> None:
+        inp.display = False
+        self._focus_default_widget()
 
     def action_toggle_filter(self) -> None:
         if not self._show_processes:

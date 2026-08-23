@@ -52,10 +52,10 @@ def test_pressing_l_cycles_the_dashboard_layout_preset():
             from actop.tui.widgets import HardwareDashboard
 
             dash = app.query_one("#hardware-dash", HardwareDashboard)
-            # The headless harness auto-focuses the (hidden) filter Input, which
-            # would swallow the single-letter key; clear focus so `l` routes to
-            # the app binding the way it does when the filter is inactive.
-            app.set_focus(None)
+            # No focus fixup: `l` must reach the app binding on a freshly
+            # mounted app. This test used to call `app.set_focus(None)` first,
+            # blaming the headless harness — but the hidden #filter-input really
+            # was auto-focused and really did swallow the key in production.
             before = dash.layout_preset
             await pilot.press("l")
             await pilot.pause()
@@ -85,7 +85,6 @@ def test_uppercase_letter_keys_drive_the_same_actions():
             from actop.tui.widgets import HardwareDashboard
 
             dash = app.query_one("#hardware-dash", HardwareDashboard)
-            app.set_focus(None)  # as in the lowercase test: unfocus the filter
             state = {}
             for key, read in (
                 ("L", lambda: dash.layout_preset),
@@ -111,7 +110,6 @@ def test_uppercase_q_still_quits():
         app = ActopApp(build_parser().parse_args([]))
         async with app.run_test(size=(160, 50)) as pilot:
             await pilot.pause()
-            app.set_focus(None)
             await pilot.press("Q")
             await pilot.pause()
             return app.is_running
@@ -126,7 +124,6 @@ def test_pressing_t_cycles_through_curated_themes():
         app = ActopApp(build_parser().parse_args(["--theme", "nord"]))
         async with app.run_test() as pilot:
             await pilot.pause()
-            app.set_focus(None)
             assert app.theme == "nord"
             await pilot.press("t")
             await pilot.pause()
@@ -162,7 +159,6 @@ def test_p_toggles_process_table():
         app = ActopApp(build_parser().parse_args([]))
         async with app.run_test() as pilot:
             await pilot.pause()
-            app.set_focus(None)
             from textual.widgets import DataTable
 
             table = app.query_one("#process-table", DataTable)
