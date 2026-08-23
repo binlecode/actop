@@ -70,6 +70,43 @@ def test_pressing_l_cycles_the_dashboard_layout_preset():
     assert after_two == before  # a second press flips back
 
 
+def test_narrow_terminal_keeps_a_requested_grid_rendered_as_stack():
+    # The readability guard: below `grid_min_width` a requested grid must render
+    # as stack, so two columns never squeeze to ~40 cols each. Drive the real
+    # `l` key on a narrow terminal and read the public presets -- the requested
+    # one flips, the effective one stays stack. This divergence is exactly what
+    # the `l` toast explains, and it is why `l` looks like a no-op on an 80-col
+    # window: the layout genuinely cannot change there.
+    async def _run():
+        app = ActopApp(build_parser().parse_args(["--interval", "1"]))
+        async with app.run_test(size=(80, 45)) as pilot:
+            from actop.tui.widgets import HardwareDashboard
+
+            dash = app.query_one("#hardware-dash", HardwareDashboard)
+            # Wait for the first real sample to dismiss the splash and give the
+            # dashboard a measured width. Before that width is 0, which
+            # `_reconcile_layout` treats as "unknown, keep grid" -- so asserting
+            # too early would test the pre-layout state, not a narrow terminal.
+            for _ in range(60):
+                await pilot.pause()
+                if app.query_one("#main-section").display and dash.size.width:
+                    break
+                await asyncio.sleep(0.2)
+            assert 0 < dash.size.width < dash.grid_min_width  # precondition
+            seen = []
+            for _ in range(2):
+                await pilot.press("l")
+                await pilot.pause()
+                seen.append((dash.layout_preset, dash.effective_layout_preset))
+            return seen
+
+    seen = asyncio.run(_run())
+    # The requested preset really does cycle...
+    assert {requested for requested, _ in seen} == {"grid", "stack"}
+    # ...while the rendered layout stays stack throughout.
+    assert [effective for _, effective in seen] == ["stack", "stack"]
+
+
 def test_uppercase_letter_keys_drive_the_same_actions():
     # Regression: with a Chinese input source selected, Caps Lock is how macOS
     # forces direct ASCII — and it delivers "L", which Textual names as a key

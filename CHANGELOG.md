@@ -6,6 +6,21 @@ This project follows a Keep a Changelog-style format and uses version tags for r
 
 ## [Unreleased]
 
+### Fixed
+
+- **`l` now says why the layout did not change on a narrow terminal.** The
+  `grid` preset auto-degrades to `stack` below 96 columns of *dashboard* width
+  so two columns never squeeze to ~40 cols each. That guard is correct, but it
+  was silent: on an 80-col window (or a 140-col one with the process table open,
+  which leaves the panel at ~66) pressing `l` flipped the requested preset
+  internally while the screen never changed and nothing explained it — the key
+  read as broken. `l` now raises a toast reporting the layout actually applied,
+  and when a requested grid was degraded it names the requirement and the
+  measured width (`grid needs >=96 cols (panel has 80)`). Matches how `t`
+  already reports the theme. The in-app help (`?`) documents the width rule too,
+  and `HardwareDashboard.grid_min_width` is exposed so the app can explain the
+  degrade without reaching into the widget.
+
 ### Changed
 
 - **`CLAUDE.md`: the PyPI break-glass token is retained and refreshed, not

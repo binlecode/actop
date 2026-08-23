@@ -110,7 +110,9 @@ HELP_TEXT = """\
   p          Toggle the process table
   s          Cycle process sort (CPU% → GPU% → PWR → RSS → PID)
   g          Toggle chart glyph (braille dots / blocks)
-  l          Cycle layout preset (grid ⇄ stack)
+  l          Cycle layout preset (grid ⇄ stack). grid needs a dashboard at
+             least 96 cols wide, else it renders as stack — showing the
+             process table takes width from the dashboard too
   c          Toggle per-core panels (hidden by default)
   t          Cycle app theme (dark → nord → dracula → … → light)
   /          Filter processes by regex (when table shown)
@@ -462,6 +464,22 @@ class ActopApp(App):
         dash = self.query_one("#hardware-dash", HardwareDashboard)
         next_preset = "stack" if dash.layout_preset == "grid" else "grid"
         dash.set_layout_preset(next_preset)
+        # Report what actually happened, not what was asked for. A requested
+        # grid silently degrades to stack below `grid_min_width` — and the
+        # process table takes width from the dashboard too, so a 140-col
+        # terminal with the table open leaves the panel at ~66 cols. Without
+        # this the key looks broken: the preset flips internally, the screen
+        # never changes, and nothing says why.
+        effective = dash.effective_layout_preset
+        if effective == next_preset:
+            self.notify(f"Layout: {effective}", timeout=2)
+        else:
+            self.notify(
+                f"Layout: {effective}\n"
+                f"grid needs ≥{dash.grid_min_width} cols "
+                f"(panel has {dash.size.width})",
+                timeout=3,
+            )
 
     def action_toggle_cores(self) -> None:
         dash = self.query_one("#hardware-dash", HardwareDashboard)
