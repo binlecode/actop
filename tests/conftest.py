@@ -18,5 +18,4 @@ if sys.platform != "darwin":
         "test_runtime_contracts.py",
         "test_api.py",
         "test_native_sys.py",
-        "test_config.py",
     ]

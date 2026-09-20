@@ -28,69 +28,15 @@ def build_parser():
     )
     parser.add_argument(
         "--interval",
-        type=int,
-        default=2,
+        type=float,
+        default=2.0,
         help="Display and sampling interval in seconds",
-    )
-    parser.add_argument(
-        "--avg", type=int, default=30, help="Interval for averaged values (seconds)"
     )
     parser.add_argument(
         "--subsamples",
         type=_validate_subsamples,
         default=1,
         help="Number of internal sampler deltas per interval (>=1)",
-    )
-    parser.add_argument(
-        "--show_cores",
-        action=argparse.BooleanOptionalAction,
-        default=False,
-        help="Show per-core breakdown if available",
-    )
-    parser.add_argument(
-        "--show-residency",
-        action=argparse.BooleanOptionalAction,
-        default=True,
-        help="Enable per-cluster DVFS residency distribution rows",
-    )
-    parser.add_argument(
-        "--power-scale",
-        choices=["auto", "profile"],
-        default="profile",
-        help="Power chart scaling mode: profile uses SoC reference, auto uses rolling peak",
-    )
-    parser.add_argument(
-        "--chart-glyph",
-        choices=["dots", "block"],
-        default="dots",
-        help="[Deprecated in ASCII mode] Chart glyph style",
-    )
-    parser.add_argument(
-        "--layout",
-        choices=["grid", "stack"],
-        default="grid",
-        help="[Deprecated in ASCII mode] Dashboard layout preset",
-    )
-    parser.add_argument(
-        "--palette",
-        choices=["thermal", "viridis", "mono"],
-        default="thermal",
-        help="[Deprecated in ASCII mode] Chart color palette",
-    )
-    parser.add_argument(
-        "--theme",
-        choices=[
-            "textual-dark",
-            "textual-light",
-            "nord",
-            "dracula",
-            "tokyo-night",
-            "monokai",
-            "gruvbox",
-            "catppuccin-mocha",
-        ],
-        default="textual-dark",
-        help="[Deprecated in ASCII mode] Textual app theme",
     )
     parser.add_argument(
         "--proc-filter",
@@ -254,7 +200,13 @@ def _run_dashboard(args, runtime_state):
     from actop.ascii_view import print_ascii_screen
     from actop.utils import get_soc_info
 
-    interval_s = max(1, int(args.interval))
+    # For single-shot execution (--once or non-tty), use a fast 0.2s warmup unless --interval was specified
+    is_single_shot = bool(getattr(args, "once", False) or not sys.stdout.isatty())
+    interval_s = (
+        float(args.interval)
+        if ("--interval" in sys.argv or not is_single_shot)
+        else 0.2
+    )
     subsamples = max(1, int(args.subsamples))
     proc_filter = str(getattr(args, "proc_filter", "") or "")
     include_processes = bool(getattr(args, "show_processes", False)) or bool(
@@ -274,7 +226,7 @@ def _run_dashboard(args, runtime_state):
     snapshot = monitor.get_snapshot()
 
     # Single-shot mode: --once or non-interactive pipe
-    if getattr(args, "once", False) or not sys.stdout.isatty():
+    if is_single_shot:
         print_ascii_screen(
             snapshot, soc_info, snapshot.processes, max_processes=10, clear=False
         )
@@ -290,8 +242,9 @@ def _run_dashboard(args, runtime_state):
     if max_samples > 0 and sample_count >= max_samples:
         return
 
+    loop_interval = max(0.5, float(args.interval))
     while True:
-        time.sleep(interval_s)
+        time.sleep(loop_interval)
         snapshot = monitor.get_snapshot()
         print_ascii_screen(
             snapshot, soc_info, snapshot.processes, max_processes=10, clear=True
@@ -373,8 +326,10 @@ def main(args=None):
         include_processes = bool(getattr(args, "show_processes", False)) or bool(
             proc_filter
         )
+        # Fast 0.2s snapshot unless explicitly overridden with --interval
+        sample_interval = float(args.interval) if "--interval" in sys.argv else 0.2
         monitor = Monitor(
-            interval_s=max(1, int(args.interval)),
+            interval_s=sample_interval,
             subsamples=max(1, int(args.subsamples)),
             include_processes=include_processes,
             process_filter=proc_filter,

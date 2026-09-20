@@ -170,7 +170,7 @@ class Monitor:
         process_filter=None,
         stop_event: threading.Event | None = None,
     ):
-        self._interval_s = max(1, int(interval_s))
+        self._interval_s = max(0.05, float(interval_s))
         self._sampler, _ = create_sampler(self._interval_s, subsamples=subsamples)
         # ANE reference power (denominator for SystemSnapshot.ane_util_pct),
         # read once from the SoC profile so utilization is a data point rather
