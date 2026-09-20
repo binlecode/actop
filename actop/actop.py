@@ -45,10 +45,11 @@ def build_parser():
         help='Regex filter for process panel command names (example: "python|ollama|vllm|docker|mlx")',
     )
     parser.add_argument(
-        "-p",
+        "--proc-list",
         "--show-processes",
         action="store_true",
         default=False,
+        dest="proc_list",
         help="Include top power-consuming processes (disabled by default to minimize overhead)",
     )
     parser.add_argument(
@@ -209,8 +210,10 @@ def _run_dashboard(args, runtime_state):
     )
     subsamples = max(1, int(args.subsamples))
     proc_filter = str(getattr(args, "proc_filter", "") or "")
-    include_processes = bool(getattr(args, "show_processes", False)) or bool(
-        proc_filter
+    include_processes = (
+        bool(getattr(args, "proc_list", False))
+        or bool(getattr(args, "show_processes", False))
+        or bool(proc_filter)
     )
 
     soc_info = get_soc_info()
@@ -262,7 +265,8 @@ def _run_export(args):
     interval_s = max(1, int(args.interval))
     subsamples = max(1, int(args.subsamples))
     include_processes = (
-        bool(getattr(args, "show_processes", False))
+        bool(getattr(args, "proc_list", False))
+        or bool(getattr(args, "show_processes", False))
         or bool(getattr(args, "json_processes", False))
         or bool(getattr(args, "serve_processes", False))
     )
@@ -323,8 +327,10 @@ def main(args=None):
 
         soc_info = get_soc_info()
         proc_filter = str(getattr(args, "proc_filter", "") or "")
-        include_processes = bool(getattr(args, "show_processes", False)) or bool(
-            proc_filter
+        include_processes = (
+            bool(getattr(args, "proc_list", False))
+            or bool(getattr(args, "show_processes", False))
+            or bool(proc_filter)
         )
         # Fast 0.2s snapshot unless explicitly overridden with --interval
         sample_interval = float(args.interval) if "--interval" in sys.argv else 0.2

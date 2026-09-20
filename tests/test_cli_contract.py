@@ -15,7 +15,7 @@ def test_cli_help_runs_and_exposes_agent_flags():
     assert result.returncode == 0
     assert "--compact" in result.stdout
     assert "--once" in result.stdout
-    assert "--show-processes" in result.stdout
+    assert "--proc-list" in result.stdout
     assert "--proc-filter PROC_FILTER" in result.stdout
     assert "--alert-bw-sat-percent ALERT_BW_SAT_PERCENT" in result.stdout
     assert "--alert-package-power-percent ALERT_PACKAGE_POWER_PERCENT" in result.stdout
