@@ -4,10 +4,9 @@ import dataclasses
 import threading
 import time
 
-from .analytics import attribute_power
+from .analytics import attribute_power, clamp_percent
 from .gpu_registry import GPUPerfStats, get_gpu_perf_stats
 from .models import _EMPTY_RESIDENCY, CoreSample, ProcessSample, SystemSnapshot
-from .power_scaling import clamp_percent
 from .sampler import SampleResult, create_sampler
 from .utils import get_ram_metrics_dict, get_soc_info, get_top_processes
 

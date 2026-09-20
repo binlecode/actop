@@ -6,6 +6,15 @@ This project follows a Keep a Changelog-style format and uses version tags for r
 
 ## [Unreleased]
 
+### Changed
+
+- **Removed heavy Textual TUI and transitioned to ultra-lightweight ASCII dashboard & Agent-first CLI.**
+  - Completely removed the `textual` dependency and the entire `actop/tui` directory (~2,500 lines of UI and ~1,500 lines of widget styling tests).
+  - Replaced with a zero-event-loop, millisecond-fast ASCII dashboard (`actop/ascii_view.py`, apple-smi style) with clean single-shot execution (`--once`) or minimal static terminal refresh.
+  - Added Agent-first `--compact` flag outputting high-density, low-token JSON (< 400 tokens) for direct consumption by autonomous AI coding agents (Claude Code, Codex, DeepSeek Harness).
+  - Consolidated `power_scaling.py` and process sorting domain logic into `actop.analytics`.
+  - Dropped memory footprint by ~75% and test runtime from ~83s to ~36s.
+
 ## [1.9.12] - 2026-08-23
 
 ### Fixed

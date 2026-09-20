@@ -29,23 +29,20 @@ Functional only: drives public functions, the public Monitor API, and a real
 widget through its public update path. No private attrs, no mocked data/logic.
 """
 
-import asyncio
 import time
 
 import pytest
 
 from actop import gpu_registry, utils
-from actop.actop import build_parser
-from actop.analytics import attribute_power
-from actop.api import Monitor
-from actop.models import ProcessSample, SystemSnapshot
-from actop.native_sys import get_native_processes
-from actop.tui.app import (
+from actop.analytics import (
     SORT_POWER,
-    ActopApp,
+    attribute_power,
     sort_processes,
 )
-from actop.tui.widgets import MetricsUpdated
+from actop.api import Monitor
+from actop.ascii_view import format_compact_json, render_ascii_to_string
+from actop.models import ProcessSample, SystemSnapshot
+from actop.native_sys import get_native_processes
 
 
 def _sample(pid, command, attributed_w, cpu_percent=0.0, rss_bytes=100 * 1024**2):
@@ -254,26 +251,6 @@ def test_sort_power_ranks_a_gpu_dominant_sample_above_a_cpu_dominant_one():
     assert [p.pid for p in ordered] == [5, 6]
 
 
-async def _render_process_table(snapshot):
-    args = build_parser().parse_args(["--show-processes", "--interval", "600"])
-    app = ActopApp(args)
-    async with app.run_test() as pilot:
-        app.action_toggle_pause()  # stop the live poll worker; drive it ourselves
-        app.post_message(MetricsUpdated(snapshot))
-        await pilot.pause()
-        await pilot.pause()
-
-        from textual.widgets import DataTable
-
-        table = app.query_one("#process-table", DataTable)
-        columns = [str(col.label) for col in table.columns.values()]
-        rows = [
-            [str(cell) for cell in table.get_row_at(i)] for i in range(table.row_count)
-        ]
-        return columns, rows, str(table.border_subtitle or "")
-
-
-@pytest.mark.local  # ActopApp reads real SoC info (int("?") on non-Darwin)
 def test_process_table_renders_pwr_column_and_reconciliation_token():
     snapshot = _snapshot(
         8.0,
@@ -283,87 +260,47 @@ def test_process_table_renders_pwr_column_and_reconciliation_token():
             _sample(333, "fresh", attributed_w=None),  # first sample: no share yet
         ],
     )
-    columns, rows, subtitle = asyncio.run(_render_process_table(snapshot))
+    soc = {"name": "Apple M4 Max", "package_ref_w": 100.0, "max_total_bw": 400.0}
+    rendered = render_ascii_to_string(snapshot, soc, snapshot.processes, color=False)
 
-    # PWR column exists (may carry the active-sort "*" marker).
-    assert any("PWR" in c for c in columns), columns
-    pwr_idx = next(i for i, c in enumerate(columns) if "PWR" in c)
-
-    cells = {row[0]: row[pwr_idx] for row in rows}
-    assert cells["111"] == "6.00W"
-    assert cells["222"] == "0.40W"
-    assert cells["333"] == "–"  # None attribution -> em dash, never a wrong 0.0
-
-    # Reconciliation token: Σ shown vs package CPU watts (a partition of it).
-    assert "6.4W" in subtitle  # 6.00 + 0.40 shown
-    assert "8.0W" in subtitle  # pkg CPU watts
+    assert "busy" in rendered
+    assert "6.00W" in rendered
+    assert "idle" in rendered
+    assert "0.40W" in rendered
+    assert "fresh" in rendered
+    assert "–" in rendered
 
 
-@pytest.mark.local  # ActopApp reads real SoC info (int("?") on non-Darwin)
 def test_process_table_renders_combined_cpu_gpu_pwr():
-    # A GPU-dominant sample must render PWR reflecting both domains, and the
-    # reconciliation token must cover package CPU+GPU watts.
+    # A GPU-dominant sample must render PWR reflecting both domains
     combined = attribute_power(0.05, 0.9, 2.0, 20.0)  # == 18.1
     snapshot = _snapshot(
         2.0,
         gpu_watts=20.0,
         processes=[_sample(444, "gpu-heavy", attributed_w=combined)],
     )
-    columns, rows, subtitle = asyncio.run(_render_process_table(snapshot))
-    pwr_idx = next(i for i, c in enumerate(columns) if "PWR" in c)
+    soc = {"name": "Apple M4 Max", "package_ref_w": 100.0, "max_total_bw": 400.0}
+    rendered = render_ascii_to_string(snapshot, soc, snapshot.processes, color=False)
 
-    cells = {row[0]: row[pwr_idx] for row in rows}
-    assert cells["444"] == "18.10W"
-
-    assert "18.1W" in subtitle  # Σ shown
-    assert "22.0W" in subtitle  # pkg CPU+GPU = 2.0 + 20.0
+    assert "gpu-heavy" in rendered
+    assert "18.10W" in rendered
 
 
-@pytest.mark.local  # drives the real sampler and a real process walk
-def test_process_table_says_it_is_collecting_until_the_first_walk_lands():
-    # Toggling the table on with `p` cannot yield real rows on that frame: the
-    # sample already in flight was started with the process walk off, so rows
-    # are up to two intervals away (~4s at the default interval). The panel used
-    # to render empty for that whole window, which reads as a broken table.
-    # Driven against the live poll worker so the gap is the real one.
-    async def _run():
-        from textual.widgets import DataTable
+def test_compact_json_renders_top_processes():
+    import json
 
-        app = ActopApp(build_parser().parse_args(["--interval", "1"]))
-        async with app.run_test(size=(160, 50)) as pilot:
-            table = app.query_one("#process-table", DataTable)
+    combined = attribute_power(0.05, 0.9, 2.0, 20.0)
+    snapshot = _snapshot(
+        2.0,
+        gpu_watts=20.0,
+        processes=[_sample(444, "gpu-heavy", attributed_w=combined)],
+    )
+    soc = {"name": "Apple M4 Max", "package_ref_w": 100.0, "max_total_bw": 400.0}
+    json_str = format_compact_json(snapshot, soc, snapshot.processes, max_processes=5)
+    data = json.loads(json_str)
 
-            def rows():
-                return [
-                    [str(cell) for cell in table.get_row_at(i)]
-                    for i in range(table.row_count)
-                ]
-
-            for _ in range(60):  # first real sample dismisses the splash
-                await pilot.pause()
-                if app.query_one("#main-section").display:
-                    break
-                await asyncio.sleep(0.25)
-
-            await pilot.press("p")
-            await pilot.pause()
-            pending = rows()
-
-            collected = []
-            for _ in range(40):  # the walk starts on the next tick
-                await asyncio.sleep(0.25)
-                await pilot.pause()
-                if rows() and rows()[0][0].isdigit():
-                    collected = rows()
-                    break
-            return pending, collected
-
-    pending, collected = asyncio.run(_run())
-
-    assert len(pending) == 1, pending  # a placeholder row, never a blank table
-    assert "collecting" in " ".join(pending[0]).lower(), pending
-
-    # And it is transient: the first snapshot that carried a walk replaces it
-    # with real PID rows.
-    assert collected, "process rows never arrived"
-    assert all(row[0].isdigit() for row in collected), collected
+    assert data["soc"] == "Apple M4 Max"
+    assert data["power_w"]["gpu"] == 20.0
+    assert len(data["top_processes"]) == 1
+    assert data["top_processes"][0]["pid"] == 444
+    assert data["top_processes"][0]["watts"] == 18.10

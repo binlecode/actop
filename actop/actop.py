@@ -1,19 +1,30 @@
 import argparse
 import re
+import sys
+import time
 
 from actop import __version__
 
 
 def build_parser():
     parser = argparse.ArgumentParser(
-        description="actop: Performance monitoring CLI tool for Apple Silicon",
-        # Surface every option's default in --help (appended as "(default: X)");
-        # choices already render as "{a,b,c}", so together --help documents the
-        # full supported value set + default for every argument.
+        description="actop: Apple Silicon performance & energy monitor (Agent-first CLI & ASCII view)",
         formatter_class=argparse.ArgumentDefaultsHelpFormatter,
     )
     parser.add_argument(
         "--version", action="version", version=f"%(prog)s {__version__}"
+    )
+    parser.add_argument(
+        "--compact",
+        action="store_true",
+        default=False,
+        help="Emit single-line high-density JSON object for AI agents and exit",
+    )
+    parser.add_argument(
+        "--once",
+        action="store_true",
+        default=False,
+        help="Print a single ASCII snapshot and exit (like nvidia-smi)",
     )
     parser.add_argument(
         "--interval",
@@ -34,15 +45,13 @@ def build_parser():
         "--show_cores",
         action=argparse.BooleanOptionalAction,
         default=False,
-        help="Show per-core panels inside the P-CPU/E-CPU boxes at startup "
-        "(hidden by default; toggle live with the 'c' key)",
+        help="Show per-core breakdown if available",
     )
     parser.add_argument(
         "--show-residency",
         action=argparse.BooleanOptionalAction,
         default=True,
-        help="Enable per-cluster DVFS residency distribution rows "
-        "(disable with --no-show-residency)",
+        help="Enable per-cluster DVFS residency distribution rows",
     )
     parser.add_argument(
         "--power-scale",
@@ -54,26 +63,19 @@ def build_parser():
         "--chart-glyph",
         choices=["dots", "block"],
         default="dots",
-        help="Chart glyph style: dots (braille) or block (square)",
+        help="[Deprecated in ASCII mode] Chart glyph style",
     )
     parser.add_argument(
         "--layout",
         choices=["grid", "stack"],
         default="grid",
-        help=(
-            "Dashboard layout preset: grid (two columns, fits short terminals, "
-            "auto-falls-back to stack under ~96 cols) or stack (single column, "
-            "longest chart history). Cycle live with the 'l' key."
-        ),
+        help="[Deprecated in ASCII mode] Dashboard layout preset",
     )
     parser.add_argument(
         "--palette",
         choices=["thermal", "viridis", "mono"],
         default="thermal",
-        help=(
-            "Chart color palette: thermal (blue->red), "
-            "viridis (colorblind-safe), or mono (grayscale)"
-        ),
+        help="[Deprecated in ASCII mode] Chart color palette",
     )
     parser.add_argument(
         "--theme",
@@ -88,11 +90,7 @@ def build_parser():
             "catppuccin-mocha",
         ],
         default="textual-dark",
-        help=(
-            "Textual app theme for UI chrome (header, footer, borders, "
-            "background). Orthogonal to --palette which controls chart "
-            "gradient colors. Cycle live with the 't' key."
-        ),
+        help="[Deprecated in ASCII mode] Textual app theme",
     )
     parser.add_argument(
         "--proc-filter",
@@ -104,7 +102,7 @@ def build_parser():
         "--show-processes",
         action="store_true",
         default=False,
-        help="Show top process panel at startup",
+        help="Include top power-consuming processes in the dashboard",
     )
     parser.add_argument(
         "--alert-bw-sat-percent",
@@ -251,10 +249,52 @@ def _validate_subsamples(value):
 
 
 def _run_dashboard(args, runtime_state):
-    from actop.tui.app import ActopApp
+    from actop.api import Monitor
+    from actop.ascii_view import print_ascii_screen
+    from actop.utils import get_soc_info
 
-    app = ActopApp(args)
-    app.run()
+    interval_s = max(1, int(args.interval))
+    subsamples = max(1, int(args.subsamples))
+    proc_filter = str(getattr(args, "proc_filter", "") or "")
+
+    soc_info = get_soc_info()
+    monitor = Monitor(
+        interval_s=interval_s,
+        subsamples=subsamples,
+        include_processes=True,
+        process_filter=proc_filter,
+    )
+    runtime_state["monitor"] = monitor
+
+    # Collect initial sample
+    snapshot = monitor.get_snapshot()
+
+    # Single-shot mode: --once or non-interactive pipe
+    if getattr(args, "once", False) or not sys.stdout.isatty():
+        print_ascii_screen(
+            snapshot, soc_info, snapshot.processes, max_processes=10, clear=False
+        )
+        return
+
+    # Continuous watch loop
+    max_samples = max(0, int(getattr(args, "samples", 0) or 0))
+    sample_count = 0
+    print_ascii_screen(
+        snapshot, soc_info, snapshot.processes, max_processes=10, clear=False
+    )
+    sample_count += 1
+    if max_samples > 0 and sample_count >= max_samples:
+        return
+
+    while True:
+        time.sleep(interval_s)
+        snapshot = monitor.get_snapshot()
+        print_ascii_screen(
+            snapshot, soc_info, snapshot.processes, max_processes=10, clear=True
+        )
+        sample_count += 1
+        if max_samples > 0 and sample_count >= max_samples:
+            break
 
 
 def _run_export(args):
@@ -317,6 +357,28 @@ def _run_export(args):
 def main(args=None):
     if args is None:
         args = build_parser().parse_args()
+
+    # Agent-first one-shot compact JSON
+    if getattr(args, "compact", False):
+        from actop.api import Monitor
+        from actop.ascii_view import format_compact_json
+        from actop.utils import get_soc_info
+
+        soc_info = get_soc_info()
+        proc_filter = str(getattr(args, "proc_filter", "") or "")
+        monitor = Monitor(
+            interval_s=max(1, int(args.interval)),
+            subsamples=max(1, int(args.subsamples)),
+            include_processes=True,
+            process_filter=proc_filter,
+        )
+        try:
+            snapshot = monitor.get_snapshot()
+            print(format_compact_json(snapshot, soc_info, snapshot.processes))
+            return 0
+        finally:
+            monitor.close()
+
     if getattr(args, "json", False) or getattr(args, "serve", None) is not None:
         return _run_export(args)
     runtime_state = {"monitor": None, "cursor_hidden": False}
@@ -324,14 +386,11 @@ def main(args=None):
         _run_dashboard(args, runtime_state)
         return 0
     except KeyboardInterrupt:
-        print("Stopping...")
         return 130
     finally:
         monitor = runtime_state.get("monitor")
         if monitor is not None:
             monitor.close()
-        if runtime_state["cursor_hidden"]:
-            print("\033[?25h")
 
 
 def cli(argv=None):

@@ -11,7 +11,74 @@ obtain, not render-time math trapped in the view.
 from collections import deque
 from dataclasses import dataclass
 
-from actop.power_scaling import DEFAULT_AUTO_MULTIPLIER, clamp_percent
+DEFAULT_CPU_FLOOR_W = 20.0
+DEFAULT_GPU_FLOOR_W = 15.0
+DEFAULT_AUTO_MULTIPLIER = 1.25
+
+SORT_CPU = "cpu"
+SORT_GPU = "gpu"
+SORT_POWER = "power"
+SORT_MEMORY = "memory"
+SORT_PID = "pid"
+
+
+def sort_processes(processes, sort_mode=SORT_POWER, limit=10):
+    """Return the top `limit` ProcessSamples ordered for the active sort mode."""
+    if not processes:
+        return []
+    if sort_mode == SORT_MEMORY:
+        return sorted(processes, key=lambda p: p.rss_bytes, reverse=True)[:limit]
+    elif sort_mode == SORT_PID:
+        return sorted(processes, key=lambda p: p.pid)[:limit]
+    elif sort_mode == SORT_POWER:
+        return sorted(
+            processes,
+            key=lambda p: p.attributed_w if p.attributed_w is not None else -1.0,
+            reverse=True,
+        )[:limit]
+    elif sort_mode == SORT_GPU:
+        return sorted(
+            processes,
+            key=lambda p: p.gpu_time_share if p.gpu_time_share is not None else -1.0,
+            reverse=True,
+        )[:limit]
+    else:
+        return sorted(processes, key=lambda p: p.cpu_percent, reverse=True)[:limit]
+
+
+def clamp_percent(percent_value):
+    """Clamp a percentage into [0, 100] as an int, rounding rather than flooring."""
+    return max(0, min(100, round(percent_value)))
+
+
+def resolve_power_denominator(
+    mode, profile_ref_w, peak_w, floor_w, auto_multiplier=DEFAULT_AUTO_MULTIPLIER
+):
+    if mode == "profile":
+        return max(float(floor_w), float(profile_ref_w or 0.0))
+    auto_peak_ref = float(peak_w or 0.0) * float(auto_multiplier)
+    return max(float(floor_w), auto_peak_ref)
+
+
+def power_to_percent(
+    power_w,
+    mode,
+    profile_ref_w,
+    peak_w,
+    floor_w,
+    auto_multiplier=DEFAULT_AUTO_MULTIPLIER,
+):
+    denominator = resolve_power_denominator(
+        mode=mode,
+        profile_ref_w=profile_ref_w,
+        peak_w=peak_w,
+        floor_w=floor_w,
+        auto_multiplier=auto_multiplier,
+    )
+    if denominator <= 0:
+        return 0
+    return clamp_percent(float(power_w or 0.0) / denominator * 100.0)
+
 
 # Chart denominator floors for the network / disk I/O rates (bytes/s). Without a
 # floor an idle machine's background chatter (mDNS keepalives, spotlight
