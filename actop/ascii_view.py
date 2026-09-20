@@ -87,7 +87,19 @@ def build_ascii_table(
 
     p_util = f"{round(snapshot.pcpu_util_pct)}%"
     e_util = f"{round(snapshot.ecpu_util_pct)}%"
-    gpu_util = f"{round(snapshot.gpu_util_pct)}%"
+    # True compute load from IOAccelerator (matching menubar-load-runner); fallback to residency
+    gpu_load = (
+        snapshot.gpu_device_pct
+        if snapshot.gpu_perf_stats_available
+        else snapshot.gpu_util_pct
+    )
+    gpu_util_str = f"{round(gpu_load)}%"
+    if snapshot.gpu_perf_stats_available:
+        gpu_detail = (
+            f"Load: {gpu_util_str} (Renderer: {round(snapshot.gpu_renderer_pct)}%)"
+        )
+    else:
+        gpu_detail = f"Load: {gpu_util_str}"
 
     power_text = Text()
     power_text.append(f"Package: {pkg_w:.2f}W / {package_ref_w:.0f}W ", style="bold")
@@ -96,7 +108,7 @@ def build_ascii_table(
         f"CPU:     {cpu_w:.2f}W  P-Cluster: {p_util} ({p_freq})  E-Cluster: {e_util} ({e_freq})\n"
     )
     power_text.append(
-        f"GPU:     {gpu_w:.2f}W  Util: {gpu_util} {gpu_freq} (residency: {snapshot.gpu_util_source})\n"
+        f"GPU:     {gpu_w:.2f}W  {gpu_detail} {gpu_freq} (residency: {round(snapshot.gpu_util_pct)}%)\n"
     )
     power_text.append(f"ANE:     {ane_w:.2f}W  Neural Engine power")
 
@@ -264,6 +276,12 @@ def format_compact_json(
         freq_percent=90,
     )
 
+    gpu_load = (
+        snapshot.gpu_device_pct
+        if snapshot.gpu_perf_stats_available
+        else snapshot.gpu_util_pct
+    )
+
     data = {
         "soc": chip_name,
         "power_w": {
@@ -276,7 +294,13 @@ def format_compact_json(
         "util_pct": {
             "pcpu": round(snapshot.pcpu_util_pct, 1),
             "ecpu": round(snapshot.ecpu_util_pct, 1),
-            "gpu": round(snapshot.gpu_util_pct, 1),
+            "gpu": round(gpu_load, 1),
+            "gpu_renderer": (
+                round(snapshot.gpu_renderer_pct, 1)
+                if snapshot.gpu_perf_stats_available
+                else None
+            ),
+            "gpu_residency": round(snapshot.gpu_util_pct, 1),
         },
         "clocks_mhz": {
             "pcpu": snapshot.pcpu_freq_mhz,
