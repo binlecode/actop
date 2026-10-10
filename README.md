@@ -267,7 +267,7 @@ No sudo required. Degrades to `Unknown` if the ObjC runtime call fails.
 
 | Signal | Source | Notes |
 | --- | --- | --- |
-| CPU/GPU/ANE power (W) | IOReport Energy Model | nJ per sample interval → watts |
+| CPU/GPU/ANE power (W) | IOReport Energy Model | nJ per sample interval → watts. On SoCs where the CPU energy rail is root-gated (e.g. M1 Max), unprivileged reads return 0 mJ; the CPU row then renders `n/a (needs root)` and the package total is annotated `(GPU+ANE)` — never a fabricated zero (`cpu_power_available`) |
 | Per-core frequency (MHz) | IOReport residency + DVFS tables | Weighted average of active P-states |
 | Per-core activity (%) | IOReport CPU Core Performance States | Via `CoreSample` (residency-weighted active%) |
 | GPU frequency and activity | IOReport GPU Performance States | Weighted average of GPUPH residencies |
@@ -275,7 +275,7 @@ No sudo required. Degrades to `Unknown` if the ObjC runtime call fails.
 | RAM / swap | Native `ctypes` (`host_statistics64` + `XSWUsage`) | `total - available` for used. API/export carry exact **bytes**; the TUI displays **GiB** (2³⁰). Bandwidth stays decimal `GB/s` — Apple's own unit for the bus |
 | SoC profile | `sysctl` brand → 16 M1–M4 profiles | Tier fallbacks for unknown chips |
 | Top processes | Native `ctypes` (`proc_listpids`/`proc_pidinfo`) | Optional `--proc-filter` regex |
-| Bandwidth | IOReport (when available) | N/A if DCS counters not exposed |
+| Bandwidth | IOReport PMP `DCS BW` / `RD+WR` (DRAM pins) + PMP `AFR BW` / `AMCC RD+WR` (fabric demand) | N/A if DCS counters not exposed; TUI suffixes `[req X]` when fabric demand exceeds pinned traffic (cache absorbing the gap) |
 | Thermal pressure | `NSProcessInfo.thermalState` via ObjC runtime | Nominal / Fair / Serious / Critical |
 
 ## Architecture
@@ -349,6 +349,11 @@ graph TD
 ## Troubleshooting
 
 - **Bandwidth shows N/A**: IOReport does not expose memory bandwidth counters on all SoCs.
+- **CPU power reads `n/a (needs root)`**: on some SoCs (M1 Max among them)
+  unprivileged IOReport exposes the CPU energy channels but reports 0 mJ for
+  them even at full load. GPU/ANE rails and package-relative charts are
+  unaffected; run `sudo actop` to light the CPU row up. actop deliberately
+  shows `n/a` rather than a plausible-looking 0 W.
 - **Thermal shows "Unknown"**: ObjC runtime failed to read `NSProcessInfo.thermalState` (unexpected on macOS 12+).
 - **Frequencies show 0 MHz**: DVFS table discovery failed. File an issue with `sysctl -n machdep.cpu.brand_string` output.
 - **Metric differences vs other tools**: expected due to sampling window and source timing differences.
