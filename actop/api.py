@@ -73,6 +73,7 @@ def _sample_to_snapshot(
     # total_gbps is a residency-weighted average already in GB/s — not a
     # byte counter, so it is not divided by the sample interval.
     total_bw = float(bw.get("total_gbps", 0.0)) if bw_avail else 0.0
+    requested_bw = float(bw.get("requested_gbps", 0.0)) if bw_avail else 0.0
     cpu_watts = cm["cpu_W"] / interval_s
     gpu_watts = cm["gpu_W"] / interval_s
     ane_watts = cm["ane_W"] / interval_s
@@ -143,6 +144,11 @@ def _sample_to_snapshot(
         thermal_state=sample.thermal_pressure,
         bandwidth_gbps=total_bw,
         bandwidth_available=bw_avail,
+        bandwidth_requested_gbps=requested_bw,
+        # Unprivileged IOReport reports every CPU energy channel as 0 mJ on
+        # some SoCs; propagate the sampler's "ever saw a nonzero delta" flag
+        # so consumers render n/a instead of a fabricated 0 W.
+        cpu_power_available=bool(cm.get("cpu_power_available", True)),
         fans=list(sample.fans),
         fan_rpms=[f.current for f in sample.fans],
         fan_available=sample.fan_available,

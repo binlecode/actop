@@ -6,6 +6,45 @@ This project follows a Keep a Changelog-style format and uses version tags for r
 
 ## [Unreleased]
 
+## [1.9.13] - 2026-10-10
+
+### Fixed
+
+- **GPU DVFS tables on Apple M1 Max are no longer CPU clocks wearing a GPU
+  label.** `_classify_dvfs_tables` picked buckets by table length alone, and
+  the M1 Max pmgr domain hands it a 15-entry *P-core* SRAM table
+  (`voltage-states5-sram`, ceiling 3228 MHz) as "gpu" while the real 7-entry
+  GPU table (`voltage-states9`, 0-1296 MHz) fell outside the 10-20-entry
+  window. Every GPU clock, DVFS state name (`P5` resolved to 2676 MHz),
+  residency histogram, and derived TFLOPS figure was CPU telemetry. M1 Max
+  now maps its buckets through a hardware-validated override
+  (`voltage-states1-sram` → E, `voltage-states5-sram` → P, `voltage-states9`
+  → GPU); the shape heuristic additionally refuses any GPU candidate whose
+  max is not strictly below the P-core max, so other SoCs can no longer
+  mislabel either — an unrecognized chip degrades to the IOAccelerator
+  utilization fallback instead of publishing false clocks.
+- **Memory bandwidth is reported instead of permanently "unavailable".**
+  The sampler subscribed to `(PMP, "DCS BW", channel startswith "AMCC")`,
+  but on t8103 the DRAM-pin aggregate is named exactly `RD+WR` (the `AMCC`
+  totals live under AFR/AFI/AFC BW). The filter matched nothing, so
+  `bandwidth_available` was False forever and the Mem BW row, chart, alerts,
+  and JSON field were dead. `RD+WR` is now the headline (GB/s at the DRAM
+  pins, 400 GB/s class on M1 Max) and the AFR `AMCC RD+WR` fabric aggregate
+  is exposed as `bandwidth_requested_gbps` — when demand exceeds pinned
+  traffic the TUI suffixes `[req X]`, showing that L2 is absorbing the gap
+  (sushi-style LLM decode: ~81-128 GB/s DRAM vs ~107 GB/s fabric, ~30%).
+
+- **CPU power is honest where IOReport never delivers it.** Unprivileged
+  IOReport reports every `CPU Energy` channel as exactly 0 mJ on this SoC
+  even under 8-core full load (cross-checked against root `powermetrics`:
+  32.4 W where actop showed 0.00 W — a fabricated zero indistinguishable
+  from idle). Root does not help: concurrent-probe experiments show the
+  counters only advance while a privileged powermetrics stream arms them,
+  and every solo root run reads 0 mJ. The sampler now records whether any
+  tick ever saw a nonzero CPU energy delta and exports it as
+  `cpu_power_available`; the TUI renders the CPU row as `n/a (no data)`
+  and annotates the package total `(GPU+ANE)` while the rail is blind.
+
 ## [1.9.12] - 2026-08-23
 
 ### Fixed

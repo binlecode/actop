@@ -49,6 +49,15 @@ _PROM_GAUGES = (
     # Bandwidth stays decimal GB/s: that is Apple's own unit for the bus (546
     # GB/s on M4 Max) and the DCS bucket labels are literally "32GB/s".
     ("bandwidth_gbps", "memory_bandwidth_gbps"),
+    # Fabric-side demand aggregate (PMP/AFR BW "AMCC RD+WR"): what the
+    # memory controllers were asked to move, vs. bandwidth_gbps which is
+    # what the DRAM pins actually moved.
+    ("bandwidth_requested_gbps", "memory_bandwidth_requested_gbps"),
+    # 1 = a real CPU-energy delta was observed at least once this session;
+    # 0 = the unprivileged-IOReport blind spot on some SoCs, where
+    # cpu_power_watts reads 0 and must be treated as unknown (powermetrics
+    # as root is the only true CPU-power source there), not as idle.
+    ("cpu_power_available", "cpu_power_available"),
     # Network / disk I/O rates in bytes/s (canonical base unit).
     ("net_rx_bps", "network_receive_bytes_per_second"),
     ("net_tx_bps", "network_transmit_bytes_per_second"),

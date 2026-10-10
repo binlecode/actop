@@ -754,6 +754,12 @@ class HardwareDashboard(Widget):
         # units so the avg/max shown next to "CPU Power 12.3W" or "Mem BW
         # 120 GB/s" are in watts / GB/s, not percent.
         self._cpu_w_hist: deque = deque([0] * maxlen, maxlen=maxlen)
+        # Sticky from the latest snapshot: False while the CPU energy rail
+        # is unreadable by any IOReport subscriber on some chips (t8103:
+        # root reads 0 too; only powermetrics sees the rail — verified
+        # 2026-10-10 via concurrent-probe experiment).
+        # The CPU power row then renders n/a instead of a fabricated 0.00W.
+        self._cpu_power_avail = True
         self._gpu_w_hist: deque = deque([0] * maxlen, maxlen=maxlen)
         self._pkg_w_hist: deque = deque([0] * maxlen, maxlen=maxlen)
         self._bw_gbps_hist: deque = deque([0] * maxlen, maxlen=maxlen)
@@ -1193,6 +1199,7 @@ class HardwareDashboard(Widget):
         self._gpu_hist.append(gpu)
         self._ane_hist.append(ane_pct)
         self._ram_hist.append(ram_pct)
+        self._cpu_power_avail = s.cpu_power_available
         self._cpu_w_hist.append(s.cpu_watts)
         self._gpu_w_hist.append(s.gpu_watts)
         self._sample_count += 1
@@ -1344,7 +1351,10 @@ class HardwareDashboard(Widget):
         self._render_power_rows()
         self._update_stat_row(
             "#pkgpwr-label",
-            f"Package Power {s.package_watts:.2f}W",
+            # "(GPU+ANE)" annotation: on chips whose CPU rail is blind
+            # unprivileged, this sum is NOT total SoC draw.
+            f"Package Power {s.package_watts:.2f}W"
+            + ("" if s.cpu_power_available else " (GPU+ANE)"),
             self._watt_stats_tiers(self._pkg_w_hist),
         )
 
@@ -1357,9 +1367,17 @@ class HardwareDashboard(Widget):
             bw_label.display = s.bandwidth_available
             bw_chart.display = s.bandwidth_available
         if s.bandwidth_available:
+            # "[req X]" suffix: fabric-side demand (AFR BW) above what the
+            # DRAM pins moved means the workload is asking for more bus than
+            # memory is answering — cache is absorbing the difference.
+            demand = (
+                f" [req {s.bandwidth_requested_gbps:.1f}]"
+                if s.bandwidth_requested_gbps > s.bandwidth_gbps + 0.5
+                else ""
+            )
             self._update_stat_row(
                 "#bw-label",
-                f"Mem BW {s.bandwidth_gbps:.1f} GB/s",
+                f"Mem BW {s.bandwidth_gbps:.1f} GB/s{demand}",
                 self._gbps_stats_tiers(self._bw_gbps_hist),
             )
 
@@ -1651,7 +1669,7 @@ class HardwareDashboard(Widget):
         self._render_power_row(
             "#cpupwr-row",
             "CPU",
-            self._cpu_w_hist[-1],
+            self._cpu_w_hist[-1] if self._cpu_power_avail else None,
             self._cpupwr_hist,
             self._cpu_w_hist,
         )
@@ -1676,6 +1694,10 @@ class HardwareDashboard(Widget):
         """
         widget = self.query_one(widget_id, Static)
         avail = widget.size.width
+        if watts is None:
+            line = f"{label} n/a (no data)"
+            widget.update(line[:avail].ljust(avail) if avail > 0 else line)
+            return
         head = f"{label} {watts:.2f}W"
         tiers = self._watt_stats_tiers(watt_hist)
         suffix = _fit_suffix(

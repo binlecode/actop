@@ -148,11 +148,16 @@ HELP_TEXT = """\
   GPU             GPU util% @freq, die °C
   ANE             Apple Neural Engine util% (estimated) and power
   RAM             Used / total memory (and swap when active)
-  Mem BW          Unified-memory bandwidth in GB/s (hidden if unavailable)
+  Mem BW          Unified-memory bandwidth in GB/s at the DRAM pins; [req X]
+                  marks fabric-side demand above that (cache absorbing the
+                  difference). Hidden if unavailable
   ↓ In / ↑ Out    Network receive / transmit throughput (Network box)
   ↓ Read / ↑ Write  Disk read / write throughput (Disk box)
   CPU / GPU       Live CPU/GPU rail power (W) with an inline sparkline
-  Package Power   Total SoC power draw in watts (CPU + GPU + ANE + other rails)
+  Package Power   Total SoC power draw in watts (CPU + GPU + ANE + other
+                  rails); "(GPU+ANE)" and CPU row "n/a (no data)" mark
+                  chips whose CPU rail IOReport never delivers (even root
+                  reads 0; only powermetrics sees it)
   idle/low/mid/high  DVFS residency: % of time since the last sample spent
              idle vs. below 40% / 40-74% / ≥75% of the cluster's max
              frequency (not just the instantaneous clock). Hidden with

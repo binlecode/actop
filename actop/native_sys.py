@@ -406,7 +406,42 @@ def get_dvfs_tables_native() -> dict:
 
     _cf.CFRelease(props_ref)
 
+    # SoC-specific pmgr key overrides win over the shape heuristic: on
+    # t8103 (M1 Max) the heuristic mis-assigns a *second P-core* table
+    # (voltage-states5-sram, 15 entries, 3228 MHz ceiling) as the GPU table
+    # because it is the first 10-20-entry table the CPU picks do not claim.
+    # The real GPU domain table is voltage-states9: [0, 388, 486, 648, 777,
+    # 972, 1296] — validated on hardware against powermetrics and the
+    # 10.4 TFLOPS @ 1293 MHz silicon spec (the GPU cannot clock at CPU rates).
+    brand = _get_cpu_brand()
+    override = _DVFS_TABLE_OVERRIDES.get(brand)
+    if override and all(k in tables for k in override.values()):
+        return {bucket: tables[key] for bucket, key in override.items()}
+
     return _classify_dvfs_tables(tables)
+
+
+# bucket -> pmgr voltage-states key, per SoC brand string. Only chips whose
+# tables were read from that exact machine belong here; the heuristic below
+# (and the api.py ioaccelerator fallback) covers everything else.
+_DVFS_TABLE_OVERRIDES = {
+    "Apple M1 Max": {
+        "ecpu": "voltage-states1-sram",   # [600, 972, 1332, 1704, 2064]
+        "pcpu": "voltage-states5-sram",   # [600 ... 3228]
+        "gpu": "voltage-states9",         # [0, 388 ... 1296]
+    },
+}
+
+
+_CPU_BRAND = None
+
+
+def _get_cpu_brand() -> str:
+    """machdep.cpu.brand_string, cached (immutable across uptime)."""
+    global _CPU_BRAND
+    if _CPU_BRAND is None:
+        _CPU_BRAND = get_sysctl_string("machdep.cpu.brand_string") or ""
+    return _CPU_BRAND
 
 
 def _classify_dvfs_tables(tables: dict) -> dict:
@@ -414,7 +449,13 @@ def _classify_dvfs_tables(tables: dict) -> dict:
 
     Heuristics: the P-core table has the highest max frequency and the most
     entries; the E-core table is small (5-12 entries); the GPU table has
-    10-20 entries. Returns {'ecpu': [...], 'pcpu': [...], 'gpu': [...]}.
+    10-20 entries AND a max strictly below the P-core ceiling (a GPU never
+    clocks at or above its chip's P-cluster max — the 15-16-entry P-core
+    SRAM mirror must not be mistaken for a GPU table). When no table passes,
+    'gpu' stays empty and callers degrade honestly (util falls back to
+    IOAccelerator stats, frequency reports 0 / unavailable) rather than
+    publishing CPU clocks as GPU clocks.
+    Returns {'ecpu': [...], 'pcpu': [...], 'gpu': [...]}.
     """
     ecpu = []
     pcpu = []
@@ -441,15 +482,16 @@ def _classify_dvfs_tables(tables: dict) -> dict:
             ecpu = freqs
             break
 
-    # GPU: 10-20 entries, not pcpu or ecpu table, first match
+    # GPU: 10-20 entries, not pcpu or ecpu, ceiling strictly under P-core max
     for key, freqs in candidates:
-        if key == best_pcpu_key:
+        if key == best_pcpu_key or freqs is ecpu:
             continue
-        if freqs is ecpu:
+        if not (10 <= len(freqs) <= 20):
             continue
-        if 10 <= len(freqs) <= 20:
-            gpu = freqs
-            break
+        if not freqs or max(freqs) >= best_pcpu_max:
+            continue
+        gpu = freqs
+        break
 
     return {"ecpu": ecpu, "pcpu": pcpu, "gpu": gpu}
 
