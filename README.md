@@ -28,7 +28,7 @@ SoC-accurate power and energy context.
   pandas frame of power, frequency, residency, and cumulative session energy.
 - **Just want a clean `*top`** for Apple Silicon that needs **no `sudo`**.
 
-Install in one line — [Homebrew](#homebrew-recommended) or [uv](#uv-recommended-for-non-homebrew-users) — then run `actop`.
+Install in one line from repo (`./install.sh`) or via [uv](#uv) — then run `actop`.
 
 ## Background
 
@@ -85,32 +85,33 @@ Silicon telemetry monitor — and rejects feature creep into general ML/APM fram
 
 ## Installation
 
-### Homebrew (recommended)
+### From Source / Repo (recommended)
+
+Clone and run the atomic installer:
 
 ```shell
-brew tap binlecode/actop
-brew install binlecode/actop/actop
+git clone https://github.com/binlecode/actop.git ~/.local/share/actop
+~/.local/share/actop/install.sh
 ```
 
-The tap name `binlecode/actop` resolves to the formula repo
-[`binlecode/homebrew-actop`](https://github.com/binlecode/homebrew-actop) (Homebrew's
-`user/repo` → `github.com/user/homebrew-repo` convention). The formula is
-self-contained: it depends on Homebrew's `python@3.13` and installs `actop` into its
-own isolated `libexec` virtualenv — it does **not** use (or interfere with) the macOS
-system Python.
-
-Upgrade / uninstall:
+Or run directly from a local clone:
 
 ```shell
-brew upgrade binlecode/actop/actop
-brew uninstall binlecode/actop/actop && brew untap binlecode/actop
+./install.sh
 ```
 
-### uv (recommended for non-Homebrew users)
+The installer verifies your Apple Silicon environment, creates an isolated virtual environment (`.venv`) using `uv` (or `python3`), and atomically symlinks the launcher to `~/bin/actop`.
+
+To uninstall:
+
+```shell
+./install.sh --uninstall
+```
+
+### uv
 
 [`uv`](https://docs.astral.sh/uv/) installs `actop` into a sandboxed, per-tool
-environment with its own managed CPython — no system Python required and no
-interpreter drift:
+environment:
 
 ```shell
 uv tool install git+https://github.com/binlecode/actop.git
@@ -402,7 +403,6 @@ git commit -m "Release v$VERSION"
 scripts/tag_release.sh "$VERSION"
 
 # 4. Verify
-brew update && brew upgrade binlecode/actop/actop
+./install.sh
+actop --version
 ```
-
-CI handles formula sync automatically on tag push.

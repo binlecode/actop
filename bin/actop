@@ -1,0 +1,23 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+# Resolve symlinks to find real repo directory
+SOURCE="${BASH_SOURCE[0]}"
+while [ -L "$SOURCE" ]; do
+    DIR="$(cd -P "$(dirname "$SOURCE")" >/dev/null 2>&1 && pwd)"
+    SOURCE="$(readlink "$SOURCE")"
+    [[ $SOURCE != /* ]] && SOURCE="$DIR/$SOURCE"
+done
+SCRIPT_DIR="$(cd -P "$(dirname "$SOURCE")" >/dev/null 2>&1 && pwd)"
+REPO_DIR="$(cd -P "${SCRIPT_DIR}/.." >/dev/null 2>&1 && pwd)"
+
+if [[ -x "${REPO_DIR}/.venv/bin/actop" ]]; then
+    exec "${REPO_DIR}/.venv/bin/actop" "$@"
+elif [[ -x "${REPO_DIR}/.venv/bin/python" ]]; then
+    exec "${REPO_DIR}/.venv/bin/python" -m actop.actop "$@"
+elif command -v uv >/dev/null 2>&1; then
+    exec uv run --directory "${REPO_DIR}" actop "$@"
+else
+    echo "Error: actop environment not initialized. Please run '${REPO_DIR}/install.sh' first." >&2
+    exit 1
+fi
