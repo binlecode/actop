@@ -15,6 +15,7 @@ import platform
 import pytest
 
 from actop.native_sys import (
+    _classify_dvfs_tables,
     get_dvfs_tables_native,
     get_native_processes,
     get_thermal_pressure,
@@ -144,3 +145,53 @@ def test_dvfs_tables_classify_into_plausible_buckets():
 
 def test_thermal_pressure_returns_known_state():
     assert get_thermal_pressure() in _THERMAL_STATES
+
+
+# pmgr voltage-states captured from a live t8103 (M1 Max). The pre-1.9.13
+# shape heuristic mislabelled "voltage-states5-sram" — a second P-core SRAM
+# table — as the GPU, because it was the first 10-20-entry table the CPU
+# buckets had not claimed; every clock/TFLOPS reading derived from it was a
+# CPU frequency wearing a GPU label. The 7-entry GPU table (voltage-states9,
+# ceiling 1296 MHz) never matched the old 10-20-entry window at all.
+_T8103_TABLES = {
+    "voltage-states1-sram": [600, 972, 1332, 1704, 2064],
+    "voltage-states5-sram": [
+        600, 828, 1056, 1296, 1524, 1752, 1980, 2208,
+        2448, 2676, 2904, 3036, 3132, 3168, 3228,
+    ],
+    "voltage-states13-sram": [
+        600, 828, 1056, 1296, 1524, 1752, 1980, 2208,
+        2448, 2676, 2904, 3036, 3132, 3168, 3228,
+    ],
+    "voltage-states8": [300, 600, 900, 1125, 1350, 1500],
+    "voltage-states9": [0, 389, 486, 648, 778, 972, 1296],
+    "voltage-states14": [0, 389, 486, 648, 778, 972, 1296],
+    "voltage-states31": [1000, 0, 0],
+}
+
+
+def test_classifier_never_hands_a_pcore_mirror_to_the_gpu_bucket():
+    out = _classify_dvfs_tables(_T8103_TABLES)
+    assert out["pcpu"] == _T8103_TABLES["voltage-states5-sram"]
+    assert out["ecpu"] == _T8103_TABLES["voltage-states1-sram"]
+    # Either the GPU bucket stays empty (callers then degrade honestly:
+    # IOAccelerator utilization fallback, frequency n/a) or it holds a real
+    # accelerator table. A GPU clock at or above the P-core ceiling is
+    # physically impossible, so it is always a misclassification.
+    if out["gpu"]:
+        assert max(out["gpu"]) < max(out["pcpu"])
+        assert len(out["gpu"]) != len(out["pcpu"])
+
+
+def test_m1_max_override_resolves_the_gpu_domain_table():
+    import actop.native_sys as ns
+
+    if ns._get_cpu_brand() != "Apple M1 Max":
+        pytest.skip("override table mapping validated against t8103 pmgr dumps")
+    tables = get_dvfs_tables_native()
+    assert tables["ecpu"] == [600, 972, 1332, 1704, 2064]
+    assert max(tables["pcpu"]) == 3228
+    assert tables["gpu"], "M1 Max must resolve a GPU table via the override"
+    # 1296 MHz ceiling matches the M1 Max GPU spec (10.4 TFLOPS @ ~1293 MHz);
+    # tolerate ±50 MHz firmware drift but nothing CPU-shaped.
+    assert 1200 <= max(tables["gpu"]) <= 1350
