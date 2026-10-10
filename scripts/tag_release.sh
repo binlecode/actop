@@ -44,10 +44,8 @@ TWINE_PASSWORD are exported by ~/.zshrc. This script verifies both are present
 BEFORE it pushes anything, because a credential failure discovered after the tag
 is pushed leaves a half-cut release. It never prints their values.
 
-This tag push triggers release-formula.yml (syncs the formula in the tap repo
-binlecode/homebrew-actop) and guard-release.yml (verifies every v* tag has a
-GitHub Release). Formula sync is CI-driven and lives in the tap repo — there is
-no formula in this repo.
+This tag push triggers guard-release.yml (verifies every v* tag has a
+GitHub Release). Releases are published to PyPI and installed via repo install.sh.
 
 NOTE: PyPI version strings are permanent. They can be yanked but never reused,
 so a completed run of this script burns vX.Y.Z on PyPI for good.
@@ -242,5 +240,5 @@ fi
 
 echo
 echo "Done. ${TAG} tagged, released, and published to PyPI."
-echo "Release formula workflow should start from this tag push."
+echo "Tag ${TAG} released and published to PyPI."
 echo "Verify:  pipx install actop && actop --version"
