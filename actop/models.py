@@ -142,3 +142,13 @@ class SystemSnapshot:
     ecpu_residency_pct: dict = field(default_factory=_default_residency)
     pcpu_residency_pct: dict = field(default_factory=_default_residency)
     gpu_residency_pct: dict = field(default_factory=_default_residency)
+    # Fabric-side bandwidth demand (PMP/AFR BW "AMCC RD+WR" aggregate), GB/s.
+    # What the memory controllers were asked to move, vs. bandwidth_gbps
+    # (above) which is what the DRAM pins actually moved. 0.0 when the
+    # channel is absent; only meaningful when bandwidth_available is True.
+    bandwidth_requested_gbps: float = 0.0
+    # False while every CPU energy delta has read zero — the unprivileged
+    # IOReport blind spot on some SoCs (e.g. t8103/M1 Max, where every
+    # "CPU Energy" channel reports 0 mJ even under full load). Consumers
+    # MUST render cpu_watts as unavailable, never as a measured 0 W.
+    cpu_power_available: bool = True

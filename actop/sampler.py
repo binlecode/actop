@@ -43,11 +43,15 @@ class IOReportSampler:
                 ("Energy Model", None),
                 ("CPU Stats", "CPU Core Performance States"),
                 ("GPU Stats", "GPU Performance States"),
-                # DRAM bandwidth: PMP/DCS BW exposes per-agent residency
-                # histograms. We only parse the full-range AMCC total; the
-                # ~90 other channels are subscribed (group-level) but their
-                # states are skipped in delta() to hold the idle-CPU budget.
+                # Memory bandwidth: PMP/DCS BW carries the DRAM-controller
+                # aggregate histogram (channel "RD+WR" on t8103; the real
+                # pins). PMP/AFR BW carries the per-memory-controller
+                # aggregate ("AMCC RD+WR") = traffic *requested* through the
+                # interconnect. Both subscriptions are group-level; delta()
+                # skips the ~90 other per-agent channels to hold the
+                # idle-CPU budget.
                 ("PMP", "DCS BW"),
+                ("PMP", "AFR BW"),
             ]
         )
         self._interval = interval
@@ -59,6 +63,11 @@ class IOReportSampler:
         self._core_counts = _get_core_counts()
         self._dvfs = get_dvfs_tables_native()
         self._smc = SMCReader()
+        # True once any tick showed a nonzero CPU-energy delta. Unprivileged
+        # IOReport returns 0 mJ for every CPU energy channel on t8103 even
+        # under full load (verified against powermetrics as root: 32 W real),
+        # so 0 W must never be presented as a measurement.
+        self._cpu_power_live = False
 
     def sample(self):
         if self._subsamples <= 1:
@@ -283,6 +292,7 @@ class IOReportSampler:
         gpu_freq_mhz = 0
         gpu_active_pct = 0
         dram_bw_channels = []
+        fabric_bw_histogram = None
         e_cluster_residency_ns = defaultdict(int)
         p_cluster_residency_ns = defaultdict(int)
         gpu_state_residencies = []
@@ -334,16 +344,26 @@ class IOReportSampler:
                     gpu_state_residencies = list(item.state_residencies)
 
             elif item.group == "PMP" and item.subgroup == "DCS BW":
-                # Total DRAM bandwidth = sum over all AMCC RD+WR instances
-                # (one per memory-controller die; multi-die SoCs — Ultra —
-                # expose several). Each instance's histogram is kept as its own
-                # channel so the per-die averages are *summed*, not pooled into
-                # one mean (pooling would report a single die's rate as the
-                # whole-chip total). Per-agent channels (EACC/PACC/AGX/...) are
-                # skipped in delta() and intentionally not parsed: they hard-cap
-                # at 32 GB/s and cannot attribute high bandwidth correctly.
-                if item.channel.startswith("AMCC") and item.channel.endswith("RD+WR"):
+                # Total DRAM bandwidth = sum over every DRAM-controller
+                # "RD+WR" aggregate. On t8103 (M1 Max) there is one such
+                # channel, named exactly "RD+WR"; "AMCC ..." prefixed names
+                # live under AFR/AFI/AFC BW, not here — filtering for an
+                # "AMCC" prefix here matched nothing and reported the whole
+                # domain as unavailable. Per-agent channels (EACC/PACC/AGX)
+                # are skipped in delta() and intentionally not parsed: they
+                # hard-cap at 32 GB/s and cannot attribute high bandwidth
+                # correctly.
+                if item.channel == "RD+WR" or (
+                    item.channel.startswith("AMCC")
+                    and item.channel.endswith("RD+WR")
+                ):
                     dram_bw_channels.append(item.state_residencies)
+            elif item.group == "PMP" and item.subgroup == "AFR BW":
+                # Fabric-side aggregate of memory-controller traffic — the
+                # closest available proxy for bandwidth *demanded* (vs. the
+                # DCS figure, which is what the DRAM pins actually moved).
+                if item.channel == "AMCC RD+WR":
+                    fabric_bw_histogram = item.state_residencies
 
         # Scale energy to match parsers.py convention:
         # parsers.py returns cpu_W = energy_mJ / 1000 = energy_J
@@ -354,6 +374,8 @@ class IOReportSampler:
         gpu_e = gpu_energy_j * scale
         ane_e = ane_energy_j * scale
         package_e = cpu_e + gpu_e + ane_e
+        if cpu_e > 0.0:
+            self._cpu_power_live = True
 
         cpu_metrics = {
             "E-Cluster_active": 0,
@@ -379,6 +401,14 @@ class IOReportSampler:
             "cpu_W": cpu_e,
             "gpu_W": gpu_e,
             "package_W": package_e,
+            # Honest CPU-power availability: False while every tick's CPU
+            # energy delta has been zero (unprivileged IOReport on t8103
+            # reports 0 mJ for CPU channels — powermetrics as root is the
+            # only true source). Consumers must render n/a, not 0 W.
+            "cpu_power_available": self._cpu_power_live,
+            "bandwidth_requested_gbps": _channel_bandwidth_gbps(
+                fabric_bw_histogram or []
+            ),
             "e_core": [],
             "p_core": [],
         }
@@ -429,6 +459,11 @@ class IOReportSampler:
         total_residency = sum(ns for ch in dram_bw_channels for _name, ns in ch)
         bandwidth_metrics = {
             "total_gbps": total_gbps,
+            # Fabric-side demand aggregate (AFR BW "AMCC RD+WR"); may exceed
+            # total_gbps because request-side counting includes traffic the
+            # DRAM pins absorbed via cache hits downstream of the controller
+            # histogram's sampling.
+            "requested_gbps": _channel_bandwidth_gbps(fabric_bw_histogram or []),
             # Available only when a channel exists AND carried residency: a
             # present-but-silent channel would otherwise surface a misleading
             # 0.0 GB/s instead of hiding the row.
@@ -696,12 +731,21 @@ def _resolve_state_freq(name, freq_table):
 def _keep_states(group, subgroup, channel):
     """Decide whether delta() should extract per-state residencies for a channel.
 
-    The PMP/DCS BW group has ~90 channels of 32 buckets each, but we parse only
-    the AMCC totals. Skipping state extraction for the rest avoids thousands of
-    per-cycle ctypes round-trips. All non-PMP groups extract states as before.
+    The PMP bandwidth groups have ~90+ channels of 32 buckets each, but we
+    parse only the aggregates: DCS BW's "RD+WR" (DRAM pins) and AFR BW's
+    "AMCC RD+WR" (fabric-side demand). Skipping state extraction for the
+    rest avoids thousands of per-cycle ctypes round-trips. All non-PMP
+    groups extract states as before.
     """
     if group == "PMP":
-        return channel.startswith("AMCC")
+        # Admit exactly the channels _convert parses, keyed on subgroup:
+        # AFC/AFI "AMCC RD+WR" decoys would otherwise burn histogram
+        # extraction that nothing reads.
+        if subgroup == "DCS BW":
+            return channel in ("RD+WR", "AMCC RD+WR")
+        if subgroup == "AFR BW":
+            return channel == "AMCC RD+WR"
+        return False
     return True
 
 

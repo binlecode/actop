@@ -1,10 +1,16 @@
 import resource
 import sys
 import time
+from types import SimpleNamespace
 
 import pytest
 
-from actop.sampler import SampleResult, create_sampler
+from actop.sampler import (
+    IOReportSampler,
+    SampleResult,
+    _keep_states,
+    create_sampler,
+)
 
 pytestmark = pytest.mark.local
 
@@ -166,3 +172,63 @@ def test_sampler_resident_memory_stays_flat_over_many_cycles():
         f"resident memory grew {growth_mb:.1f} MB over 2000 sample cycles — "
         "likely a dropped cf_release in the sample/delta path"
     )
+
+
+def test_keep_states_keeps_bandwidth_aggregates_drops_per_agent():
+    # The two histograms _convert parses; everything else in PMP is per-agent
+    # noise that would burn thousands of ctypes round-trips per delta.
+    assert _keep_states("PMP", "DCS BW", "RD+WR")
+    assert _keep_states("PMP", "AFR BW", "AMCC RD+WR")
+    assert not _keep_states("PMP", "DCS BW", "EACC0 RD")
+    assert not _keep_states("PMP", "DCS BW", "AMCC RD")
+    assert not _keep_states("PMP", "AFR BW", "AMCC RD")
+    assert not _keep_states("PMP", "AFC BW", "AMCC RD+WR")
+    assert _keep_states("GPU Stats", "GPU Performance States", "GPUPH00")
+
+
+def _mk_item(group, subgroup, channel, residencies):
+    return SimpleNamespace(
+        group=group,
+        subgroup=subgroup,
+        channel=channel,
+        integer_value=0.0,
+        unit="",
+        state_residencies=residencies,
+    )
+
+
+def test_convert_matches_dcs_rdwr_and_afr_amcc_rdwr():
+    """Regression for the 1.9.13 bandwidth blindness.
+
+    _convert used to filter DCS BW for channels starting with "AMCC" — but
+    on t8103 the DRAM-pin aggregate is named exactly "RD+WR" and the "AMCC"
+    totals live under AFR/AFI/AFC BW. The filter matched nothing, so
+    bandwidth_available was permanently False despite the histograms being
+    right there. This feeds both aggregates plus per-agent decoys (which
+    hard-cap at 32 GB/s and must never leak into the total).
+    """
+    s = object.__new__(IOReportSampler)
+    s._interval = 1.0
+    s._dvfs = {"ecpu": [], "pcpu": [], "gpu": []}
+    s._cpu_power_live = False
+    s._smc = SimpleNamespace(fan_available=False)
+
+    big = 1_000_000_000
+    items = [
+        _mk_item("PMP", "DCS BW", "RD+WR", [("32GB/s", big)]),
+        _mk_item("PMP", "DCS BW", "EACC0 RD", [("32GB/s", 1)]),
+        _mk_item("PMP", "AFR BW", "AMCC RD+WR", [("32GB/s", big), ("64GB/s", big)]),
+        _mk_item("PMP", "AFR BW", "AMCC RD", [("32GB/s", big)]),
+        _mk_item("PMP", "AFC BW", "AMCC RD+WR", [("32GB/s", big)]),
+    ]
+    result = s._convert(items, 1.0)
+
+    bw = result.bandwidth_metrics
+    assert bw["_available"] is True
+    # Bucket labels are upper edges; the mean is midpoint-weighted
+    # (0-32 bucket -> 16.0, and 16/48 midpoint pair -> 32.0).
+    assert bw["total_gbps"] == 16.0
+    assert bw["requested_gbps"] == 32.0
+    assert result.cpu_metrics["bandwidth_requested_gbps"] == 32.0
+    # All-zero CPU energy this tick => the honest flag stays False.
+    assert result.cpu_metrics["cpu_power_available"] is False
