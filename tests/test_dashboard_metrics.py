@@ -93,6 +93,8 @@ def _snapshot(
     disk_read_bps: float = 0.0,
     disk_write_bps: float = 0.0,
     disk_available: bool = False,
+    bandwidth_requested_gbps: float = 0.0,
+    cpu_power_available: bool = True,
 ) -> SystemSnapshot:
     fans = [] if fans is None else fans
     idle_residency = {"idle": 100, "low": 0, "mid": 0, "high": 0}
@@ -141,6 +143,8 @@ def _snapshot(
         disk_read_bps=disk_read_bps,
         disk_write_bps=disk_write_bps,
         disk_available=disk_available,
+        bandwidth_requested_gbps=bandwidth_requested_gbps,
+        cpu_power_available=cpu_power_available,
     )
 
 
@@ -880,3 +884,68 @@ def test_grid_layout_supports_vertical_scrolling():
     scroll_y, max_scroll_y = asyncio.run(_run())
     assert max_scroll_y > 0
     assert scroll_y == 5
+
+
+# --- Rail-honesty and fabric-demand rendering (t8103 follow-up) ----------
+
+def test_cpu_power_row_reads_no_data_when_rail_blind():
+    # On t8103 every "CPU Energy" channel is 0 mJ for every IOReport client
+    # (root included), so rendering cpu_watts as "CPU 0.00W" is a fabricated
+    # measurement indistinguishable from idle. When the snapshot flags the
+    # rail blind, the row must say so, and the package headline — which then
+    # sums only GPU+ANE+misc — must carry the annotation.
+    async def _run():
+        dash = HardwareDashboard(config=_config())
+        app = _Host(dash)
+        async with app.run_test(size=(160, 50)) as pilot:
+            dash.update_metrics(
+                MetricsUpdated(_snapshot(10.0, True, cpu_power_available=False))
+            )
+            await pilot.pause()
+            return (
+                str(dash.query_one("#cpupwr-row", Static).render()),
+                str(dash.query_one("#pkgpwr-label", Static).render()),
+            )
+
+    cpu_row, pkg = asyncio.run(_run())
+    assert "CPU n/a (no data)" in cpu_row
+    assert "0.00W" not in cpu_row
+    assert "(GPU+ANE)" in pkg
+
+
+def test_cpu_power_row_restores_when_rail_live():
+    # The blindness flag is the sampler's; once any tick saw a nonzero delta,
+    # snapshots arrive available=True and the watt headline returns.
+    async def _run():
+        dash = HardwareDashboard(config=_config())
+        app = _Host(dash)
+        async with app.run_test(size=(160, 50)) as pilot:
+            dash.update_metrics(
+                MetricsUpdated(_snapshot(10.0, True, cpu_power_available=False))
+            )
+            await pilot.pause()
+            dash.update_metrics(
+                MetricsUpdated(_snapshot(10.0, True, cpu_power_available=True))
+            )
+            await pilot.pause()
+            return str(dash.query_one("#cpupwr-row", Static).render())
+
+    assert "CPU 8.00W" in asyncio.run(_run())
+
+
+def test_bw_label_suffixes_fabric_demand_above_the_pins():
+    # LLM decode drives the fabric above DRAM-pin traffic (cache absorbs the
+    # difference); that demand must be surfaced as "[req X]", and must vanish
+    # when the two agree within the 0.5 GB/s margin.
+    async def _run(req):
+        dash = HardwareDashboard(config=_config())
+        app = _Host(dash)
+        async with app.run_test(size=(160, 50)) as pilot:
+            dash.update_metrics(
+                MetricsUpdated(_snapshot(80.0, True, bandwidth_requested_gbps=req))
+            )
+            await pilot.pause()
+            return str(dash.query_one("#bw-label", Static).render())
+
+    assert "[req 107.0]" in asyncio.run(_run(107.0))
+    assert "[req" not in asyncio.run(_run(80.3))
