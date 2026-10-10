@@ -155,8 +155,9 @@ HELP_TEXT = """\
   ↓ Read / ↑ Write  Disk read / write throughput (Disk box)
   CPU / GPU       Live CPU/GPU rail power (W) with an inline sparkline
   Package Power   Total SoC power draw in watts (CPU + GPU + ANE + other
-                  rails); "(GPU+ANE)" and CPU row "n/a (needs root)" mark
-                  chips whose CPU rail IOReport only opens to root
+                  rails); "(GPU+ANE)" and CPU row "n/a (no data)" mark
+                  chips whose CPU rail IOReport never delivers (even root
+                  reads 0; only powermetrics sees it)
   idle/low/mid/high  DVFS residency: % of time since the last sample spent
              idle vs. below 40% / 40-74% / ≥75% of the cluster's max
              frequency (not just the instantaneous clock). Hidden with

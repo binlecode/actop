@@ -63,10 +63,11 @@ class IOReportSampler:
         self._core_counts = _get_core_counts()
         self._dvfs = get_dvfs_tables_native()
         self._smc = SMCReader()
-        # True once any tick showed a nonzero CPU-energy delta. Unprivileged
-        # IOReport returns 0 mJ for every CPU energy channel on t8103 even
-        # under full load (verified against powermetrics as root: 32 W real),
-        # so 0 W must never be presented as a measurement.
+        # True once any tick showed a nonzero CPU-energy delta. On t8103 no
+        # IOReport client ever sees one — root reads 0 mJ too, and the
+        # counters only move while a privileged powermetrics stream is
+        # arming them (verified 2026-10-10 with concurrent probes), so 0 W
+        # must never be presented as a measurement.
         self._cpu_power_live = False
 
     def sample(self):
@@ -402,9 +403,9 @@ class IOReportSampler:
             "gpu_W": gpu_e,
             "package_W": package_e,
             # Honest CPU-power availability: False while every tick's CPU
-            # energy delta has been zero (unprivileged IOReport on t8103
-            # reports 0 mJ for CPU channels — powermetrics as root is the
-            # only true source). Consumers must render n/a, not 0 W.
+            # energy delta has been zero. On t8103 the CPU rail is silent to
+            # every IOReport client including root — privileged powermetrics
+            # is the only true source. Consumers must render n/a, not 0 W.
             "cpu_power_available": self._cpu_power_live,
             "bandwidth_requested_gbps": _channel_bandwidth_gbps(
                 fabric_bw_histogram or []

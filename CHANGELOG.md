@@ -34,15 +34,16 @@ This project follows a Keep a Changelog-style format and uses version tags for r
   traffic the TUI suffixes `[req X]`, showing that L2 is absorbing the gap
   (sushi-style LLM decode: ~81-128 GB/s DRAM vs ~107 GB/s fabric, ~30%).
 
-- **CPU power is honest where IOReport keeps it root-only.** Unprivileged
+- **CPU power is honest where IOReport never delivers it.** Unprivileged
   IOReport reports every `CPU Energy` channel as exactly 0 mJ on this SoC
   even under 8-core full load (cross-checked against root `powermetrics`:
   32.4 W where actop showed 0.00 W — a fabricated zero indistinguishable
-  from idle). The sampler now records whether any tick ever saw a nonzero
-  CPU energy delta and exports it as `cpu_power_available`; the TUI renders
-  the CPU row as `n/a (needs root)` and annotates the package total as
-  `(GPU+ANE)` while the rail is blind. Run under root (or the planned sudo
-  mode) and the real CPU watts appear with no other change.
+  from idle). Root does not help: concurrent-probe experiments show the
+  counters only advance while a privileged powermetrics stream arms them,
+  and every solo root run reads 0 mJ. The sampler now records whether any
+  tick ever saw a nonzero CPU energy delta and exports it as
+  `cpu_power_available`; the TUI renders the CPU row as `n/a (no data)`
+  and annotates the package total `(GPU+ANE)` while the rail is blind.
 
 ## [1.9.12] - 2026-08-23
 

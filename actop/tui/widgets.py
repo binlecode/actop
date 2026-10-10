@@ -755,7 +755,9 @@ class HardwareDashboard(Widget):
         # 120 GB/s" are in watts / GB/s, not percent.
         self._cpu_w_hist: deque = deque([0] * maxlen, maxlen=maxlen)
         # Sticky from the latest snapshot: False while the CPU energy rail
-        # is unreadable without root (SystemSnapshot.cpu_power_available).
+        # is unreadable by any IOReport subscriber on some chips (t8103:
+        # root reads 0 too; only powermetrics sees the rail — verified
+        # 2026-10-10 via concurrent-probe experiment).
         # The CPU power row then renders n/a instead of a fabricated 0.00W.
         self._cpu_power_avail = True
         self._gpu_w_hist: deque = deque([0] * maxlen, maxlen=maxlen)
@@ -1693,7 +1695,7 @@ class HardwareDashboard(Widget):
         widget = self.query_one(widget_id, Static)
         avail = widget.size.width
         if watts is None:
-            line = f"{label} n/a (needs root)"
+            line = f"{label} n/a (no data)"
             widget.update(line[:avail].ljust(avail) if avail > 0 else line)
             return
         head = f"{label} {watts:.2f}W"

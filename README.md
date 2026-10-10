@@ -267,7 +267,7 @@ No sudo required. Degrades to `Unknown` if the ObjC runtime call fails.
 
 | Signal | Source | Notes |
 | --- | --- | --- |
-| CPU/GPU/ANE power (W) | IOReport Energy Model | nJ per sample interval → watts. On SoCs where the CPU energy rail is root-gated (e.g. M1 Max), unprivileged reads return 0 mJ; the CPU row then renders `n/a (needs root)` and the package total is annotated `(GPU+ANE)` — never a fabricated zero (`cpu_power_available`) |
+| CPU/GPU/ANE power (W) | IOReport Energy Model | nJ per sample interval → watts. On some SoCs (M1 Max) the CPU energy rail is never delivered to *any* IOReport client — it reads 0 mJ even as root; the CPU row then renders `n/a (no data)` and the package total is annotated `(GPU+ANE)` — never a fabricated zero (`cpu_power_available`) |
 | Per-core frequency (MHz) | IOReport residency + DVFS tables | Weighted average of active P-states |
 | Per-core activity (%) | IOReport CPU Core Performance States | Via `CoreSample` (residency-weighted active%) |
 | GPU frequency and activity | IOReport GPU Performance States | Weighted average of GPUPH residencies |
@@ -349,11 +349,12 @@ graph TD
 ## Troubleshooting
 
 - **Bandwidth shows N/A**: IOReport does not expose memory bandwidth counters on all SoCs.
-- **CPU power reads `n/a (needs root)`**: on some SoCs (M1 Max among them)
-  unprivileged IOReport exposes the CPU energy channels but reports 0 mJ for
-  them even at full load. GPU/ANE rails and package-relative charts are
-  unaffected; run `sudo actop` to light the CPU row up. actop deliberately
-  shows `n/a` rather than a plausible-looking 0 W.
+- **CPU power reads `n/a (no data)`**: on some SoCs (M1 Max among them) the
+  CPU energy channels read 0 mJ for every IOReport client — including root
+  under full load; the counters only move while a privileged `powermetrics`
+  stream is running, and actop does not shell out to it. GPU/ANE rails and
+  package-relative charts are unaffected. actop deliberately shows `n/a`
+  rather than a plausible-looking 0 W.
 - **Thermal shows "Unknown"**: ObjC runtime failed to read `NSProcessInfo.thermalState` (unexpected on macOS 12+).
 - **Frequencies show 0 MHz**: DVFS table discovery failed. File an issue with `sysctl -n machdep.cpu.brand_string` output.
 - **Metric differences vs other tools**: expected due to sampling window and source timing differences.
